@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  player        Player?
+  sessions      Session[]
+  accounts      Account[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Player {
+  id            String       @id @default(cuid())
+  name          String
+  nickname      String?
+  avatarColor   String       @default("#00ff87")
+  ptr           Float        @default(1000)
+  reliability   Float        @default(0)
+  matchesPlayed Int          @default(0)
+  wins          Int          @default(0)
+  losses        Int          @default(0)
+  setsWon       Int          @default(0)
+  setsLost      Int          @default(0)
+  gamesWon      Int          @default(0)
+  gamesLost     Int          @default(0)
+  currentStreak Int          @default(0)
+  bestStreak    Int          @default(0)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  userId        String?      @unique
+  user          User?        @relation(fields: [userId], references: [id])
+  ptrHistory    PTRHistory[]
+  teamA1        Match[]      @relation("TeamA1")
+  teamA2        Match[]      @relation("TeamA2")
+  teamB1        Match[]      @relation("TeamB1")
+  teamB2        Match[]      @relation("TeamB2")
+}
+
+model Match {
+  id            String     @id @default(cuid())
+  playedAt      DateTime   @default(now())
+  teamAPlayer1Id String
+  teamAPlayer2Id String
+  teamBPlayer1Id String
+  teamBPlayer2Id String
+  teamAPlayer1  Player     @relation("TeamA1", fields: [teamAPlayer1Id], references: [id])
+  teamAPlayer2  Player     @relation("TeamA2", fields: [teamAPlayer2Id], references: [id])
+  teamBPlayer1  Player     @relation("TeamB1", fields: [teamBPlayer1Id], references: [id])
+  teamBPlayer2  Player     @relation("TeamB2", fields: [teamBPlayer2Id], references: [id])
+  winner        String     // "A" or "B"
+  teamAPTRBefore Float
+  teamBPTRBefore Float
+  teamAPTRAfter  Float
+  teamBPTRAfter  Float
+  ptrDelta       Float     // absolute change for winning team
+  scoreMultiplier Float    @default(1)
+  isUpset        Boolean   @default(false)
+  matchQuality   Float     @default(5)
+  notes          String?
+  sets           MatchSet[]
+  ptrHistory     PTRHistory[]
+  createdById    String?
+  submittedAt    DateTime  @default(now())
+}
+
+model MatchSet {
+  id        String  @id @default(cuid())
+  matchId   String
+  setNumber Int
+  teamAGames Int
+  teamBGames Int
+  match     Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+}
+
+model PTRHistory {
+  id         String   @id @default(cuid())
+  playerId   String
+  matchId    String?
+  ptrBefore  Float
+  ptrAfter   Float
+  delta      Float
+  reliability Float
+  createdAt  DateTime @default(now())
+  player     Player   @relation(fields: [playerId], references: [id])
+  match      Match?   @relation(fields: [matchId], references: [id])
+}
