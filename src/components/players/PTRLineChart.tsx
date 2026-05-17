@@ -49,8 +49,8 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
           }}
           labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
           itemStyle={{ color }}
-          formatter={(value: number, _: string, props: { payload: { delta: number } }) => [
-            `${value} PTR ${props.payload.delta !== undefined ? `(${props.payload.delta > 0 ? '+' : ''}${props.payload.delta?.toFixed(1)})` : ''}`,
+          formatter={(value: number, _: string, item: { payload?: { delta?: number } }) => [
+            `${value} PTR ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(1)})` : ''}`,
             'PTR',
           ]}
           labelFormatter={(v) => v === 0 ? 'Start' : `Match ${v}`}
