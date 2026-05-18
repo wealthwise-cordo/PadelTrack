@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { getPlayerRaw } from '@/lib/store'
 import { previewPTRChanges } from '@/lib/ptr-algorithm'
 
 export async function POST(req: NextRequest) {
@@ -7,12 +7,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets } = body
 
-    const [p1, p2, p3, p4] = await Promise.all([
-      prisma.player.findUnique({ where: { id: teamAPlayer1Id } }),
-      prisma.player.findUnique({ where: { id: teamAPlayer2Id } }),
-      prisma.player.findUnique({ where: { id: teamBPlayer1Id } }),
-      prisma.player.findUnique({ where: { id: teamBPlayer2Id } }),
-    ])
+    const p1 = getPlayerRaw(teamAPlayer1Id)
+    const p2 = getPlayerRaw(teamAPlayer2Id)
+    const p3 = getPlayerRaw(teamBPlayer1Id)
+    const p4 = getPlayerRaw(teamBPlayer2Id)
 
     if (!p1 || !p2 || !p3 || !p4) {
       return NextResponse.json({ error: 'Players not found' }, { status: 404 })

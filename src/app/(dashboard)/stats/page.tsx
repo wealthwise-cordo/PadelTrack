@@ -1,44 +1,21 @@
-import { prisma } from '@/lib/prisma'
+import { getPlayers, getMatches } from '@/lib/store'
 import { Trophy, Zap, Target, TrendingUp, Flame } from 'lucide-react'
 import { getInitials, formatPTR } from '@/lib/utils'
 
 export const revalidate = 0
 
-async function getStats() {
-  const [players, matches] = await Promise.all([
-    prisma.player.findMany({ orderBy: { ptr: 'desc' } }),
-    prisma.match.findMany({
-      include: {
-        teamAPlayer1: true, teamAPlayer2: true,
-        teamBPlayer1: true, teamBPlayer2: true,
-        sets: true,
-      },
-      orderBy: { playedAt: 'desc' },
-    }),
-  ])
-
-  const upsets = matches.filter(m => m.isUpset)
-  const biggestUpset = upsets.reduce((best: typeof matches[0] | null, m) =>
-    !best || m.ptrDelta > best.ptrDelta ? m : best
-  , null)
-
-  const highestDelta = matches.reduce((best: typeof matches[0] | null, m) =>
-    !best || m.ptrDelta > best.ptrDelta ? m : best
-  , null)
-
-  const closestMatch = matches.reduce((best: typeof matches[0] | null, m) =>
-    !best || m.matchQuality > best.matchQuality ? m : best
-  , null)
-
-  const bestStreak = players.reduce((best: typeof players[0] | null, p) =>
-    !best || p.bestStreak > best.bestStreak ? p : best
-  , null)
-
-  return { players, matches, biggestUpset, highestDelta, closestMatch, bestStreak }
-}
-
 export default async function StatsPage() {
-  const { players, matches, biggestUpset, highestDelta, closestMatch, bestStreak } = await getStats()
+  const players = getPlayers()
+  const matches = getMatches()
+
+  const biggestUpset = matches.filter(m => m.isUpset).reduce(
+    (best: typeof matches[0] | null, m) => !best || m.ptrDelta > best.ptrDelta ? m : best, null)
+  const highestDelta = matches.reduce(
+    (best: typeof matches[0] | null, m) => !best || m.ptrDelta > best.ptrDelta ? m : best, null)
+  const closestMatch = matches.reduce(
+    (best: typeof matches[0] | null, m) => !best || m.matchQuality > best.matchQuality ? m : best, null)
+  const bestStreak = players.reduce(
+    (best: typeof players[0] | null, p) => !best || p.bestStreak > best.bestStreak ? p : best, null)
 
   const totalMatches = matches.length
   const totalUpsets = matches.filter(m => m.isUpset).length

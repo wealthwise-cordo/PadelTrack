@@ -1,36 +1,12 @@
 import { Trophy, TrendingUp } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
-import { prisma } from '@/lib/prisma'
+import { getPlayers, getMatchCount } from '@/lib/store'
 
 export const revalidate = 0
 
-async function getPlayers() {
-  const players = await prisma.player.findMany({
-    include: {
-      ptrHistory: { orderBy: { createdAt: 'asc' }, take: 30 },
-    },
-    orderBy: { ptr: 'desc' },
-  })
-
-  return players.map((p, i) => {
-    const history = p.ptrHistory
-    const lastDelta = history.length > 0 ? history[history.length - 1].delta : 0
-    return {
-      ...p,
-      rank: i + 1,
-      ptrDelta: lastDelta,
-      ptrHistory: history.map(h => ({
-        ...h,
-        createdAt: h.createdAt.toISOString(),
-        matchId: h.matchId,
-      })),
-    }
-  })
-}
-
 export default async function LeaderboardPage() {
-  const players = await getPlayers()
-  const totalMatches = await prisma.match.count()
+  const players = getPlayers()
+  const totalMatches = getMatchCount()
   const topPlayer = players[0]
   const biggestMover = players.reduce((best, p) =>
     Math.abs(p.ptrDelta) > Math.abs(best?.ptrDelta ?? 0) ? p : best

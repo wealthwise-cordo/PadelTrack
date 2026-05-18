@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { prisma } from '@/lib/prisma'
+import { getPlayer, getPlayers, getMatches } from '@/lib/store'
 import PTRLineChart from '@/components/players/PTRLineChart'
 import PTRBadge from '@/components/shared/PTRBadge'
 import { getInitials, formatPTR, getWinRate, getReliabilityLabel } from '@/lib/utils'
@@ -7,35 +7,10 @@ import { Trophy, Target, Zap, TrendingUp } from 'lucide-react'
 
 export const revalidate = 0
 
-async function getPlayer(id: string) {
-  return prisma.player.findUnique({
-    where: { id },
-    include: {
-      ptrHistory: {
-        orderBy: { createdAt: 'asc' },
-        include: { match: { include: { sets: true } } },
-      },
-    },
-  })
-}
-
-async function getAllPlayers() {
-  return prisma.player.findMany({ orderBy: { ptr: 'desc' } })
-}
-
-async function getHeadToHead(playerId: string) {
-  const matches = await prisma.match.findMany({
-    where: {
-      OR: [
-        { teamAPlayer1Id: playerId }, { teamAPlayer2Id: playerId },
-        { teamBPlayer1Id: playerId }, { teamBPlayer2Id: playerId },
-      ],
-    },
-    include: {
-      teamAPlayer1: true, teamAPlayer2: true,
-      teamBPlayer1: true, teamBPlayer2: true,
-    },
-  })
+function getHeadToHead(playerId: string) {
+  const matches = getMatches().filter(m =>
+    [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id].includes(playerId)
+  )
 
   const h2h: Record<string, { wins: number; losses: number; name: string; color: string }> = {}
 
@@ -62,11 +37,11 @@ async function getHeadToHead(playerId: string) {
 }
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
-  const [player, allPlayers, h2h] = await Promise.all([
-    getPlayer(params.id),
-    getAllPlayers(),
-    getHeadToHead(params.id),
-  ])
+  const player = getPlayer(params.id)
+  const allPlayers = getPlayers()
+  const h2h = getHeadToHead(params.id)
+
+  if (!player) notFound()
 
   if (!player) notFound()
 
@@ -128,10 +103,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           PTR History
         </h2>
         <PTRLineChart
-          history={player.ptrHistory.map(h => ({
-            ...h,
-            createdAt: h.createdAt.toISOString(),
-          }))}
+          history={player.ptrHistory}
           color={player.avatarColor}
         />
       </div>
