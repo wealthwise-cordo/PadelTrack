@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { Plus, X } from 'lucide-react'
 import PTRPreview from './PTRPreview'
 import { getInitials, formatPTR } from '@/lib/utils'
 import type { PlayerWithStats, PTRCalculation } from '@/types'
@@ -15,13 +16,13 @@ interface Props {
   players: PlayerWithStats[]
 }
 
+// slots index: 0 = teamA1, 1 = teamA2, 2 = teamB1, 3 = teamB2
+type Slots = [string, string, string, string]
+
 export default function MatchEntryForm({ players }: Props) {
   const router = useRouter()
-  const [step, setStep] = useState(1)
-  const [teamA1, setTeamA1] = useState('')
-  const [teamA2, setTeamA2] = useState('')
-  const [teamB1, setTeamB1] = useState('')
-  const [teamB2, setTeamB2] = useState('')
+  const [slots, setSlots] = useState<Slots>(['', '', '', ''])
+  const [pickingSlot, setPickingSlot] = useState<number | null>(null)
   const [sets, setSets] = useState<SetScore[]>([{ teamAGames: 0, teamBGames: 0 }])
   const [preview, setPreview] = useState<PTRCalculation | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -29,13 +30,30 @@ export default function MatchEntryForm({ players }: Props) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  const selected = [teamA1, teamA2, teamB1, teamB2].filter(Boolean)
-  const available = (exclude: string[]) => players.filter(p => !exclude.includes(p.id))
+  const [teamA1, teamA2, teamB1, teamB2] = slots
+  const allSelected = slots.every(Boolean)
 
   const getPlayer = (id: string) => players.find(p => p.id === id)
 
+  const availableForSlot = (slotIdx: number) =>
+    players.filter(p => !slots.some((id, i) => i !== slotIdx && id === p.id))
+
+  const selectPlayer = (slotIdx: number, playerId: string) => {
+    const next = [...slots] as Slots
+    next[slotIdx] = playerId
+    setSlots(next)
+    setPickingSlot(null)
+  }
+
+  const clearSlot = (slotIdx: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const next = [...slots] as Slots
+    next[slotIdx] = ''
+    setSlots(next)
+    setPreview(null)
+  }
+
   const determineWinner = (): 'A' | 'B' | null => {
-    if (sets.length === 0) return null
     const setsA = sets.filter(s => s.teamAGames > s.teamBGames).length
     const setsB = sets.filter(s => s.teamBGames > s.teamAGames).length
     if (setsA > setsB) return 'A'
@@ -44,7 +62,7 @@ export default function MatchEntryForm({ players }: Props) {
   }
 
   const fetchPreview = useCallback(async () => {
-    if (!teamA1 || !teamA2 || !teamB1 || !teamB2) return
+    if (!allSelected) return
     setPreviewLoading(true)
     try {
       const res = await fetch('/api/rankings', {
@@ -52,26 +70,17 @@ export default function MatchEntryForm({ players }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamAPlayer1Id: teamA1, teamAPlayer2Id: teamA2, teamBPlayer1Id: teamB1, teamBPlayer2Id: teamB2, sets }),
       })
-      const data = await res.json()
-      setPreview(data)
-    } catch {
-      // silently fail preview
-    } finally {
+      setPreview(await res.json())
+    } catch { /* silent */ } finally {
       setPreviewLoading(false)
     }
-  }, [teamA1, teamA2, teamB1, teamB2, sets])
+  }, [teamA1, teamA2, teamB1, teamB2, sets, allSelected])
 
-  useEffect(() => {
-    if (teamA1 && teamA2 && teamB1 && teamB2) {
-      fetchPreview()
-    }
-  }, [teamA1, teamA2, teamB1, teamB2, fetchPreview])
+  useEffect(() => { if (allSelected) fetchPreview() }, [allSelected, fetchPreview])
 
   const handleSubmit = async () => {
     const winner = determineWinner()
     if (!winner) { setError('Match result is unclear — check your scores'); return }
-    if (!teamA1 || !teamA2 || !teamB1 || !teamB2) { setError('Select all 4 players'); return }
-
     setSubmitting(true)
     setError('')
     try {
@@ -94,44 +103,6 @@ export default function MatchEntryForm({ players }: Props) {
     }
   }
 
-  const PlayerSelector = ({ value, onChange, exclude, label }: {
-    value: string; onChange: (v: string) => void; exclude: string[]; label: string
-  }) => (
-    <div>
-      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
-      <div className="grid grid-cols-2 gap-1.5">
-        {players.map(p => {
-          const disabled = exclude.includes(p.id) && p.id !== value
-          return (
-            <button
-              key={p.id}
-              onClick={() => !disabled && onChange(p.id)}
-              disabled={disabled}
-              className={`flex items-center gap-2 p-2 rounded-lg border text-left transition-all text-sm ${
-                value === p.id
-                  ? 'border-neon-green/50 bg-neon-green/10 text-neon-green'
-                  : disabled
-                  ? 'border-white/5 opacity-30 cursor-not-allowed'
-                  : 'border-white/10 hover:border-white/30 hover:bg-white/5'
-              }`}
-            >
-              <div
-                className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
-                style={{ backgroundColor: p.avatarColor }}
-              >
-                {getInitials(p.name)}
-              </div>
-              <div className="min-w-0">
-                <div className="font-medium truncate">{p.name.split(' ')[0]}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">{formatPTR(p.ptr)}</div>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
@@ -142,128 +113,182 @@ export default function MatchEntryForm({ players }: Props) {
     )
   }
 
+  const Slot = ({ idx }: { idx: number }) => {
+    const player = getPlayer(slots[idx])
+    if (player) {
+      return (
+        <button
+          onClick={() => setPickingSlot(idx)}
+          className="relative flex flex-col items-center gap-2 py-4 px-2 rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all w-full"
+        >
+          <button
+            onClick={e => clearSlot(idx, e)}
+            className="absolute top-2 right-2 h-5 w-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-400/30 transition-colors"
+          >
+            <X className="h-3 w-3 text-muted-foreground" />
+          </button>
+          <div
+            className="h-12 w-12 rounded-full flex items-center justify-center text-sm font-bold text-background shadow-lg"
+            style={{ backgroundColor: player.avatarColor, boxShadow: `0 0 16px ${player.avatarColor}55` }}
+          >
+            {getInitials(player.name)}
+          </div>
+          <div className="text-center">
+            <div className="text-xs font-semibold leading-tight">{player.name.split(' ')[0]}</div>
+            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{formatPTR(player.ptr)}</div>
+          </div>
+        </button>
+      )
+    }
+    return (
+      <button
+        onClick={() => setPickingSlot(idx)}
+        className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-white/20 hover:border-neon-green/50 hover:bg-neon-green/5 transition-all w-full aspect-square min-h-[110px]"
+      >
+        <Plus className="h-7 w-7 text-white/30" />
+      </button>
+    )
+  }
+
+  const winner = determineWinner()
+
   return (
-    <div className="space-y-6 max-w-lg mx-auto">
-      {/* Team A */}
-      <div className="glass rounded-xl p-4 border-l-2 border-neon-green">
-        <div className="text-xs font-semibold text-neon-green mb-3 uppercase tracking-wider">Team A</div>
-        <PlayerSelector
-          value={teamA1}
-          onChange={setTeamA1}
-          exclude={[teamA2, teamB1, teamB2]}
-          label="Player 1"
-        />
-        <div className="mt-3">
-          <PlayerSelector
-            value={teamA2}
-            onChange={setTeamA2}
-            exclude={[teamA1, teamB1, teamB2]}
-            label="Player 2"
-          />
+    <div className="space-y-5 max-w-lg mx-auto">
+
+      {/* Court layout */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Slot idx={0} />
+          <Slot idx={1} />
+        </div>
+
+        <div className="flex items-center gap-3 py-1">
+          <div className="flex-1 h-px bg-white/10" />
+          <span className="text-[11px] font-black text-white/30 tracking-[0.2em]">VS</span>
+          <div className="flex-1 h-px bg-white/10" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Slot idx={2} />
+          <Slot idx={3} />
         </div>
       </div>
 
-      {/* Team B */}
-      <div className="glass rounded-xl p-4 border-l-2 border-neon-blue">
-        <div className="text-xs font-semibold text-neon-blue mb-3 uppercase tracking-wider">Team B</div>
-        <PlayerSelector
-          value={teamB1}
-          onChange={setTeamB1}
-          exclude={[teamA1, teamA2, teamB2]}
-          label="Player 1"
-        />
-        <div className="mt-3">
-          <PlayerSelector
-            value={teamB2}
-            onChange={setTeamB2}
-            exclude={[teamA1, teamA2, teamB1]}
-            label="Player 2"
-          />
-        </div>
-      </div>
+      {/* Score — only revealed once all 4 players chosen */}
+      {allSelected && (
+        <>
+          <div className="glass rounded-xl p-4">
+            <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Score</div>
 
-      {/* Score Entry */}
-      <div className="glass rounded-xl p-4">
-        <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Score</div>
-        <div className="space-y-3">
-          {sets.map((set, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-12">Set {i + 1}</span>
-              <div className="flex items-center gap-2 flex-1">
-                <div className="flex flex-col gap-0.5 flex-1">
-                  <label className="text-[10px] text-neon-green">A</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={7}
-                    value={set.teamAGames}
-                    onChange={e => {
-                      const v = [...sets]
-                      v[i] = { ...v[i], teamAGames: Number(e.target.value) }
-                      setSets(v)
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
-                  />
-                </div>
-                <span className="text-muted-foreground mt-4">—</span>
-                <div className="flex flex-col gap-0.5 flex-1">
-                  <label className="text-[10px] text-neon-blue">B</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={7}
-                    value={set.teamBGames}
-                    onChange={e => {
-                      const v = [...sets]
-                      v[i] = { ...v[i], teamBGames: Number(e.target.value) }
-                      setSets(v)
-                    }}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-blue/50"
-                  />
-                </div>
-                {i > 0 && (
-                  <button
-                    onClick={() => setSets(sets.filter((_, j) => j !== i))}
-                    className="text-muted-foreground hover:text-red-400 text-sm mt-4"
-                  >
-                    ✕
-                  </button>
-                )}
+            {/* Team labels above score inputs */}
+            <div className="flex items-center gap-3 mb-2 px-12">
+              <div className="flex-1 flex items-center gap-1.5">
+                {[teamA1, teamA2].map(id => {
+                  const p = getPlayer(id)!
+                  return (
+                    <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
+                      {getInitials(p.name)}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="w-4" />
+              <div className="flex-1 flex items-center justify-end gap-1.5">
+                {[teamB1, teamB2].map(id => {
+                  const p = getPlayer(id)!
+                  return (
+                    <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
+                      {getInitials(p.name)}
+                    </div>
+                  )
+                })}
               </div>
             </div>
-          ))}
-        </div>
-        {sets.length < 3 && (
-          <button
-            onClick={() => setSets([...sets, { teamAGames: 0, teamBGames: 0 }])}
-            className="mt-3 text-xs text-muted-foreground hover:text-neon-green transition-colors"
-          >
-            + Add set
-          </button>
-        )}
-        {determineWinner() && (
-          <div className="mt-3 text-center text-sm font-semibold text-neon-green">
-            Team {determineWinner()} wins
+
+            <div className="space-y-2">
+              {sets.map((set, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
+                  <input
+                    type="number" min={0} max={7} value={set.teamAGames}
+                    onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  />
+                  <span className="text-muted-foreground text-xs font-bold">—</span>
+                  <input
+                    type="number" min={0} max={7} value={set.teamBGames}
+                    onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  />
+                  {i > 0 && (
+                    <button onClick={() => setSets(sets.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 text-xs shrink-0">✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {sets.length < 3 && (
+              <button onClick={() => setSets([...sets, { teamAGames: 0, teamBGames: 0 }])} className="mt-3 text-xs text-muted-foreground hover:text-neon-green transition-colors">
+                + Add set
+              </button>
+            )}
+
+            {winner && (
+              <div className="mt-3 text-center text-sm font-bold text-neon-green">
+                {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* PTR Preview */}
-      <PTRPreview preview={preview} loading={previewLoading} />
+          <PTRPreview preview={preview} loading={previewLoading} />
 
-      {/* Error */}
-      {error && (
-        <div className="text-sm text-red-400 text-center">{error}</div>
+          {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !winner}
+            className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {submitting ? 'Recording Match...' : 'Record Match'}
+          </button>
+        </>
       )}
 
-      {/* Submit */}
-      <button
-        onClick={handleSubmit}
-        disabled={submitting || !teamA1 || !teamA2 || !teamB1 || !teamB2 || !determineWinner()}
-        className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-      >
-        {submitting ? 'Recording Match...' : 'Record Match'}
-      </button>
+      {/* Player picker bottom sheet */}
+      {pickingSlot !== null && (
+        <>
+          <div className="fixed inset-0 bg-black/70 z-40 backdrop-blur-sm" onClick={() => setPickingSlot(null)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[hsl(222,47%,8%)] border-t border-white/10 rounded-t-3xl p-5 pb-10 max-h-[72vh] overflow-y-auto animate-slide-in">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm font-bold">Select Player</span>
+              <button onClick={() => setPickingSlot(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {availableForSlot(pickingSlot).map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => selectPlayer(pickingSlot, p.id)}
+                  className="flex items-center gap-3 p-3 rounded-xl border border-white/10 hover:border-white/30 hover:bg-white/5 transition-all text-left"
+                >
+                  <div
+                    className="h-11 w-11 rounded-full flex items-center justify-center text-sm font-bold text-background shrink-0"
+                    style={{ backgroundColor: p.avatarColor }}
+                  >
+                    {getInitials(p.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate">{p.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{p.nickname}</div>
+                    <div className="text-[10px] font-mono text-white/40">{formatPTR(p.ptr)} PTR</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
