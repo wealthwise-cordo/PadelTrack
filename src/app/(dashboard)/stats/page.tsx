@@ -64,7 +64,7 @@ export default async function StatsPage() {
   )[0]
 
   const chokers = rank(players, chokerScore)
-  const choker = chokers[0]?.matchesPlayed >= 3 && chokerScore(chokers[0]) > 0
+  const choker = chokers[0]?.matchesPlayed >= 1 && chokerScore(chokers[0]) > 0
     ? chokers[0]
     : null
 

@@ -250,6 +250,7 @@ export default function MatchEntryForm({ players }: Props) {
                   max={7}
                   value={set.teamAGames}
                   onChange={e => updateScore(i, 'A', Number(e.target.value))}
+                  onFocus={e => e.target.select()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusNext(refA) } }}
                   className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-3 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
                 />
@@ -263,6 +264,7 @@ export default function MatchEntryForm({ players }: Props) {
                   max={7}
                   value={set.teamBGames}
                   onChange={e => updateScore(i, 'B', Number(e.target.value))}
+                  onFocus={e => e.target.select()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusNext(refB) } }}
                   className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-3 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
                 />

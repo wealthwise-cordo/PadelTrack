@@ -135,6 +135,7 @@ export default function MatchEditForm({ match }: { match: MatchWithPlayers }) {
                   enterKeyHint="next"
                   min={0} max={7} value={set.teamAGames}
                   onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
+                  onFocus={e => e.target.select()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); inputRefs.current[refA + 1]?.focus() } }}
                   className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
                 />
@@ -146,6 +147,7 @@ export default function MatchEditForm({ match }: { match: MatchWithPlayers }) {
                   enterKeyHint={refB >= lastActiveRef ? 'done' : 'next'}
                   min={0} max={7} value={set.teamBGames}
                   onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
+                  onFocus={e => e.target.select()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (refB < lastActiveRef) inputRefs.current[refB + 1]?.focus(); else (e.target as HTMLInputElement).blur() } }}
                   className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
                 />
