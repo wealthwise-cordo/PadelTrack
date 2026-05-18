@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
-import PTRPreview from './PTRPreview'
 import { getInitials, formatPTR } from '@/lib/utils'
-import type { PlayerWithStats, PTRCalculation } from '@/types'
+import type { PlayerWithStats } from '@/types'
 
 interface SetScore {
   teamAGames: number
@@ -24,8 +23,6 @@ export default function MatchEntryForm({ players }: Props) {
   const [slots, setSlots] = useState<Slots>(['', '', '', ''])
   const [pickingSlot, setPickingSlot] = useState<number | null>(null)
   const [sets, setSets] = useState<SetScore[]>([{ teamAGames: 0, teamBGames: 0 }])
-  const [preview, setPreview] = useState<PTRCalculation | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -60,23 +57,6 @@ export default function MatchEntryForm({ players }: Props) {
     if (setsB > setsA) return 'B'
     return null
   }
-
-  const fetchPreview = useCallback(async () => {
-    if (!allSelected) return
-    setPreviewLoading(true)
-    try {
-      const res = await fetch('/api/rankings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamAPlayer1Id: teamA1, teamAPlayer2Id: teamA2, teamBPlayer1Id: teamB1, teamBPlayer2Id: teamB2, sets }),
-      })
-      setPreview(await res.json())
-    } catch { /* silent */ } finally {
-      setPreviewLoading(false)
-    }
-  }, [teamA1, teamA2, teamB1, teamB2, sets, allSelected])
-
-  useEffect(() => { if (allSelected) fetchPreview() }, [allSelected, fetchPreview])
 
   const handleSubmit = async () => {
     const winner = determineWinner()
@@ -174,85 +154,81 @@ export default function MatchEntryForm({ players }: Props) {
         </div>
       </div>
 
-      {/* Score — only revealed once all 4 players chosen */}
-      {allSelected && (
-        <>
-          <div className="glass rounded-xl p-4">
-            <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Score</div>
+      {/* Score */}
+      <div className="glass rounded-xl p-4">
+        <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Score</div>
 
-            {/* Team labels above score inputs */}
-            <div className="flex items-center gap-3 mb-2 px-12">
-              <div className="flex-1 flex items-center gap-1.5">
-                {[teamA1, teamA2].map(id => {
-                  const p = getPlayer(id)!
-                  return (
-                    <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
-                      {getInitials(p.name)}
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="w-4" />
-              <div className="flex-1 flex items-center justify-end gap-1.5">
-                {[teamB1, teamB2].map(id => {
-                  const p = getPlayer(id)!
-                  return (
-                    <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
-                      {getInitials(p.name)}
-                    </div>
-                  )
-                })}
-              </div>
+        {/* Team labels above score inputs — only shown when players are selected */}
+        {allSelected && (
+          <div className="flex items-center gap-3 mb-2 px-12">
+            <div className="flex-1 flex items-center gap-1.5">
+              {[teamA1, teamA2].map(id => {
+                const p = getPlayer(id)!
+                return (
+                  <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
+                    {getInitials(p.name)}
+                  </div>
+                )
+              })}
             </div>
-
-            <div className="space-y-2">
-              {sets.map((set, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
-                  <input
-                    type="number" min={0} max={7} value={set.teamAGames}
-                    onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
-                  />
-                  <span className="text-muted-foreground text-xs font-bold">—</span>
-                  <input
-                    type="number" min={0} max={7} value={set.teamBGames}
-                    onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
-                  />
-                  {i > 0 && (
-                    <button onClick={() => setSets(sets.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 text-xs shrink-0">✕</button>
-                  )}
-                </div>
-              ))}
+            <div className="w-4" />
+            <div className="flex-1 flex items-center justify-end gap-1.5">
+              {[teamB1, teamB2].map(id => {
+                const p = getPlayer(id)!
+                return (
+                  <div key={id} className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background" style={{ backgroundColor: p.avatarColor }}>
+                    {getInitials(p.name)}
+                  </div>
+                )
+              })}
             </div>
-
-            {sets.length < 3 && (
-              <button onClick={() => setSets([...sets, { teamAGames: 0, teamBGames: 0 }])} className="mt-3 text-xs text-muted-foreground hover:text-neon-green transition-colors">
-                + Add set
-              </button>
-            )}
-
-            {winner && (
-              <div className="mt-3 text-center text-sm font-bold text-neon-green">
-                {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
-              </div>
-            )}
           </div>
+        )}
 
-          <PTRPreview preview={preview} loading={previewLoading} />
+        <div className="space-y-2">
+          {sets.map((set, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
+              <input
+                type="number" min={0} max={7} value={set.teamAGames}
+                onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+              />
+              <span className="text-muted-foreground text-xs font-bold">—</span>
+              <input
+                type="number" min={0} max={7} value={set.teamBGames}
+                onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+              />
+              {i > 0 && (
+                <button onClick={() => setSets(sets.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 text-xs shrink-0">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
 
-          {error && <div className="text-sm text-red-400 text-center">{error}</div>}
-
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !winner}
-            className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            {submitting ? 'Recording Match...' : 'Record Match'}
+        {sets.length < 3 && (
+          <button onClick={() => setSets([...sets, { teamAGames: 0, teamBGames: 0 }])} className="mt-3 text-xs text-muted-foreground hover:text-neon-green transition-colors">
+            + Add set
           </button>
-        </>
-      )}
+        )}
+
+        {allSelected && winner && (
+          <div className="mt-3 text-center text-sm font-bold text-neon-green">
+            {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
+          </div>
+        )}
+      </div>
+
+      {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting || !winner || !allSelected}
+        className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+      >
+        {submitting ? 'Recording Match...' : 'Record Match'}
+      </button>
 
       {/* Player picker bottom sheet */}
       {pickingSlot !== null && (
