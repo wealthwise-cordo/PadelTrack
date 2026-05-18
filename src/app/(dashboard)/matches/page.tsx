@@ -6,7 +6,7 @@ import { Plus } from 'lucide-react'
 export const revalidate = 0
 
 export default async function MatchHistoryPage() {
-  const matches = getMatches()
+  const matches = await getMatches()
 
   return (
     <div className="py-6 space-y-4">

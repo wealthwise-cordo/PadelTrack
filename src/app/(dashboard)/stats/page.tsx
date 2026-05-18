@@ -42,8 +42,7 @@ function tiebreakConversion(p: PlayerWithStats): number {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default async function StatsPage() {
-  const players = getPlayers() as PlayerWithStats[]
-  const matches = getMatches()
+  const [players, matches] = await Promise.all([getPlayers(), getMatches()])
 
   const totalMatches = matches.length
   const totalUpsets = matches.filter(m => m.isUpset).length

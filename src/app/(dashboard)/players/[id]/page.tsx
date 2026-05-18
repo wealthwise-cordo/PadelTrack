@@ -8,8 +8,9 @@ import { Trophy, Target, Zap, TrendingUp } from 'lucide-react'
 
 export const revalidate = 0
 
-function getHeadToHead(playerId: string) {
-  const matches = getMatches().filter(m =>
+async function getHeadToHead(playerId: string) {
+  const all = await getMatches()
+  const matches = all.filter(m =>
     [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id].includes(playerId)
   )
 
@@ -38,9 +39,11 @@ function getHeadToHead(playerId: string) {
 }
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
-  const player = getPlayer(params.id)
-  const allPlayers = getPlayers()
-  const h2h = getHeadToHead(params.id)
+  const [player, allPlayers, h2h] = await Promise.all([
+    getPlayer(params.id),
+    getPlayers(),
+    getHeadToHead(params.id),
+  ])
 
   if (!player) notFound()
 

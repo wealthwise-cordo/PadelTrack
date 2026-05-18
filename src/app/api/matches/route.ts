@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getMatches, createMatch } from '@/lib/store'
 
 export async function GET() {
-  return NextResponse.json(getMatches())
+  return NextResponse.json(await getMatches())
 }
 
 export async function POST(req: NextRequest) {
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status } = body
 
-    const result = createMatch({ teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status: status ?? 'complete' })
+    const result = await createMatch({ teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status: status ?? 'complete' })
 
     if ('error' in result) {
       return NextResponse.json({ error: result.error }, { status: 400 })

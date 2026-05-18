@@ -12,7 +12,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid color' }, { status: 400 })
   }
 
-  const result = updatePlayer(params.id, { nickname, avatarColor })
+  const result = await updatePlayer(params.id, { nickname, avatarColor })
   if ('error' in result) return NextResponse.json(result, { status: 404 })
   return NextResponse.json({ ok: true })
 }

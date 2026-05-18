@@ -41,6 +41,10 @@ export interface MatchWithPlayers {
   id: string
   playedAt: string
   status: 'complete' | 'incomplete'
+  teamAPlayer1Id: string
+  teamAPlayer2Id: string
+  teamBPlayer1Id: string
+  teamBPlayer2Id: string
   teamAPlayer1: PlayerWithStats
   teamAPlayer2: PlayerWithStats
   teamBPlayer1: PlayerWithStats

@@ -1,305 +1,172 @@
-/**
- * In-memory data store — no database required.
- * Pre-seeded with 8 players. Data resets on cold start.
- * Swap this module for the Prisma-backed version once a database is provisioned.
- */
-import bcrypt from 'bcryptjs'
+import { prisma } from './prisma'
 import {
   calculatePTRChanges,
   calculateReliability,
-  calculateMatchQuality,
-  isUpset as checkUpset,
 } from './ptr-algorithm'
+import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
+import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
 // ---------------------------------------------------------------------------
-// Types
+// Shape helpers
 // ---------------------------------------------------------------------------
 
-export interface StoredUser {
-  id: string
-  email: string
-  password: string
-  name: string
+type PlayerWithHistory = Player & { ptrHistory: PTRHistory[] }
+type MatchFull = Prisma.MatchGetPayload<{
+  include: {
+    teamAPlayer1: true; teamAPlayer2: true
+    teamBPlayer1: true; teamBPlayer2: true
+    sets: { orderBy: { setNumber: 'asc' } }
+  }
+}>
+
+function toPlayerWithStats(p: PlayerWithHistory, rank: number): PlayerWithStats {
+  const history = [...p.ptrHistory].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  )
+  return {
+    id: p.id,
+    name: p.name,
+    nickname: p.nickname,
+    avatarColor: p.avatarColor,
+    ptr: p.ptr,
+    reliability: p.reliability,
+    matchesPlayed: p.matchesPlayed,
+    wins: p.wins,
+    losses: p.losses,
+    setsWon: p.setsWon,
+    setsLost: p.setsLost,
+    gamesWon: p.gamesWon,
+    gamesLost: p.gamesLost,
+    tiebreaksWon: p.tiebreaksWon,
+    tiebreaksPlayed: p.tiebreaksPlayed,
+    currentStreak: p.currentStreak,
+    bestStreak: p.bestStreak,
+    ptrHistory: history.map(h => ({
+      id: h.id,
+      ptrBefore: h.ptrBefore,
+      ptrAfter: h.ptrAfter,
+      delta: h.delta,
+      reliability: h.reliability,
+      createdAt: h.createdAt.toISOString(),
+      matchId: h.matchId,
+    } satisfies PTRHistoryPoint)),
+    rank,
+    ptrDelta: history.length > 0 ? history[history.length - 1].delta : 0,
+  }
 }
 
-export interface StoredPTRHistory {
-  id: string
-  playerId: string
-  matchId: string | null
-  ptrBefore: number
-  ptrAfter: number
-  delta: number
-  reliability: number
-  createdAt: string
+function toPlayerStub(p: Player): PlayerWithStats {
+  return {
+    id: p.id,
+    name: p.name,
+    nickname: p.nickname,
+    avatarColor: p.avatarColor,
+    ptr: p.ptr,
+    reliability: p.reliability,
+    matchesPlayed: p.matchesPlayed,
+    wins: p.wins,
+    losses: p.losses,
+    setsWon: p.setsWon,
+    setsLost: p.setsLost,
+    gamesWon: p.gamesWon,
+    gamesLost: p.gamesLost,
+    tiebreaksWon: p.tiebreaksWon,
+    tiebreaksPlayed: p.tiebreaksPlayed,
+    currentStreak: p.currentStreak,
+    bestStreak: p.bestStreak,
+    ptrHistory: [],
+    rank: 0,
+    ptrDelta: 0,
+  }
 }
 
-export interface StoredSet {
-  setNumber: number
-  teamAGames: number
-  teamBGames: number
+function hydrateMatch(m: MatchFull): MatchWithPlayers {
+  return {
+    id: m.id,
+    playedAt: m.playedAt.toISOString(),
+    status: m.status as 'complete' | 'incomplete',
+    winner: m.winner as 'A' | 'B' | null,
+    teamAPlayer1Id: m.teamAPlayer1Id,
+    teamAPlayer2Id: m.teamAPlayer2Id,
+    teamBPlayer1Id: m.teamBPlayer1Id,
+    teamBPlayer2Id: m.teamBPlayer2Id,
+    teamAPlayer1: toPlayerStub(m.teamAPlayer1),
+    teamAPlayer2: toPlayerStub(m.teamAPlayer2),
+    teamBPlayer1: toPlayerStub(m.teamBPlayer1),
+    teamBPlayer2: toPlayerStub(m.teamBPlayer2),
+    teamAPTRBefore: m.teamAPTRBefore,
+    teamBPTRBefore: m.teamBPTRBefore,
+    teamAPTRAfter: m.teamAPTRAfter,
+    teamBPTRAfter: m.teamBPTRAfter,
+    ptrDelta: m.ptrDelta,
+    scoreMultiplier: m.scoreMultiplier,
+    isUpset: m.isUpset,
+    matchQuality: m.matchQuality,
+    sets: m.sets.map(s => ({
+      setNumber: s.setNumber,
+      teamAGames: s.teamAGames,
+      teamBGames: s.teamBGames,
+    })),
+  }
 }
 
-export interface StoredMatch {
-  id: string
-  playedAt: string
-  submittedAt: string
-  status: 'complete' | 'incomplete'
-  teamAPlayer1Id: string
-  teamAPlayer2Id: string
-  teamBPlayer1Id: string
-  teamBPlayer2Id: string
-  winner: 'A' | 'B' | null
-  teamAPTRBefore: number
-  teamBPTRBefore: number
-  teamAPTRAfter: number
-  teamBPTRAfter: number
-  ptrDelta: number
-  scoreMultiplier: number
-  isUpset: boolean
-  matchQuality: number
-  notes: string | null
-  sets: StoredSet[]
-}
-
-export interface StoredPlayer {
-  id: string
-  userId: string
-  name: string
-  nickname: string
-  avatarColor: string
-  ptr: number
-  reliability: number
-  matchesPlayed: number
-  wins: number
-  losses: number
-  setsWon: number
-  setsLost: number
-  gamesWon: number
-  gamesLost: number
-  tiebreaksWon: number
-  tiebreaksPlayed: number
-  currentStreak: number
-  bestStreak: number
-  createdAt: string
-  updatedAt: string
-}
-
-// ---------------------------------------------------------------------------
-// Seed data
-// ---------------------------------------------------------------------------
-
-const COLORS = ['#00ff87', '#00d4ff', '#a855f7', '#ff6b35', '#fbbf24', '#f472b6', '#34d399', '#60a5fa']
-
-const SEED = [
-  { name: 'Cord van Eck',      nickname: 'Green Mamba' },
-  { name: 'JonJon Clark',      nickname: 'Double J'    },
-  { name: 'Zac Schmidt',       nickname: 'The Hammer'  },
-  { name: 'Brandon Fair',      nickname: 'Fairway'     },
-  { name: 'Cameron Meek',      nickname: 'Cam Bam'     },
-  { name: 'Ashley Butler',     nickname: 'Red Mist'    },
-  { name: 'Alex Messeguer',    nickname: 'The Tornado' },
-  { name: 'Jason Knibbs',      nickname: 'Knibster'    },
-]
-
-const PW_HASH = bcrypt.hashSync('password123', 10)
-
-function buildSeedState() {
-  const users: StoredUser[] = SEED.map((s, i) => ({
-    id: `user_${i + 1}`,
-    email: s.name.toLowerCase().replace(' ', '.') + '@ptr.com',
-    password: PW_HASH,
-    name: s.name,
-  }))
-
-  const players: StoredPlayer[] = SEED.map((s, i) => ({
-    id: `player_${i + 1}`,
-    userId: `user_${i + 1}`,
-    name: s.name,
-    nickname: s.nickname,
-    avatarColor: COLORS[i],
-    ptr: 1000,
-    reliability: 0,
-    matchesPlayed: 0,
-    wins: 0,
-    losses: 0,
-    setsWon: 0,
-    setsLost: 0,
-    gamesWon: 0,
-    gamesLost: 0,
-    tiebreaksWon: 0,
-    tiebreaksPlayed: 0,
-    currentStreak: 0,
-    bestStreak: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }))
-
-  return { users, players }
-}
-
-// ---------------------------------------------------------------------------
-// Mutable singleton state
-// ---------------------------------------------------------------------------
-
-const { users: USERS, players: PLAYERS } = buildSeedState()
-
-let _players: StoredPlayer[] = PLAYERS
-let _matches: StoredMatch[] = []
-let _ptrHistory: StoredPTRHistory[] = []
-
-function uid() {
-  return crypto.randomUUID()
-}
+const MATCH_INCLUDE = {
+  teamAPlayer1: true, teamAPlayer2: true,
+  teamBPlayer1: true, teamBPlayer2: true,
+  sets: { orderBy: { setNumber: 'asc' as const } },
+} satisfies Prisma.MatchInclude
 
 // ---------------------------------------------------------------------------
 // Player queries
 // ---------------------------------------------------------------------------
 
-export function getPlayers() {
-  const sorted = [..._players].sort((a, b) => b.ptr - a.ptr)
-  return sorted.map((p, i) => {
-    const history = _ptrHistory
-      .filter(h => h.playerId === p.id)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    const lastDelta = history.length > 0 ? history[history.length - 1].delta : 0
-    return { ...p, rank: i + 1, ptrDelta: lastDelta, ptrHistory: history }
+export async function getPlayers(): Promise<PlayerWithStats[]> {
+  const players = await prisma.player.findMany({
+    include: { ptrHistory: true },
+    orderBy: { ptr: 'desc' },
   })
+  return players.map((p, i) => toPlayerWithStats(p, i + 1))
 }
 
-export function getPlayer(id: string) {
-  const p = _players.find(p => p.id === id)
+export async function getPlayer(id: string): Promise<PlayerWithStats | null> {
+  const p = await prisma.player.findUnique({
+    where: { id },
+    include: { ptrHistory: true },
+  })
   if (!p) return null
-  const history = _ptrHistory
-    .filter(h => h.playerId === id)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-  return { ...p, ptrHistory: history }
+  return toPlayerWithStats(p, 0)
 }
 
-export function getPlayerRaw(id: string) {
-  return _players.find(p => p.id === id) ?? null
+export async function getPlayerRaw(id: string): Promise<Player | null> {
+  return prisma.player.findUnique({ where: { id } })
 }
 
 // ---------------------------------------------------------------------------
 // Match queries
 // ---------------------------------------------------------------------------
 
-function hydrate(m: StoredMatch) {
-  const pA1 = _players.find(p => p.id === m.teamAPlayer1Id)!
-  const pA2 = _players.find(p => p.id === m.teamAPlayer2Id)!
-  const pB1 = _players.find(p => p.id === m.teamBPlayer1Id)!
-  const pB2 = _players.find(p => p.id === m.teamBPlayer2Id)!
-  return {
-    ...m,
-    teamAPlayer1: { ...pA1, ptrHistory: [], rank: 0, ptrDelta: 0 },
-    teamAPlayer2: { ...pA2, ptrHistory: [], rank: 0, ptrDelta: 0 },
-    teamBPlayer1: { ...pB1, ptrHistory: [], rank: 0, ptrDelta: 0 },
-    teamBPlayer2: { ...pB2, ptrHistory: [], rank: 0, ptrDelta: 0 },
-  }
-}
-
-export function getMatches() {
-  return [..._matches]
-    .sort((a, b) => new Date(b.playedAt).getTime() - new Date(a.playedAt).getTime())
-    .map(hydrate)
-}
-
-export function getMatchCount() {
-  return _matches.length
-}
-
-// ---------------------------------------------------------------------------
-// Match creation (all PTR logic lives here)
-// ---------------------------------------------------------------------------
-
-function applyPTR(
-  match: StoredMatch,
-  winner: 'A' | 'B',
-  now: string
-) {
-  const p1 = _players.find(p => p.id === match.teamAPlayer1Id)!
-  const p2 = _players.find(p => p.id === match.teamAPlayer2Id)!
-  const p3 = _players.find(p => p.id === match.teamBPlayer1Id)!
-  const p4 = _players.find(p => p.id === match.teamBPlayer2Id)!
-
-  const sets = match.sets.map(s => ({ teamAGames: s.teamAGames, teamBGames: s.teamBGames }))
-  const playedSets = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-
-  const result = calculatePTRChanges(
-    [p1.ptr, p2.ptr],
-    [p3.ptr, p4.ptr],
-    [calculateReliability(p1.matchesPlayed), calculateReliability(p2.matchesPlayed)],
-    [calculateReliability(p3.matchesPlayed), calculateReliability(p4.matchesPlayed)],
-    match.sets,
-    winner
-  )
-
-  const setsA = playedSets.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB = playedSets.filter(s => s.teamBGames > s.teamAGames).length
-  const gamesA = playedSets.reduce((acc, s) => acc + s.teamAGames, 0)
-  const gamesB = playedSets.reduce((acc, s) => acc + s.teamBGames, 0)
-
-  Object.assign(match, {
-    winner,
-    status: 'complete' as const,
-    teamAPTRAfter: match.teamAPTRBefore + result.teamADelta,
-    teamBPTRAfter: match.teamBPTRBefore + result.teamBDelta,
-    ptrDelta: Math.abs(result.teamADelta),
-    scoreMultiplier: result.scoreMultiplier,
-    isUpset: result.isUpset,
-    matchQuality: result.matchQuality,
+export async function getMatches(): Promise<MatchWithPlayers[]> {
+  const matches = await prisma.match.findMany({
+    include: MATCH_INCLUDE,
+    orderBy: { playedAt: 'desc' },
   })
-
-  const updatePlayer = (
-    p: StoredPlayer,
-    delta: number,
-    isWinner: boolean,
-    sw: number, sl: number, gw: number, gl: number
-  ) => {
-    const newMatches = p.matchesPlayed + 1
-    const newStreak = isWinner
-      ? (p.currentStreak > 0 ? p.currentStreak + 1 : 1)
-      : (p.currentStreak < 0 ? p.currentStreak - 1 : -1)
-    Object.assign(p, {
-      ptr: p.ptr + delta,
-      matchesPlayed: newMatches,
-      reliability: calculateReliability(newMatches),
-      wins: isWinner ? p.wins + 1 : p.wins,
-      losses: isWinner ? p.losses : p.losses + 1,
-      setsWon: p.setsWon + sw,
-      setsLost: p.setsLost + sl,
-      gamesWon: p.gamesWon + gw,
-      gamesLost: p.gamesLost + gl,
-      currentStreak: newStreak,
-      bestStreak: isWinner ? Math.max(p.bestStreak, newStreak) : p.bestStreak,
-      updatedAt: now,
-    })
-  }
-
-  const [dA1, dA2] = result.playerADeltas
-  const [dB1, dB2] = result.playerBDeltas
-
-  updatePlayer(p1, dA1, winner === 'A', setsA, setsB, gamesA, gamesB)
-  updatePlayer(p2, dA2, winner === 'A', setsA, setsB, gamesA, gamesB)
-  updatePlayer(p3, dB1, winner === 'B', setsB, setsA, gamesB, gamesA)
-  updatePlayer(p4, dB2, winner === 'B', setsB, setsA, gamesB, gamesA)
-
-  const pushHistory = (p: StoredPlayer, ptrBefore: number, delta: number) => {
-    _ptrHistory.push({ id: uid(), playerId: p.id, matchId: match.id, ptrBefore, ptrAfter: p.ptr, delta, reliability: p.reliability, createdAt: now })
-  }
-  pushHistory(p1, p1.ptr - dA1, dA1)
-  pushHistory(p2, p2.ptr - dA2, dA2)
-  pushHistory(p3, p3.ptr - dB1, dB1)
-  pushHistory(p4, p4.ptr - dB2, dB2)
-
-  // Tiebreak tracking (set score 7-6 either way)
-  const tbWonA = match.sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
-  const tbWonB = match.sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
-  const tbTotal = tbWonA + tbWonB
-  for (const p of [p1, p2]) { p.tiebreaksWon += tbWonA; p.tiebreaksPlayed += tbTotal }
-  for (const p of [p3, p4]) { p.tiebreaksWon += tbWonB; p.tiebreaksPlayed += tbTotal }
+  return matches.map(hydrateMatch)
 }
 
-export function createMatch(data: {
+export async function getMatchById(id: string): Promise<MatchWithPlayers | null> {
+  const m = await prisma.match.findUnique({ where: { id }, include: MATCH_INCLUDE })
+  return m ? hydrateMatch(m) : null
+}
+
+export async function getMatchCount(): Promise<number> {
+  return prisma.match.count()
+}
+
+// ---------------------------------------------------------------------------
+// Match creation
+// ---------------------------------------------------------------------------
+
+export async function createMatch(data: {
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
@@ -307,96 +174,212 @@ export function createMatch(data: {
   sets: { teamAGames: number; teamBGames: number }[]
   winner: 'A' | 'B' | null
   status: 'complete' | 'incomplete'
-}): { matchId: string; ptrDelta: number; isUpset: boolean; status: string } | { error: string } {
+}): Promise<{ matchId: string; ptrDelta: number; isUpset: boolean; status: string } | { error: string }> {
   const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status } = data
 
   const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
   if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
 
-  const p1 = _players.find(p => p.id === teamAPlayer1Id)
-  const p2 = _players.find(p => p.id === teamAPlayer2Id)
-  const p3 = _players.find(p => p.id === teamBPlayer1Id)
-  const p4 = _players.find(p => p.id === teamBPlayer2Id)
-
+  const [p1, p2, p3, p4] = await Promise.all(ids.map(id => prisma.player.findUnique({ where: { id } })))
   if (!p1 || !p2 || !p3 || !p4) return { error: 'One or more players not found' }
 
   const teamAPTRBefore = (p1.ptr + p2.ptr) / 2
   const teamBPTRBefore = (p3.ptr + p4.ptr) / 2
-  const matchId = uid()
-  const now = new Date().toISOString()
-
-  const match: StoredMatch = {
-    id: matchId,
-    playedAt: now,
-    submittedAt: now,
-    status,
-    teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
-    winner: null,
-    teamAPTRBefore,
-    teamBPTRBefore,
-    teamAPTRAfter: teamAPTRBefore,
-    teamBPTRAfter: teamBPTRBefore,
-    ptrDelta: 0,
-    scoreMultiplier: 1,
-    isUpset: false,
-    matchQuality: 0,
-    notes: null,
-    sets: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
-  }
-
-  _matches.push(match)
 
   if (status === 'complete' && winner) {
-    applyPTR(match, winner, now)
+    return prisma.$transaction(async tx => {
+      const match = await tx.match.create({
+        data: {
+          status,
+          teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+          teamAPTRBefore, teamBPTRBefore,
+          teamAPTRAfter: teamAPTRBefore,
+          teamBPTRAfter: teamBPTRBefore,
+          sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
+        },
+      })
+      const result = await applyPTR(tx, match.id, { p1, p2, p3, p4 }, sets, winner, teamAPTRBefore, teamBPTRBefore)
+      return { matchId: match.id, ptrDelta: result.ptrDelta, isUpset: result.isUpset, status }
+    })
   }
 
-  return { matchId, ptrDelta: match.ptrDelta, isUpset: match.isUpset, status }
+  const match = await prisma.match.create({
+    data: {
+      status: 'incomplete',
+      winner: null,
+      teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+      teamAPTRBefore, teamBPTRBefore,
+      teamAPTRAfter: teamAPTRBefore,
+      teamBPTRAfter: teamBPTRBefore,
+      sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
+    },
+  })
+  return { matchId: match.id, ptrDelta: 0, isUpset: false, status: 'incomplete' }
 }
 
-export function updateMatch(
+// ---------------------------------------------------------------------------
+// Match update (complete an incomplete match)
+// ---------------------------------------------------------------------------
+
+export async function updateMatch(
   id: string,
   sets: { teamAGames: number; teamBGames: number }[],
   winner: 'A' | 'B' | null,
   status: 'complete' | 'incomplete'
-): { ok: true } | { error: string } {
-  const match = _matches.find(m => m.id === id)
+): Promise<{ ok: true } | { error: string }> {
+  const match = await prisma.match.findUnique({ where: { id } })
   if (!match) return { error: 'Match not found' }
   if (match.status === 'complete') return { error: 'Cannot edit a completed match' }
 
-  match.sets = sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames }))
-
   if (status === 'complete' && winner) {
-    const now = new Date().toISOString()
-    applyPTR(match, winner, now)
+    const [p1, p2, p3, p4] = await Promise.all([
+      prisma.player.findUnique({ where: { id: match.teamAPlayer1Id } }),
+      prisma.player.findUnique({ where: { id: match.teamAPlayer2Id } }),
+      prisma.player.findUnique({ where: { id: match.teamBPlayer1Id } }),
+      prisma.player.findUnique({ where: { id: match.teamBPlayer2Id } }),
+    ])
+    if (!p1 || !p2 || !p3 || !p4) return { error: 'Player not found' }
+
+    await prisma.$transaction(async tx => {
+      // Replace sets
+      await tx.matchSet.deleteMany({ where: { matchId: id } })
+      await tx.matchSet.createMany({
+        data: sets.map((s, i) => ({ matchId: id, setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
+      })
+      await applyPTR(tx, id, { p1, p2, p3, p4 }, sets, winner, match.teamAPTRBefore, match.teamBPTRBefore)
+    })
   } else {
-    match.status = 'incomplete'
-    match.winner = null
+    await prisma.$transaction([
+      prisma.matchSet.deleteMany({ where: { matchId: id } }),
+      prisma.matchSet.createMany({
+        data: sets.map((s, i) => ({ matchId: id, setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
+      }),
+      prisma.match.update({ where: { id }, data: { status: 'incomplete', winner: null } }),
+    ])
   }
 
   return { ok: true }
 }
 
-export function getMatchById(id: string) {
-  const m = _matches.find(m => m.id === id)
-  return m ? hydrate(m) : null
+// ---------------------------------------------------------------------------
+// Player update
+// ---------------------------------------------------------------------------
+
+export async function updatePlayer(
+  id: string,
+  data: { nickname?: string; avatarColor?: string }
+): Promise<{ ok: true } | { error: string }> {
+  const p = await prisma.player.findUnique({ where: { id } })
+  if (!p) return { error: 'Player not found' }
+  await prisma.player.update({ where: { id }, data })
+  return { ok: true }
 }
 
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
-export function updatePlayer(
-  id: string,
-  data: { nickname?: string; avatarColor?: string }
-): { ok: true } | { error: string } {
-  const p = _players.find(p => p.id === id)
-  if (!p) return { error: 'Player not found' }
-  if (data.nickname !== undefined) p.nickname = data.nickname
-  if (data.avatarColor !== undefined) p.avatarColor = data.avatarColor
-  p.updatedAt = new Date().toISOString()
-  return { ok: true }
+export async function findUserByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email } })
 }
 
-export function findUserByEmail(email: string) {
-  return USERS.find(u => u.email === email) ?? null
+// ---------------------------------------------------------------------------
+// Internal PTR application (runs inside a transaction)
+// ---------------------------------------------------------------------------
+
+type TxClient = Prisma.TransactionClient
+
+async function applyPTR(
+  tx: TxClient,
+  matchId: string,
+  players: { p1: Player; p2: Player; p3: Player; p4: Player },
+  sets: { teamAGames: number; teamBGames: number }[],
+  winner: 'A' | 'B',
+  teamAPTRBefore: number,
+  teamBPTRBefore: number,
+): Promise<{ ptrDelta: number; isUpset: boolean }> {
+  const { p1, p2, p3, p4 } = players
+
+  const result = calculatePTRChanges(
+    [p1.ptr, p2.ptr],
+    [p3.ptr, p4.ptr],
+    [calculateReliability(p1.matchesPlayed), calculateReliability(p2.matchesPlayed)],
+    [calculateReliability(p3.matchesPlayed), calculateReliability(p4.matchesPlayed)],
+    sets.map((s, i) => ({ setNumber: i + 1, ...s })),
+    winner,
+  )
+
+  const playedSets = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+  const setsA = playedSets.filter(s => s.teamAGames > s.teamBGames).length
+  const setsB = playedSets.filter(s => s.teamBGames > s.teamAGames).length
+  const gamesA = playedSets.reduce((acc, s) => acc + s.teamAGames, 0)
+  const gamesB = playedSets.reduce((acc, s) => acc + s.teamBGames, 0)
+
+  const tbWonA = sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
+  const tbWonB = sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
+  const tbTotal = tbWonA + tbWonB
+
+  const [dA1, dA2] = result.playerADeltas
+  const [dB1, dB2] = result.playerBDeltas
+
+  const updatePlayer = (p: Player, delta: number, isWinner: boolean, sw: number, sl: number, gw: number, gl: number, tbWon: number) => {
+    const newMatches = p.matchesPlayed + 1
+    const newStreak = isWinner
+      ? (p.currentStreak > 0 ? p.currentStreak + 1 : 1)
+      : (p.currentStreak < 0 ? p.currentStreak - 1 : -1)
+    return tx.player.update({
+      where: { id: p.id },
+      data: {
+        ptr: p.ptr + delta,
+        matchesPlayed: newMatches,
+        reliability: calculateReliability(newMatches),
+        wins: isWinner ? p.wins + 1 : p.wins,
+        losses: isWinner ? p.losses : p.losses + 1,
+        setsWon: p.setsWon + sw,
+        setsLost: p.setsLost + sl,
+        gamesWon: p.gamesWon + gw,
+        gamesLost: p.gamesLost + gl,
+        tiebreaksWon: p.tiebreaksWon + tbWon,
+        tiebreaksPlayed: p.tiebreaksPlayed + tbTotal,
+        currentStreak: newStreak,
+        bestStreak: isWinner ? Math.max(p.bestStreak, newStreak) : p.bestStreak,
+      },
+    })
+  }
+
+  const ptrHistory = (p: Player, delta: number) =>
+    tx.pTRHistory.create({
+      data: {
+        playerId: p.id,
+        matchId,
+        ptrBefore: p.ptr,
+        ptrAfter: p.ptr + delta,
+        delta,
+        reliability: calculateReliability(p.matchesPlayed + 1),
+      },
+    })
+
+  await Promise.all([
+    updatePlayer(p1, dA1, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
+    updatePlayer(p2, dA2, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
+    updatePlayer(p3, dB1, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
+    updatePlayer(p4, dB2, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
+    ptrHistory(p1, dA1), ptrHistory(p2, dA2),
+    ptrHistory(p3, dB1), ptrHistory(p4, dB2),
+    tx.match.update({
+      where: { id: matchId },
+      data: {
+        status: 'complete',
+        winner,
+        teamAPTRAfter: teamAPTRBefore + result.teamADelta,
+        teamBPTRAfter: teamBPTRBefore + result.teamBDelta,
+        ptrDelta: Math.abs(result.teamADelta),
+        scoreMultiplier: result.scoreMultiplier,
+        isUpset: result.isUpset,
+        matchQuality: result.matchQuality,
+      },
+    }),
+  ])
+
+  return { ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
 }

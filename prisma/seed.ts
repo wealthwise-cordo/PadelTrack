@@ -3,57 +3,43 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-const PLAYER_COLORS = [
-  '#00ff87', '#00d4ff', '#a855f7', '#ff6b35',
-  '#fbbf24', '#f472b6', '#34d399', '#60a5fa',
-]
+const COLORS = ['#00ff87', '#00d4ff', '#a855f7', '#ff6b35', '#fbbf24', '#f472b6', '#34d399', '#60a5fa']
 
-const players = [
-  { name: 'Alex Torres', nickname: 'El Toro' },
-  { name: 'Marco Reyes', nickname: 'The Wall' },
-  { name: 'Luis Mendez', nickname: 'Flash' },
-  { name: 'Carlos Ruiz', nickname: 'El Jefe' },
-  { name: 'Diego Morales', nickname: 'Dagger' },
-  { name: 'Pablo Santos', nickname: 'Pablito' },
-  { name: 'Javier Vega', nickname: 'Jaguar' },
-  { name: 'Roberto Cruz', nickname: 'Cobra' },
+const PLAYERS = [
+  { name: 'Cord van Eck',   nickname: 'Green Mamba' },
+  { name: 'JonJon Clark',   nickname: 'Double J'    },
+  { name: 'Zac Schmidt',    nickname: 'The Hammer'  },
+  { name: 'Brandon Fair',   nickname: 'Fairway'     },
+  { name: 'Cameron Meek',   nickname: 'Cam Bam'     },
+  { name: 'Ashley Butler',  nickname: 'Red Mist'    },
+  { name: 'Alex Messeguer', nickname: 'The Tornado' },
+  { name: 'Jason Knibbs',   nickname: 'Knibster'    },
 ]
 
 async function main() {
-  console.log('Seeding database...')
+  console.log('Seeding database…')
+  const password = await bcrypt.hash('password123', 10)
 
-  // Create players with users
-  const createdPlayers = []
-  for (let i = 0; i < players.length; i++) {
-    const p = players[i]
-    const email = `${p.name.toLowerCase().replace(' ', '.')}@ptr.com`
-    const password = await bcrypt.hash('password123', 10)
+  for (let i = 0; i < PLAYERS.length; i++) {
+    const { name, nickname } = PLAYERS[i]
+    const email = name.toLowerCase().replace(/ /g, '.') + '@ptr.com'
 
     const user = await prisma.user.upsert({
       where: { email },
       update: {},
-      create: { email, password, name: p.name },
+      create: { email, password, name },
     })
 
-    const player = await prisma.player.upsert({
+    await prisma.player.upsert({
       where: { userId: user.id },
       update: {},
-      create: {
-        name: p.name,
-        nickname: p.nickname,
-        avatarColor: PLAYER_COLORS[i],
-        userId: user.id,
-      },
+      create: { name, nickname, avatarColor: COLORS[i], userId: user.id },
     })
 
-    createdPlayers.push(player)
-    console.log(`Created player: ${p.name}`)
+    console.log(`  ✓ ${name}`)
   }
 
-  console.log('Seed complete! All 8 players created.')
-  console.log('Login with any player email (e.g. alex.torres@ptr.com) and password: password123')
+  console.log('Done. Login: <name>@ptr.com / password123')
 }
 
-main()
-  .catch(console.error)
-  .finally(() => prisma.$disconnect())
+main().catch(console.error).finally(() => prisma.$disconnect())

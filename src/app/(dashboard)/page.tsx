@@ -5,11 +5,10 @@ import { getPlayers, getMatchCount } from '@/lib/store'
 export const revalidate = 0
 
 export default async function LeaderboardPage() {
-  const players = getPlayers()
-  const totalMatches = getMatchCount()
+  const [players, totalMatches] = await Promise.all([getPlayers(), getMatchCount()])
   const topPlayer = players[0]
   const biggestMover = players.reduce((best, p) =>
-    Math.abs(p.ptrDelta) > Math.abs(best?.ptrDelta ?? 0) ? p : best
+    Math.abs(p.ptrDelta ?? 0) > Math.abs(best?.ptrDelta ?? 0) ? p : best
   , players[0])
 
   return (
@@ -64,8 +63,8 @@ export default async function LeaderboardPage() {
               </div>
               <div>
                 <div className="font-semibold text-sm">{biggestMover.name.split(' ')[0]}</div>
-                <div className={`font-mono text-xs ${biggestMover.ptrDelta >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
-                  {biggestMover.ptrDelta > 0 ? '+' : ''}{biggestMover.ptrDelta.toFixed(1)}
+                <div className={`font-mono text-xs ${(biggestMover.ptrDelta ?? 0) >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
+                  {(biggestMover.ptrDelta ?? 0) > 0 ? '+' : ''}{(biggestMover.ptrDelta ?? 0).toFixed(1)}
                 </div>
               </div>
             </div>

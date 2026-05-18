@@ -5,7 +5,7 @@ import MatchEditForm from '@/components/matches/MatchEditForm'
 export const revalidate = 0
 
 export default async function EditMatchPage({ params }: { params: { id: string } }) {
-  const match = getMatchById(params.id)
+  const match = await getMatchById(params.id)
 
   if (!match) notFound()
   if (match.status === 'complete') redirect('/matches')
