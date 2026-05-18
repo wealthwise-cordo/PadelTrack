@@ -91,7 +91,7 @@ export default function MatchEntryForm({ players }: Props) {
 
   const completedA = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
   const completedB = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
-  const thirdSetActive = (completedA === 1 && completedB === 1) || sets[2].teamAGames + sets[2].teamBGames > 0
+  const thirdSetActive = true
 
   const handleSubmit = async () => {
     if (!allSelected) { setError('Select all four players first'); return }

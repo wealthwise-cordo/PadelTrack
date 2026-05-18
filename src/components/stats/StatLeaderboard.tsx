@@ -9,6 +9,7 @@ interface Entry {
   player: PlayerWithStats
   value: number
   display: string
+  sub?: string
 }
 
 interface Props {
@@ -66,7 +67,7 @@ export default function StatLeaderboard({ title, entries }: Props) {
       {/* Full table */}
       {expanded && (
         <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-          {entries.map(({ player, display }, i) => (
+          {entries.map(({ player, display, sub }, i) => (
             <div key={player.id} className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground font-mono w-5 text-right shrink-0">
                 {i + 1}
@@ -77,8 +78,11 @@ export default function StatLeaderboard({ title, entries }: Props) {
               >
                 {getInitials(player.name)}
               </div>
-              <span className="flex-1 text-sm">{player.name}</span>
-              <span className="font-mono font-bold text-sm" style={{ color: player.avatarColor }}>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm">{player.name}</div>
+                {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
+              </div>
+              <span className="font-mono font-bold text-sm shrink-0" style={{ color: player.avatarColor }}>
                 {display}
               </span>
             </div>

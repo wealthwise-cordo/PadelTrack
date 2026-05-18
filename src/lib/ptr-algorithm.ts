@@ -42,34 +42,25 @@ export function calculateScoreMultiplier(sets: MatchSet[], winner: 'A' | 'B'): n
   return Math.max(0.75, Math.min(1.5, multiplier))
 }
 
+function setQualityScore(margin: number): number {
+  if (margin <= 1) return 1          // 7-6 tiebreak
+  if (margin <= 3) return 5 / 7     // 6-3, 6-4, 7-5
+  if (margin <= 5) return 2 / 7     // 6-1, 6-2
+  return 0                           // 6-0
+}
+
 export function calculateMatchQuality(
-  avgPTRA: number,
-  avgPTRB: number,
+  _avgPTRA: number,
+  _avgPTRB: number,
   sets: MatchSet[]
 ): number {
   const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+  if (played.length === 0) return 1
 
-  // PTR balance: 0–3 pts (evenly matched teams)
-  const ptrDiff = Math.abs(avgPTRA - avgPTRB)
-  const ptrScore = Math.max(0, 3 - ptrDiff / 60)
+  const sum = played.reduce((acc, s) => acc + setQualityScore(Math.abs(s.teamAGames - s.teamBGames)), 0)
+  const coeff = played.length === 3 ? 3.0 : 3.5
 
-  // Set score closeness: up to 2 pts per set played, capped at 4
-  let setScore = 0
-  for (const s of played) {
-    const diff = Math.abs(s.teamAGames - s.teamBGames)
-    setScore += Math.max(0, 2 - diff * 0.5)
-  }
-  setScore = Math.min(4, setScore)
-
-  // 3rd-set bonus: only rewarded if the deciding set was actually close.
-  // A one-sided 3rd set gets nothing, so a tight 2-setter can outscore it.
-  // Max 3 pts (tiebreak decider) scaling to 0 pts at 4+ game margin.
-  const went3Sets = played.length === 3
-  const thirdSetBonus = went3Sets
-    ? Math.max(0, 1 - Math.abs(played[2].teamAGames - played[2].teamBGames) / 4) * 3
-    : 0
-
-  return Math.min(10, Math.max(1, ptrScore + setScore + thirdSetBonus))
+  return Math.min(10, Math.max(1, 1 + coeff * sum))
 }
 
 export function isUpset(

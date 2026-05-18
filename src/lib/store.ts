@@ -276,6 +276,104 @@ export async function updatePlayer(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: delete a single match and reverse its PTR impact
+// ---------------------------------------------------------------------------
+
+export async function deleteMatch(id: string): Promise<{ ok: true } | { error: string }> {
+  return prisma.$transaction(async tx => {
+    const match = await tx.match.findUnique({
+      where: { id },
+      include: { sets: true, ptrHistory: true },
+    })
+    if (!match) return { error: 'Match not found' }
+
+    if (match.status === 'complete' && match.winner) {
+      const [p1, p2, p3, p4] = await Promise.all([
+        tx.player.findUnique({ where: { id: match.teamAPlayer1Id } }),
+        tx.player.findUnique({ where: { id: match.teamAPlayer2Id } }),
+        tx.player.findUnique({ where: { id: match.teamBPlayer1Id } }),
+        tx.player.findUnique({ where: { id: match.teamBPlayer2Id } }),
+      ])
+      if (!p1 || !p2 || !p3 || !p4) return { error: 'Player not found' }
+
+      const winner = match.winner as 'A' | 'B'
+      const played = match.sets.filter(s => s.teamAGames + s.teamBGames > 0)
+      const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
+      const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+      const gamesA = played.reduce((a, s) => a + s.teamAGames, 0)
+      const gamesB = played.reduce((a, s) => a + s.teamBGames, 0)
+      const tbWonA = match.sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
+      const tbWonB = match.sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
+      const tbTotal = tbWonA + tbWonB
+      const getDelta = (pid: string) => match.ptrHistory.find(h => h.playerId === pid)?.delta ?? 0
+
+      const reversePlayer = (p: Player, isWinner: boolean, sw: number, sl: number, gw: number, gl: number, tbWon: number) => {
+        const newMatches = Math.max(0, p.matchesPlayed - 1)
+        return tx.player.update({
+          where: { id: p.id },
+          data: {
+            ptr: p.ptr - getDelta(p.id),
+            matchesPlayed: newMatches,
+            reliability: calculateReliability(newMatches),
+            wins: isWinner ? Math.max(0, p.wins - 1) : p.wins,
+            losses: isWinner ? p.losses : Math.max(0, p.losses - 1),
+            setsWon: Math.max(0, p.setsWon - sw),
+            setsLost: Math.max(0, p.setsLost - sl),
+            gamesWon: Math.max(0, p.gamesWon - gw),
+            gamesLost: Math.max(0, p.gamesLost - gl),
+            tiebreaksWon: Math.max(0, p.tiebreaksWon - tbWon),
+            tiebreaksPlayed: Math.max(0, p.tiebreaksPlayed - tbTotal),
+            currentStreak: 0,
+          },
+        })
+      }
+
+      await Promise.all([
+        reversePlayer(p1, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
+        reversePlayer(p2, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
+        reversePlayer(p3, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
+        reversePlayer(p4, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
+      ])
+    }
+
+    await tx.pTRHistory.deleteMany({ where: { matchId: id } })
+    await tx.matchSet.deleteMany({ where: { matchId: id } })
+    await tx.match.delete({ where: { id } })
+    return { ok: true as const }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Admin: reset entire database (wipe matches, restore all players to 1000 PTR)
+// ---------------------------------------------------------------------------
+
+export async function resetDatabase(): Promise<{ ok: true }> {
+  await prisma.$transaction(async tx => {
+    await tx.pTRHistory.deleteMany()
+    await tx.matchSet.deleteMany()
+    await tx.match.deleteMany()
+    await tx.player.updateMany({
+      data: {
+        ptr: 1000,
+        reliability: 0,
+        matchesPlayed: 0,
+        wins: 0,
+        losses: 0,
+        setsWon: 0,
+        setsLost: 0,
+        gamesWon: 0,
+        gamesLost: 0,
+        tiebreaksWon: 0,
+        tiebreaksPlayed: 0,
+        currentStreak: 0,
+        bestStreak: 0,
+      },
+    })
+  })
+  return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 

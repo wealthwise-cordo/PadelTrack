@@ -161,23 +161,30 @@ export default async function StatsPage() {
 
         <StatLeaderboard
           title="Matches Won"
-          entries={matchesWon.map(p => ({ player: p, value: p.wins, display: String(p.wins) }))}
+          entries={matchesWon.map(p => ({
+            player: p,
+            value: p.wins,
+            display: String(p.wins),
+            sub: `${p.setsWon} sets · ${p.gamesWon} games won`,
+          }))}
         />
         <StatLeaderboard
           title="Matches Played"
-          entries={matchesPlayed.map(p => ({ player: p, value: p.matchesPlayed, display: String(p.matchesPlayed) }))}
+          entries={matchesPlayed.map(p => ({
+            player: p,
+            value: p.matchesPlayed,
+            display: String(p.matchesPlayed),
+            sub: `${p.setsWon + p.setsLost} sets · ${p.gamesWon + p.gamesLost} games`,
+          }))}
         />
         <StatLeaderboard
           title="Tiebreaks Won"
-          entries={tiebreaksWon.map(p => ({ player: p, value: p.tiebreaksWon, display: String(p.tiebreaksWon) }))}
-        />
-        <StatLeaderboard
-          title="Sets Won"
-          entries={setsWon.map(p => ({ player: p, value: p.setsWon, display: String(p.setsWon) }))}
-        />
-        <StatLeaderboard
-          title="Games Won"
-          entries={gamesWon.map(p => ({ player: p, value: p.gamesWon, display: String(p.gamesWon) }))}
+          entries={tiebreaksWon.map(p => ({
+            player: p,
+            value: p.tiebreaksWon,
+            display: p.tiebreaksPlayed > 0 ? `${p.tiebreaksWon}/${p.tiebreaksPlayed}` : '0',
+            sub: p.tiebreaksPlayed > 0 ? `${Math.round(tiebreakConversion(p) * 100)}% conversion` : undefined,
+          }))}
         />
       </div>
     </div>

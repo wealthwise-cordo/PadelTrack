@@ -1,7 +1,7 @@
 import MatchCard from '@/components/matches/MatchCard'
 import { getMatches } from '@/lib/store'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil } from 'lucide-react'
 
 export const revalidate = 0
 
@@ -32,6 +32,17 @@ export default async function MatchHistoryPage() {
           ))}
         </div>
       )}
+
+      {/* Admin access */}
+      <div className="flex justify-center pt-2 pb-4">
+        <Link
+          href="/admin"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+        >
+          <Pencil className="h-3 w-3" />
+          Manage
+        </Link>
+      </div>
     </div>
   )
 }

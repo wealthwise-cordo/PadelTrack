@@ -1,5 +1,6 @@
 import { Trophy, TrendingUp } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
+import LiveRefreshButton from '@/components/leaderboard/LiveRefreshButton'
 import { getPlayers, getMatchCount } from '@/lib/store'
 
 export const revalidate = 0
@@ -23,10 +24,7 @@ export default async function LeaderboardPage() {
             Spain 2026 · {totalMatches} matches played
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-neon-green bg-neon-green/10 rounded-full px-3 py-1.5">
-          <div className="h-1.5 w-1.5 rounded-full bg-neon-green animate-ptr-pulse" />
-          Live
-        </div>
+        <LiveRefreshButton />
       </div>
 
       {/* Highlight cards */}

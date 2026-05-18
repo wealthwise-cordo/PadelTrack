@@ -93,9 +93,6 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             </span>
             <span>{player.wins}W–{player.losses}L</span>
             <span>{winRate}% wins</span>
-            <span className="text-xs px-1.5 py-0.5 rounded bg-white/5">
-              {getReliabilityLabel(player.reliability)}
-            </span>
           </div>
         </div>
       </div>
