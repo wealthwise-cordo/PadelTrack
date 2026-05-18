@@ -88,14 +88,14 @@ export interface StoredPlayer {
 const COLORS = ['#00ff87', '#00d4ff', '#a855f7', '#ff6b35', '#fbbf24', '#f472b6', '#34d399', '#60a5fa']
 
 const SEED = [
-  { name: 'Alex Torres',   nickname: 'El Toro'  },
-  { name: 'Marco Reyes',   nickname: 'The Wall' },
-  { name: 'Luis Mendez',   nickname: 'Flash'    },
-  { name: 'Carlos Ruiz',   nickname: 'El Jefe'  },
-  { name: 'Diego Morales', nickname: 'Dagger'   },
-  { name: 'Pablo Santos',  nickname: 'Pablito'  },
-  { name: 'Javier Vega',   nickname: 'Jaguar'   },
-  { name: 'Roberto Cruz',  nickname: 'Cobra'    },
+  { name: 'Cord van Eck',      nickname: 'Green Mamba' },
+  { name: 'JonJon Clark',      nickname: 'Double J'    },
+  { name: 'Zac Schmidt',       nickname: 'The Hammer'  },
+  { name: 'Brandon Fair',      nickname: 'Fairway'     },
+  { name: 'Cameron Meek',      nickname: 'Cam Bam'     },
+  { name: 'Ashley Butler',     nickname: 'Red Mist'    },
+  { name: 'Alex Messeguer',    nickname: 'The Tornado' },
+  { name: 'Jason Knibbs',      nickname: 'Knibster'    },
 ]
 
 const PW_HASH = bcrypt.hashSync('password123', 10)
