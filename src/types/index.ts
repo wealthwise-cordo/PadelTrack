@@ -12,6 +12,8 @@ export interface PlayerWithStats {
   setsLost: number
   gamesWon: number
   gamesLost: number
+  tiebreaksWon: number
+  tiebreaksPlayed: number
   currentStreak: number
   bestStreak: number
   ptrHistory: PTRHistoryPoint[]

@@ -47,18 +47,29 @@ export function calculateMatchQuality(
   avgPTRB: number,
   sets: MatchSet[]
 ): number {
-  // Quality 1-10 based on: closeness of PTRs + set closeness
+  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+
+  // PTR balance: 0–3 pts (evenly matched teams)
   const ptrDiff = Math.abs(avgPTRA - avgPTRB)
-  const ptrScore = Math.max(0, 5 - ptrDiff / 40) // 5 pts for equal teams
+  const ptrScore = Math.max(0, 3 - ptrDiff / 60)
 
-  let setCloseness = 0
-  for (const set of sets) {
-    const diff = Math.abs(set.teamAGames - set.teamBGames)
-    setCloseness += Math.max(0, 3 - diff) // closer = better
+  // Set score closeness: up to 2 pts per set played, capped at 4
+  let setScore = 0
+  for (const s of played) {
+    const diff = Math.abs(s.teamAGames - s.teamBGames)
+    setScore += Math.max(0, 2 - diff * 0.5)
   }
-  const setScore = Math.min(5, setCloseness)
+  setScore = Math.min(4, setScore)
 
-  return Math.min(10, Math.max(1, ptrScore + setScore))
+  // 3rd-set bonus: only rewarded if the deciding set was actually close.
+  // A one-sided 3rd set gets nothing, so a tight 2-setter can outscore it.
+  // Max 3 pts (tiebreak decider) scaling to 0 pts at 4+ game margin.
+  const went3Sets = played.length === 3
+  const thirdSetBonus = went3Sets
+    ? Math.max(0, 1 - Math.abs(played[2].teamAGames - played[2].teamBGames) / 4) * 3
+    : 0
+
+  return Math.min(10, Math.max(1, ptrScore + setScore + thirdSetBonus))
 }
 
 export function isUpset(
@@ -71,6 +82,36 @@ export function isUpset(
   return expectedA > 0.6  // B was underdog
 }
 
+// How much weight to give individual contribution vs flat team split.
+// 0 = both teammates always get the same delta; 1 = fully individual.
+const INDIVIDUAL_FACTOR = 0.5
+
+/**
+ * For each player on a team, compute their normalised weight in the
+ * delta distribution based on their individual ELO expectation vs the
+ * opposing team's average PTR.
+ *
+ * Winners: the player who was individually less expected to win gets more
+ *          credit (they outperformed their expectation).
+ * Losers:  the player who was individually more expected to win takes more
+ *          of the penalty (they underperformed their expectation).
+ *
+ * Weights always sum to 1 so the team total is preserved.
+ */
+function individualWeights(
+  ptrs: [number, number],
+  opponentAvgPTR: number,
+  isWinner: boolean
+): [number, number] {
+  const e0 = calculateExpectedWin(ptrs[0], opponentAvgPTR)
+  const e1 = calculateExpectedWin(ptrs[1], opponentAvgPTR)
+  const w0 = isWinner ? (1 - e0) : e0
+  const w1 = isWinner ? (1 - e1) : e1
+  const total = w0 + w1
+  if (total === 0) return [0.5, 0.5]
+  return [w0 / total, w1 / total]
+}
+
 export function calculatePTRChanges(
   playerAPTRs: [number, number],
   playerBPTRs: [number, number],
@@ -79,6 +120,8 @@ export function calculatePTRChanges(
   sets: MatchSet[],
   winner: 'A' | 'B'
 ): {
+  playerADeltas: [number, number]
+  playerBDeltas: [number, number]
   teamADelta: number
   teamBDelta: number
   scoreMultiplier: number
@@ -102,10 +145,25 @@ export function calculatePTRChanges(
   const actualA = winner === 'A' ? 1 : 0
   const rawDelta = K * scoreMultiplier * (actualA - expectedWinA)
 
-  // Team A gains rawDelta, Team B loses same (zero-sum)
+  // Individual distribution: blend flat split with individual-weighted split.
+  // delta_i = teamDelta * (1 + (2*weight_i - 1) * INDIVIDUAL_FACTOR)
+  // Since weight_i sum to 1, both players' deltas still average to teamDelta.
+  const [wA0, wA1] = individualWeights(playerAPTRs, avgPTRB, winner === 'A')
+  const [wB0, wB1] = individualWeights(playerBPTRs, avgPTRA, winner === 'B')
+
+  const r = (w: number) => Math.round(rawDelta * (1 + (2 * w - 1) * INDIVIDUAL_FACTOR) * 10) / 10
+
+  const playerADeltas: [number, number] = [r(wA0), r(wA1)]
+  const playerBDeltas: [number, number] = [-r(wB0), -r(wB1)]
+
+  const teamADelta = Math.round(rawDelta * 10) / 10
+  const teamBDelta = Math.round(-rawDelta * 10) / 10
+
   return {
-    teamADelta: Math.round(rawDelta * 10) / 10,
-    teamBDelta: Math.round(-rawDelta * 10) / 10,
+    playerADeltas,
+    playerBDeltas,
+    teamADelta,
+    teamBDelta,
     scoreMultiplier,
     expectedWinA,
     matchQuality,

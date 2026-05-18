@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
-import { getInitials, formatPTR } from '@/lib/utils'
+import { getInitials, formatPTR, setWinner } from '@/lib/utils'
 import type { PlayerWithStats } from '@/types'
 
 interface SetScore {
@@ -15,7 +15,6 @@ interface Props {
   players: PlayerWithStats[]
 }
 
-// slots index: 0 = teamA1, 1 = teamA2, 2 = teamB1, 3 = teamB2
 type Slots = [string, string, string, string]
 
 const EMPTY_SETS: SetScore[] = [
@@ -25,9 +24,8 @@ const EMPTY_SETS: SetScore[] = [
 ]
 
 function matchStatus(sets: SetScore[]): { status: 'complete' | 'incomplete'; winner: 'A' | 'B' | null } {
-  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-  const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+  const setsA = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
+  const setsB = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
   if (setsA >= 2) return { status: 'complete', winner: 'A' }
   if (setsB >= 2) return { status: 'complete', winner: 'B' }
   return { status: 'incomplete', winner: null }
@@ -38,15 +36,18 @@ export default function MatchEntryForm({ players }: Props) {
   const [slots, setSlots] = useState<Slots>(['', '', '', ''])
   const [pickingSlot, setPickingSlot] = useState<number | null>(null)
   const [sets, setSets] = useState<SetScore[]>(EMPTY_SETS)
+  const [hasEditedScore, setHasEditedScore] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState<'complete' | 'incomplete' | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  // 6 input refs: [s0A, s0B, s1A, s1B, s2A, s2B]
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null, null, null])
 
   const [teamA1, teamA2, teamB1, teamB2] = slots
   const allSelected = slots.every(Boolean)
 
   const getPlayer = (id: string) => players.find(p => p.id === id)
-
   const availableForSlot = (slotIdx: number) =>
     players.filter(p => !slots.some((id, i) => i !== slotIdx && id === p.id))
 
@@ -64,14 +65,33 @@ export default function MatchEntryForm({ players }: Props) {
     setSlots(next)
   }
 
+  const updateScore = (setIdx: number, team: 'A' | 'B', val: number) => {
+    const v = [...sets]
+    if (team === 'A') v[setIdx] = { ...v[setIdx], teamAGames: val }
+    else v[setIdx] = { ...v[setIdx], teamBGames: val }
+    setSets(v)
+    setHasEditedScore(true)
+  }
+
+  const focusNext = (refIdx: number) => {
+    // Determine the next meaningful input skipping dimmed set 3 inputs
+    const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+    const setsA1 = played.filter(s => s.teamAGames > s.teamBGames).length
+    const setsB1 = played.filter(s => s.teamBGames > s.teamAGames).length
+    const thirdActive = (setsA1 === 1 && setsB1 === 1) || sets[2].teamAGames + sets[2].teamBGames > 0
+    const lastActive = thirdActive ? 5 : 3
+    if (refIdx >= lastActive) {
+      inputRefs.current[refIdx]?.blur()
+    } else {
+      inputRefs.current[refIdx + 1]?.focus()
+    }
+  }
+
   const { status, winner } = matchStatus(sets)
 
-  // 3rd set is only active when sets 1 & 2 are split 1-1
-  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-  const setsA1 = played.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB1 = played.filter(s => s.teamBGames > s.teamAGames).length
-  const thirdSetNeeded = setsA1 === 1 && setsB1 === 1
-  const thirdSetActive = thirdSetNeeded || sets[2].teamAGames + sets[2].teamBGames > 0
+  const completedA = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
+  const completedB = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
+  const thirdSetActive = (completedA === 1 && completedB === 1) || sets[2].teamAGames + sets[2].teamBGames > 0
 
   const handleSubmit = async () => {
     if (!allSelected) { setError('Select all four players first'); return }
@@ -91,8 +111,8 @@ export default function MatchEntryForm({ players }: Props) {
         const d = await res.json()
         setError(d.error || 'Submission failed')
       } else {
-        setSuccess(status)
-        setTimeout(() => router.push('/matches'), 2000)
+        setSaved(true)
+        setTimeout(() => router.push('/matches'), 1500)
       }
     } catch {
       setError('Network error')
@@ -101,14 +121,11 @@ export default function MatchEntryForm({ players }: Props) {
     }
   }
 
-  if (success) {
+  if (saved) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="text-6xl">{success === 'complete' ? '🏆' : '⏸️'}</div>
-        <div className="text-xl font-bold text-neon-green">
-          {success === 'complete' ? 'Match Recorded!' : 'Saved as Incomplete'}
-        </div>
-        <div className="text-sm text-muted-foreground">Redirecting to history...</div>
+      <div className="flex flex-col items-center justify-center h-full gap-4">
+        <div className="text-6xl">{status === 'complete' ? '🏆' : '⏸️'}</div>
+        <div className="text-xl font-bold text-neon-green">Match Saved!</div>
       </div>
     )
   }
@@ -119,71 +136,74 @@ export default function MatchEntryForm({ players }: Props) {
       return (
         <button
           onClick={() => setPickingSlot(idx)}
-          className="relative flex flex-col items-center gap-2 py-4 px-2 rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all w-full"
+          className="relative flex items-center gap-2 h-14 px-3 rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all w-full"
         >
-          <button
-            onClick={e => clearSlot(idx, e)}
-            className="absolute top-2 right-2 h-5 w-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-400/30 transition-colors"
-          >
-            <X className="h-3 w-3 text-muted-foreground" />
-          </button>
           <div
-            className="h-12 w-12 rounded-full flex items-center justify-center text-sm font-bold text-background shadow-lg"
-            style={{ backgroundColor: player.avatarColor, boxShadow: `0 0 16px ${player.avatarColor}55` }}
+            className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
+            style={{ backgroundColor: player.avatarColor, boxShadow: `0 0 12px ${player.avatarColor}44` }}
           >
             {getInitials(player.name)}
           </div>
-          <div className="text-center">
-            <div className="text-xs font-semibold leading-tight">{player.name.split(' ')[0]}</div>
-            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{formatPTR(player.ptr)}</div>
+          <div className="flex-1 text-left min-w-0">
+            <div className="text-xs font-semibold truncate">{player.name.split(' ')[0]}</div>
+            <div className="text-[10px] text-muted-foreground font-mono">{formatPTR(player.ptr)}</div>
           </div>
+          <button
+            onClick={e => clearSlot(idx, e)}
+            className="h-5 w-5 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-400/30 transition-colors shrink-0"
+          >
+            <X className="h-3 w-3 text-muted-foreground" />
+          </button>
         </button>
       )
     }
     return (
       <button
         onClick={() => setPickingSlot(idx)}
-        className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-white/20 hover:border-neon-green/50 hover:bg-neon-green/5 transition-all w-full aspect-square min-h-[110px]"
+        className="flex items-center justify-center h-14 rounded-xl border-2 border-dashed border-white/20 hover:border-neon-green/50 hover:bg-neon-green/5 transition-all w-full"
       >
-        <Plus className="h-7 w-7 text-white/30" />
+        <Plus className="h-5 w-5 text-white/30" />
       </button>
     )
   }
 
   return (
-    <div className="space-y-5 max-w-lg mx-auto">
+    <div className="pt-5 space-y-4">
 
-      {/* Court layout */}
-      <div className="glass rounded-2xl p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+      {/* Page title */}
+      <h1 className="text-2xl font-black tracking-tight">Record Match</h1>
+
+      {/* Court layout — compact */}
+      <div className="glass rounded-2xl p-3 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
           <Slot idx={0} />
           <Slot idx={1} />
         </div>
-
-        <div className="flex items-center gap-3 py-1">
+        <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-white/10" />
-          <span className="text-[11px] font-black text-white/30 tracking-[0.2em]">VS</span>
+          <span className="text-[10px] font-black text-white/25 tracking-[0.2em]">VS</span>
           <div className="flex-1 h-px bg-white/10" />
         </div>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <Slot idx={2} />
           <Slot idx={3} />
         </div>
       </div>
 
       {/* Score */}
-      <div className="glass rounded-xl p-4">
+      <div className="glass rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Score</div>
-          <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'}`}>
-            {status === 'complete' ? 'COMPLETE' : 'INCOMPLETE'}
-          </div>
+          {hasEditedScore && (
+            <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-all ${status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'}`}>
+              {status === 'complete' ? 'COMPLETE' : 'INCOMPLETE'}
+            </div>
+          )}
         </div>
 
         {/* Team avatar labels */}
         {allSelected && (
-          <div className="flex items-center gap-3 mb-2 px-12">
+          <div className="flex items-center gap-3 mb-2 px-10">
             <div className="flex-1 flex items-center gap-1.5">
               {[teamA1, teamA2].map(id => {
                 const p = getPlayer(id)!
@@ -194,7 +214,7 @@ export default function MatchEntryForm({ players }: Props) {
                 )
               })}
             </div>
-            <div className="w-4" />
+            <div className="w-5" />
             <div className="flex-1 flex items-center justify-end gap-1.5">
               {[teamB1, teamB2].map(id => {
                 const p = getPlayer(id)!
@@ -208,52 +228,64 @@ export default function MatchEntryForm({ players }: Props) {
           </div>
         )}
 
+        {/* Set rows */}
         <div className="space-y-2">
           {sets.map((set, i) => {
-            const isThirdSet = i === 2
-            const dimmed = isThirdSet && !thirdSetActive
+            const dimmed = i === 2 && !thirdSetActive
+            const lastActiveRef = thirdSetActive ? 5 : 3
+            const refA = i * 2
+            const refB = i * 2 + 1
             return (
-              <div key={i} className={`flex items-center gap-3 transition-opacity ${dimmed ? 'opacity-30 pointer-events-none' : ''}`}>
-                <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
+              <div
+                key={i}
+                className={`flex items-center gap-2 transition-opacity ${dimmed ? 'opacity-25 pointer-events-none' : ''}`}
+              >
+                <span className="text-xs text-muted-foreground w-10 shrink-0">Set {i + 1}</span>
                 <input
-                  type="number" min={0} max={7} value={set.teamAGames}
-                  onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  ref={el => { inputRefs.current[refA] = el }}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint="next"
+                  min={0}
+                  max={7}
+                  value={set.teamAGames}
+                  onChange={e => updateScore(i, 'A', Number(e.target.value))}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusNext(refA) } }}
+                  className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-3 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
                 />
-                <span className="text-muted-foreground text-xs font-bold">—</span>
+                <span className="text-muted-foreground text-sm font-bold shrink-0">—</span>
                 <input
-                  type="number" min={0} max={7} value={set.teamBGames}
-                  onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  ref={el => { inputRefs.current[refB] = el }}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint={refB >= lastActiveRef ? 'done' : 'next'}
+                  min={0}
+                  max={7}
+                  value={set.teamBGames}
+                  onChange={e => updateScore(i, 'B', Number(e.target.value))}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusNext(refB) } }}
+                  className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-xl px-2 py-3 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
                 />
-                {/* spacer to align with rows that have a remove button */}
-                <div className="w-4 shrink-0" />
               </div>
             )
           })}
         </div>
 
-        {allSelected && winner && (
+        {/* Winner announcement */}
+        {allSelected && hasEditedScore && winner && (
           <div className="mt-3 text-center text-sm font-bold text-neon-green">
             {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
           </div>
         )}
-
-        {status === 'incomplete' && (
-          <p className="mt-3 text-[11px] text-yellow-400/70 text-center">
-            No clear winner yet — will be saved as incomplete and won&apos;t affect rankings.
-          </p>
-        )}
       </div>
 
       {error && <div className="text-sm text-red-400 text-center">{error}</div>}
-
       <button
         onClick={handleSubmit}
         disabled={submitting || !allSelected}
-        className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        {submitting ? 'Saving...' : status === 'complete' ? 'Record Match' : 'Save Incomplete Match'}
+        {submitting ? 'Saving...' : 'Save Match'}
       </button>
 
       {/* Player picker bottom sheet */}

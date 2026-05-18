@@ -1,7 +1,6 @@
 import { formatDistanceToNow } from 'date-fns'
 import { Zap, Pencil } from 'lucide-react'
 import Link from 'next/link'
-import PTRBadge from '@/components/shared/PTRBadge'
 import { getInitials, getFullScore } from '@/lib/utils'
 import type { MatchWithPlayers } from '@/types'
 
@@ -71,9 +70,6 @@ export default function MatchCard({ match }: Props) {
           <div className="font-mono font-bold text-sm text-foreground">
             {getFullScore(match.sets)}
           </div>
-          {!incomplete && (
-            <PTRBadge delta={aWon ? match.ptrDelta : -match.ptrDelta} size="sm" />
-          )}
         </div>
 
         {/* Team B */}

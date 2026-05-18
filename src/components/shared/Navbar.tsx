@@ -21,9 +21,12 @@ export default function Navbar() {
       <header className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 items-center justify-between px-6 glass border-b border-white/10">
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-neon-green" />
-          <span className="font-bold text-sm tracking-widest text-foreground/90">
-            PTR <span className="text-neon-green">PADEL</span>
-          </span>
+          <div className="flex flex-col leading-tight">
+            <span className="font-bold text-sm tracking-widest text-foreground/90">
+              PADEL <span className="text-neon-green">TOUR</span>
+            </span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Spain 2026</span>
+          </div>
         </div>
         <nav className="flex items-center gap-1">
           {nav.map(({ href, label, icon: Icon }) => (
@@ -46,7 +49,7 @@ export default function Navbar() {
       </header>
 
       {/* Bottom bar — mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass border-t border-white/10">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass !bg-black/70 backdrop-blur border-t border-white/10">
         {nav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}

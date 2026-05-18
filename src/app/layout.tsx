@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'PTR — Padel Tour Ranking',
+  title: 'Padel Tour — Spain 2026',
   description: 'The official ranking system for the private padel tour.',
   icons: { icon: '/favicon.ico' },
 }

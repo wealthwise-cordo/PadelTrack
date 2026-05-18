@@ -18,10 +18,10 @@ export default async function LeaderboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight">
-            <span className="text-neon-green">PTR</span> Rankings
+            Padel <span className="text-neon-green">Tour</span>
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {totalMatches} matches played
+            Spain 2026 · {totalMatches} matches played
           </p>
         </div>
         <div className="flex items-center gap-1.5 text-xs text-neon-green bg-neon-green/10 rounded-full px-3 py-1.5">

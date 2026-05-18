@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { getInitials, formatPTR } from '@/lib/utils'
+import { getInitials, formatPTR, setWinner } from '@/lib/utils'
 import type { MatchWithPlayers } from '@/types'
 
 interface SetScore {
@@ -11,9 +11,8 @@ interface SetScore {
 }
 
 function matchStatus(sets: SetScore[]): { status: 'complete' | 'incomplete'; winner: 'A' | 'B' | null } {
-  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-  const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+  const setsA = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
+  const setsB = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
   if (setsA >= 2) return { status: 'complete', winner: 'A' }
   if (setsB >= 2) return { status: 'complete', winner: 'B' }
   return { status: 'incomplete', winner: null }
@@ -26,15 +25,15 @@ export default function MatchEditForm({ match }: { match: MatchWithPlayers }) {
     while (existing.length < 3) existing.push({ teamAGames: 0, teamBGames: 0 })
     return existing
   })
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([null, null, null, null, null, null])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const { status, winner } = matchStatus(sets)
 
-  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-  const setsA1 = played.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB1 = played.filter(s => s.teamBGames > s.teamAGames).length
-  const thirdSetActive = (setsA1 === 1 && setsB1 === 1) || sets[2].teamAGames + sets[2].teamBGames > 0
+  const completedA = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
+  const completedB = sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
+  const thirdSetActive = (completedA === 1 && completedB === 1) || sets[2].teamAGames + sets[2].teamBGames > 0
 
   const teamA = [match.teamAPlayer1, match.teamAPlayer2]
   const teamB = [match.teamBPlayer1, match.teamBPlayer2]
@@ -123,21 +122,33 @@ export default function MatchEditForm({ match }: { match: MatchWithPlayers }) {
         <div className="space-y-2">
           {sets.map((set, i) => {
             const dimmed = i === 2 && !thirdSetActive
+            const lastActiveRef = thirdSetActive ? 5 : 3
+            const refA = i * 2
+            const refB = i * 2 + 1
             return (
               <div key={i} className={`flex items-center gap-3 transition-opacity ${dimmed ? 'opacity-30 pointer-events-none' : ''}`}>
                 <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
                 <input
-                  type="number" min={0} max={7} value={set.teamAGames}
+                  ref={el => { inputRefs.current[refA] = el }}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint="next"
+                  min={0} max={7} value={set.teamAGames}
                   onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); inputRefs.current[refA + 1]?.focus() } }}
+                  className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
                 />
                 <span className="text-muted-foreground text-xs font-bold">—</span>
                 <input
-                  type="number" min={0} max={7} value={set.teamBGames}
+                  ref={el => { inputRefs.current[refB] = el }}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint={refB >= lastActiveRef ? 'done' : 'next'}
+                  min={0} max={7} value={set.teamBGames}
                   onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (refB < lastActiveRef) inputRefs.current[refB + 1]?.focus(); else (e.target as HTMLInputElement).blur() } }}
+                  className="flex-1 min-w-0 w-0 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
                 />
-                <div className="w-4 shrink-0" />
               </div>
             )
           })}

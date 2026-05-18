@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { getPlayer, getPlayers, getMatches } from '@/lib/store'
 import PTRLineChart from '@/components/players/PTRLineChart'
 import PTRBadge from '@/components/shared/PTRBadge'
+import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import { getInitials, formatPTR, getWinRate, getReliabilityLabel } from '@/lib/utils'
 import { Trophy, Target, Zap, TrendingUp } from 'lucide-react'
 
@@ -95,6 +96,14 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           </div>
         </div>
       </div>
+
+      {/* Edit panel */}
+      <PlayerEditPanel
+        playerId={player.id}
+        name={player.name}
+        nickname={player.nickname}
+        avatarColor={player.avatarColor}
+      />
 
       {/* PTR Chart */}
       <div className="glass rounded-xl p-4">

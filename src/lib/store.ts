@@ -76,6 +76,8 @@ export interface StoredPlayer {
   setsLost: number
   gamesWon: number
   gamesLost: number
+  tiebreaksWon: number
+  tiebreaksPlayed: number
   currentStreak: number
   bestStreak: number
   createdAt: string
@@ -124,6 +126,8 @@ function buildSeedState() {
     setsLost: 0,
     gamesWon: 0,
     gamesLost: 0,
+    tiebreaksWon: 0,
+    tiebreaksPlayed: 0,
     currentStreak: 0,
     bestStreak: 0,
     createdAt: new Date().toISOString(),
@@ -271,18 +275,28 @@ function applyPTR(
     })
   }
 
-  updatePlayer(p1, result.teamADelta, winner === 'A', setsA, setsB, gamesA, gamesB)
-  updatePlayer(p2, result.teamADelta, winner === 'A', setsA, setsB, gamesA, gamesB)
-  updatePlayer(p3, result.teamBDelta, winner === 'B', setsB, setsA, gamesB, gamesA)
-  updatePlayer(p4, result.teamBDelta, winner === 'B', setsB, setsA, gamesB, gamesA)
+  const [dA1, dA2] = result.playerADeltas
+  const [dB1, dB2] = result.playerBDeltas
+
+  updatePlayer(p1, dA1, winner === 'A', setsA, setsB, gamesA, gamesB)
+  updatePlayer(p2, dA2, winner === 'A', setsA, setsB, gamesA, gamesB)
+  updatePlayer(p3, dB1, winner === 'B', setsB, setsA, gamesB, gamesA)
+  updatePlayer(p4, dB2, winner === 'B', setsB, setsA, gamesB, gamesA)
 
   const pushHistory = (p: StoredPlayer, ptrBefore: number, delta: number) => {
     _ptrHistory.push({ id: uid(), playerId: p.id, matchId: match.id, ptrBefore, ptrAfter: p.ptr, delta, reliability: p.reliability, createdAt: now })
   }
-  pushHistory(p1, p1.ptr - result.teamADelta, result.teamADelta)
-  pushHistory(p2, p2.ptr - result.teamADelta, result.teamADelta)
-  pushHistory(p3, p3.ptr - result.teamBDelta, result.teamBDelta)
-  pushHistory(p4, p4.ptr - result.teamBDelta, result.teamBDelta)
+  pushHistory(p1, p1.ptr - dA1, dA1)
+  pushHistory(p2, p2.ptr - dA2, dA2)
+  pushHistory(p3, p3.ptr - dB1, dB1)
+  pushHistory(p4, p4.ptr - dB2, dB2)
+
+  // Tiebreak tracking (set score 7-6 either way)
+  const tbWonA = match.sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
+  const tbWonB = match.sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
+  const tbTotal = tbWonA + tbWonB
+  for (const p of [p1, p2]) { p.tiebreaksWon += tbWonA; p.tiebreaksPlayed += tbTotal }
+  for (const p of [p3, p4]) { p.tiebreaksWon += tbWonB; p.tiebreaksPlayed += tbTotal }
 }
 
 export function createMatch(data: {
@@ -370,6 +384,18 @@ export function getMatchById(id: string) {
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
+
+export function updatePlayer(
+  id: string,
+  data: { nickname?: string; avatarColor?: string }
+): { ok: true } | { error: string } {
+  const p = _players.find(p => p.id === id)
+  if (!p) return { error: 'Player not found' }
+  if (data.nickname !== undefined) p.nickname = data.nickname
+  if (data.avatarColor !== undefined) p.avatarColor = data.avatarColor
+  p.updatedAt = new Date().toISOString()
+  return { ok: true }
+}
 
 export function findUserByEmail(email: string) {
   return USERS.find(u => u.email === email) ?? null

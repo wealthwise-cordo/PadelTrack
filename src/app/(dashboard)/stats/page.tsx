@@ -1,21 +1,49 @@
 import { getPlayers, getMatches } from '@/lib/store'
-import { Trophy, Zap, Target, TrendingUp, Flame } from 'lucide-react'
-import { getInitials, formatPTR } from '@/lib/utils'
+import { Trophy, Zap, Target, TrendingUp, Heart } from 'lucide-react'
+import { getInitials } from '@/lib/utils'
+import StatLeaderboard from '@/components/stats/StatLeaderboard'
+import type { PlayerWithStats } from '@/types'
 
 export const revalidate = 0
 
-export default async function StatsPage() {
-  const players = getPlayers()
-  const matches = getMatches()
+// ─── Sorting helpers ────────────────────────────────────────────────────────
 
-  const biggestUpset = matches.filter(m => m.isUpset).reduce(
-    (best: typeof matches[0] | null, m) => !best || m.ptrDelta > best.ptrDelta ? m : best, null)
-  const highestDelta = matches.reduce(
-    (best: typeof matches[0] | null, m) => !best || m.ptrDelta > best.ptrDelta ? m : best, null)
-  const closestMatch = matches.reduce(
-    (best: typeof matches[0] | null, m) => !best || m.matchQuality > best.matchQuality ? m : best, null)
-  const bestStreak = players.reduce(
-    (best: typeof players[0] | null, p) => !best || p.bestStreak > best.bestStreak ? p : best, null)
+function rank(
+  players: PlayerWithStats[],
+  primary: (p: PlayerWithStats) => number,
+  ...tiebreakers: ((p: PlayerWithStats) => number)[]
+) {
+  return [...players].sort((a, b) => {
+    const d = primary(b) - primary(a)
+    if (d !== 0) return d
+    for (const tb of tiebreakers) {
+      const t = tb(b) - tb(a)
+      if (t !== 0) return t
+    }
+    return 0
+  })
+}
+
+// ─── Choker score ────────────────────────────────────────────────────────────
+// Measures how much more often a player wins games than they win sets.
+// Positive = winning games but not converting them into set wins.
+
+function chokerScore(p: PlayerWithStats): number {
+  const totalGames = p.gamesWon + p.gamesLost
+  const totalSets = p.setsWon + p.setsLost
+  if (totalGames < 10 || totalSets === 0) return -1
+  return (p.gamesWon / totalGames) - (p.setsWon / totalSets)
+}
+
+function tiebreakConversion(p: PlayerWithStats): number {
+  return p.tiebreaksPlayed > 0 ? p.tiebreaksWon / p.tiebreaksPlayed : 0
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
+export default async function StatsPage() {
+  const players = getPlayers() as PlayerWithStats[]
+  const matches = getMatches()
 
   const totalMatches = matches.length
   const totalUpsets = matches.filter(m => m.isUpset).length
@@ -23,8 +51,44 @@ export default async function StatsPage() {
     ? (matches.reduce((s, m) => s + m.matchQuality, 0) / matches.length).toFixed(1)
     : '—'
 
+  // ── Award winners ──────────────────────────────────────────────────────────
+
+  const bigWinner = rank(players,
+    p => p.wins,
+    p => p.setsWon,
+  )[0]
+
+  const thanksForPlaying = rank(players,
+    p => p.matchesPlayed,
+    p => p.setsWon + p.setsLost,
+    p => p.gamesWon + p.gamesLost,
+  )[0]
+
+  const chokers = rank(players, chokerScore)
+  const choker = chokers[0]?.matchesPlayed >= 3 && chokerScore(chokers[0]) > 0
+    ? chokers[0]
+    : null
+
+  const tiebreakKing = rank(players,
+    p => p.tiebreaksWon,
+    tiebreakConversion,
+  )[0]
+  const hasTiebreaks = players.some(p => p.tiebreaksWon > 0)
+
+  // ── Leaderboard entries ────────────────────────────────────────────────────
+
+  const matchesWon    = rank(players, p => p.wins, p => p.setsWon)
+  const setsWon       = rank(players, p => p.setsWon, p => p.gamesWon)
+  const gamesWon      = rank(players, p => p.gamesWon, p => p.setsWon)
+  const tiebreaksWon  = rank(players, p => p.tiebreaksWon, tiebreakConversion)
+  const matchesPlayed = rank(players,
+    p => p.matchesPlayed,
+    p => p.setsWon + p.setsLost,
+    p => p.gamesWon + p.gamesLost,
+  )
+
   return (
-    <div className="py-6 space-y-5">
+    <div className="py-6 space-y-6">
       <h1 className="text-2xl font-black tracking-tight">Tour Statistics</h1>
 
       {/* Overview */}
@@ -43,84 +107,111 @@ export default async function StatsPage() {
 
       {/* Awards */}
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Awards</h2>
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Awards</h2>
 
-        {highestDelta && (
-          <div className="glass rounded-xl p-4 flex items-start gap-3">
-            <Zap className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Biggest PTR Swing</div>
-              <div className="font-semibold text-sm">
-                {highestDelta.teamAPlayer1.name.split(' ')[0]} & {highestDelta.teamAPlayer2.name.split(' ')[0]} vs {highestDelta.teamBPlayer1.name.split(' ')[0]} & {highestDelta.teamBPlayer2.name.split(' ')[0]}
-              </div>
-              <div className="text-neon-green font-mono font-bold">+{highestDelta.ptrDelta.toFixed(1)} PTR</div>
-            </div>
-          </div>
+        {totalMatches === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No matches yet.</p>
         )}
 
-        {biggestUpset && (
-          <div className="glass rounded-xl p-4 flex items-start gap-3">
-            <Flame className="h-5 w-5 text-orange-400 shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Biggest Upset</div>
-              <div className="font-semibold text-sm">
-                {biggestUpset.winner === 'A'
-                  ? `${biggestUpset.teamAPlayer1.name.split(' ')[0]} & ${biggestUpset.teamAPlayer2.name.split(' ')[0]}`
-                  : `${biggestUpset.teamBPlayer1.name.split(' ')[0]} & ${biggestUpset.teamBPlayer2.name.split(' ')[0]}`}
-              </div>
-              <div className="text-orange-400 text-xs">Won against the favourites · +{biggestUpset.ptrDelta.toFixed(1)} PTR swing</div>
-            </div>
-          </div>
+        {bigWinner && bigWinner.wins > 0 && (
+          <AwardCard
+            icon={<Trophy className="h-5 w-5 text-yellow-400" />}
+            title="Big Winner"
+            player={bigWinner}
+            stat={`${bigWinner.wins}W`}
+            sub={`${bigWinner.setsWon} sets won`}
+          />
         )}
 
-        {closestMatch && (
-          <div className="glass rounded-xl p-4 flex items-start gap-3">
-            <Target className="h-5 w-5 text-neon-blue shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Match of the Tour</div>
-              <div className="font-semibold text-sm">Quality: {closestMatch.matchQuality.toFixed(1)}/10</div>
-              <div className="text-xs text-muted-foreground">
-                {closestMatch.teamAPlayer1.name.split(' ')[0]} & {closestMatch.teamAPlayer2.name.split(' ')[0]} vs {closestMatch.teamBPlayer1.name.split(' ')[0]} & {closestMatch.teamBPlayer2.name.split(' ')[0]}
-              </div>
-            </div>
-          </div>
+        {thanksForPlaying && thanksForPlaying.matchesPlayed > 0 && (
+          <AwardCard
+            icon={<Heart className="h-5 w-5 text-pink-400" />}
+            title="Thanks for Playing"
+            player={thanksForPlaying}
+            stat={`${thanksForPlaying.matchesPlayed} matches`}
+            sub={`${thanksForPlaying.setsWon + thanksForPlaying.setsLost} sets · ${thanksForPlaying.gamesWon + thanksForPlaying.gamesLost} games played`}
+          />
         )}
 
-        {bestStreak && bestStreak.bestStreak >= 2 && (
-          <div className="glass rounded-xl p-4 flex items-start gap-3">
-            <TrendingUp className="h-5 w-5 text-neon-green shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs text-muted-foreground mb-1">Longest Winning Streak</div>
-              <div className="font-semibold text-sm">{bestStreak.name}</div>
-              <div className="text-neon-green font-mono font-bold">{bestStreak.bestStreak} wins in a row</div>
-            </div>
-          </div>
+        {choker && (
+          <AwardCard
+            icon={<Target className="h-5 w-5 text-orange-400" />}
+            title="Choker"
+            player={choker}
+            stat={`${Math.round((p => (p.gamesWon / (p.gamesWon + p.gamesLost)) * 100)(choker))}% game win rate`}
+            sub={`Only ${Math.round((p => (p.setsWon / (p.setsWon + p.setsLost)) * 100)(choker))}% set win rate`}
+          />
+        )}
+
+        {hasTiebreaks && tiebreakKing && (
+          <AwardCard
+            icon={<Zap className="h-5 w-5 text-neon-blue" />}
+            title="Tiebreak King"
+            player={tiebreakKing}
+            stat={`${tiebreakKing.tiebreaksWon} tiebreaks`}
+            sub={tiebreakKing.tiebreaksPlayed > 0
+              ? `${Math.round(tiebreakConversion(tiebreakKing) * 100)}% win rate in tiebreaks`
+              : ''}
+          />
         )}
       </div>
 
-      {/* Power Rankings */}
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Power Rankings</h2>
-        <div className="space-y-2">
-          {players.map((p, i) => (
-            <div key={p.id} className="glass rounded-xl p-3 flex items-center gap-3">
-              <div className="text-xs text-muted-foreground w-5 text-center font-mono">#{i + 1}</div>
-              <div
-                className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
-                style={{ backgroundColor: p.avatarColor }}
-              >
-                {getInitials(p.name)}
-              </div>
-              <div className="flex-1 text-sm font-medium">{p.name}</div>
-              <div className="text-right">
-                <div className="font-mono font-bold text-sm" style={{ color: p.avatarColor }}>
-                  {formatPTR(p.ptr)}
-                </div>
-                <div className="text-xs text-muted-foreground">{p.wins}W–{p.losses}L</div>
-              </div>
-            </div>
-          ))}
+      {/* Stat leaderboards */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Rankings</h2>
+
+        <StatLeaderboard
+          title="Matches Won"
+          entries={matchesWon.map(p => ({ player: p, value: p.wins, display: String(p.wins) }))}
+        />
+        <StatLeaderboard
+          title="Matches Played"
+          entries={matchesPlayed.map(p => ({ player: p, value: p.matchesPlayed, display: String(p.matchesPlayed) }))}
+        />
+        <StatLeaderboard
+          title="Tiebreaks Won"
+          entries={tiebreaksWon.map(p => ({ player: p, value: p.tiebreaksWon, display: String(p.tiebreaksWon) }))}
+        />
+        <StatLeaderboard
+          title="Sets Won"
+          entries={setsWon.map(p => ({ player: p, value: p.setsWon, display: String(p.setsWon) }))}
+        />
+        <StatLeaderboard
+          title="Games Won"
+          entries={gamesWon.map(p => ({ player: p, value: p.gamesWon, display: String(p.gamesWon) }))}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ─── Award card ───────────────────────────────────────────────────────────────
+
+function AwardCard({
+  icon, title, player, stat, sub,
+}: {
+  icon: React.ReactNode
+  title: string
+  player: PlayerWithStats
+  stat: string
+  sub: string
+}) {
+  return (
+    <div className="glass rounded-xl p-4 flex items-start gap-3">
+      <div className="shrink-0 mt-0.5">{icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-muted-foreground mb-1">{title}</div>
+        <div className="flex items-center gap-2 mb-0.5">
+          <div
+            className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background shrink-0"
+            style={{ backgroundColor: player.avatarColor }}
+          >
+            {getInitials(player.name)}
+          </div>
+          <span className="font-semibold text-sm truncate">{player.name}</span>
         </div>
+        <div className="font-mono font-bold text-neon-green text-sm">{stat}</div>
+        {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
       </div>
     </div>
   )
