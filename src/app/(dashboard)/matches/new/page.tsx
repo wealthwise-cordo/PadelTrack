@@ -4,7 +4,7 @@ import { getPlayers } from '@/lib/store'
 export const revalidate = 0
 
 export default async function NewMatchPage() {
-  const players = getPlayers()
+  const players = await getPlayers()
 
   return <MatchEntryForm players={players as any} />
 }
