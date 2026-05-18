@@ -49,7 +49,7 @@ export default function Navbar() {
       </header>
 
       {/* Bottom bar — mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass !bg-black/70 backdrop-blur border-t border-white/10">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass !bg-black/70 backdrop-blur border-t border-white/10 [padding-bottom:env(safe-area-inset-bottom)]">
         {nav.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
