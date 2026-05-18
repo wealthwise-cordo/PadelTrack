@@ -38,11 +38,12 @@ export interface MatchSet {
 export interface MatchWithPlayers {
   id: string
   playedAt: string
+  status: 'complete' | 'incomplete'
   teamAPlayer1: PlayerWithStats
   teamAPlayer2: PlayerWithStats
   teamBPlayer1: PlayerWithStats
   teamBPlayer2: PlayerWithStats
-  winner: 'A' | 'B'
+  winner: 'A' | 'B' | null
   teamAPTRBefore: number
   teamBPTRBefore: number
   teamAPTRAfter: number

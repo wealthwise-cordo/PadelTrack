@@ -18,14 +18,29 @@ interface Props {
 // slots index: 0 = teamA1, 1 = teamA2, 2 = teamB1, 3 = teamB2
 type Slots = [string, string, string, string]
 
+const EMPTY_SETS: SetScore[] = [
+  { teamAGames: 0, teamBGames: 0 },
+  { teamAGames: 0, teamBGames: 0 },
+  { teamAGames: 0, teamBGames: 0 },
+]
+
+function matchStatus(sets: SetScore[]): { status: 'complete' | 'incomplete'; winner: 'A' | 'B' | null } {
+  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+  const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
+  const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+  if (setsA >= 2) return { status: 'complete', winner: 'A' }
+  if (setsB >= 2) return { status: 'complete', winner: 'B' }
+  return { status: 'incomplete', winner: null }
+}
+
 export default function MatchEntryForm({ players }: Props) {
   const router = useRouter()
   const [slots, setSlots] = useState<Slots>(['', '', '', ''])
   const [pickingSlot, setPickingSlot] = useState<number | null>(null)
-  const [sets, setSets] = useState<SetScore[]>([{ teamAGames: 0, teamBGames: 0 }])
+  const [sets, setSets] = useState<SetScore[]>(EMPTY_SETS)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const [success, setSuccess] = useState<'complete' | 'incomplete' | null>(null)
 
   const [teamA1, teamA2, teamB1, teamB2] = slots
   const allSelected = slots.every(Boolean)
@@ -47,34 +62,37 @@ export default function MatchEntryForm({ players }: Props) {
     const next = [...slots] as Slots
     next[slotIdx] = ''
     setSlots(next)
-    setPreview(null)
   }
 
-  const determineWinner = (): 'A' | 'B' | null => {
-    const setsA = sets.filter(s => s.teamAGames > s.teamBGames).length
-    const setsB = sets.filter(s => s.teamBGames > s.teamAGames).length
-    if (setsA > setsB) return 'A'
-    if (setsB > setsA) return 'B'
-    return null
-  }
+  const { status, winner } = matchStatus(sets)
+
+  // 3rd set is only active when sets 1 & 2 are split 1-1
+  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+  const setsA1 = played.filter(s => s.teamAGames > s.teamBGames).length
+  const setsB1 = played.filter(s => s.teamBGames > s.teamAGames).length
+  const thirdSetNeeded = setsA1 === 1 && setsB1 === 1
+  const thirdSetActive = thirdSetNeeded || sets[2].teamAGames + sets[2].teamBGames > 0
 
   const handleSubmit = async () => {
-    const winner = determineWinner()
-    if (!winner) { setError('Match result is unclear — check your scores'); return }
+    if (!allSelected) { setError('Select all four players first'); return }
     setSubmitting(true)
     setError('')
     try {
       const res = await fetch('/api/matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamAPlayer1Id: teamA1, teamAPlayer2Id: teamA2, teamBPlayer1Id: teamB1, teamBPlayer2Id: teamB2, sets, winner }),
+        body: JSON.stringify({
+          teamAPlayer1Id: teamA1, teamAPlayer2Id: teamA2,
+          teamBPlayer1Id: teamB1, teamBPlayer2Id: teamB2,
+          sets, winner, status,
+        }),
       })
       if (!res.ok) {
         const d = await res.json()
         setError(d.error || 'Submission failed')
       } else {
-        setSuccess(true)
-        setTimeout(() => router.push('/'), 2000)
+        setSuccess(status)
+        setTimeout(() => router.push('/matches'), 2000)
       }
     } catch {
       setError('Network error')
@@ -86,9 +104,11 @@ export default function MatchEntryForm({ players }: Props) {
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="text-6xl">🏆</div>
-        <div className="text-xl font-bold text-neon-green">Match Recorded!</div>
-        <div className="text-sm text-muted-foreground">Redirecting to rankings...</div>
+        <div className="text-6xl">{success === 'complete' ? '🏆' : '⏸️'}</div>
+        <div className="text-xl font-bold text-neon-green">
+          {success === 'complete' ? 'Match Recorded!' : 'Saved as Incomplete'}
+        </div>
+        <div className="text-sm text-muted-foreground">Redirecting to history...</div>
       </div>
     )
   }
@@ -130,8 +150,6 @@ export default function MatchEntryForm({ players }: Props) {
     )
   }
 
-  const winner = determineWinner()
-
   return (
     <div className="space-y-5 max-w-lg mx-auto">
 
@@ -156,9 +174,14 @@ export default function MatchEntryForm({ players }: Props) {
 
       {/* Score */}
       <div className="glass rounded-xl p-4">
-        <div className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Score</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Score</div>
+          <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'}`}>
+            {status === 'complete' ? 'COMPLETE' : 'INCOMPLETE'}
+          </div>
+        </div>
 
-        {/* Team labels above score inputs — only shown when players are selected */}
+        {/* Team avatar labels */}
         {allSelected && (
           <div className="flex items-center gap-3 mb-2 px-12">
             <div className="flex-1 flex items-center gap-1.5">
@@ -186,37 +209,40 @@ export default function MatchEntryForm({ players }: Props) {
         )}
 
         <div className="space-y-2">
-          {sets.map((set, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
-              <input
-                type="number" min={0} max={7} value={set.teamAGames}
-                onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
-              />
-              <span className="text-muted-foreground text-xs font-bold">—</span>
-              <input
-                type="number" min={0} max={7} value={set.teamBGames}
-                onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
-              />
-              {i > 0 && (
-                <button onClick={() => setSets(sets.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 text-xs shrink-0">✕</button>
-              )}
-            </div>
-          ))}
+          {sets.map((set, i) => {
+            const isThirdSet = i === 2
+            const dimmed = isThirdSet && !thirdSetActive
+            return (
+              <div key={i} className={`flex items-center gap-3 transition-opacity ${dimmed ? 'opacity-30 pointer-events-none' : ''}`}>
+                <span className="text-xs text-muted-foreground w-12 shrink-0">Set {i + 1}</span>
+                <input
+                  type="number" min={0} max={7} value={set.teamAGames}
+                  onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamAGames: Number(e.target.value) }; setSets(v) }}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                />
+                <span className="text-muted-foreground text-xs font-bold">—</span>
+                <input
+                  type="number" min={0} max={7} value={set.teamBGames}
+                  onChange={e => { const v = [...sets]; v[i] = { ...v[i], teamBGames: Number(e.target.value) }; setSets(v) }}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 font-mono text-center text-sm focus:outline-none focus:border-neon-green/50"
+                />
+                {/* spacer to align with rows that have a remove button */}
+                <div className="w-4 shrink-0" />
+              </div>
+            )
+          })}
         </div>
-
-        {sets.length < 3 && (
-          <button onClick={() => setSets([...sets, { teamAGames: 0, teamBGames: 0 }])} className="mt-3 text-xs text-muted-foreground hover:text-neon-green transition-colors">
-            + Add set
-          </button>
-        )}
 
         {allSelected && winner && (
           <div className="mt-3 text-center text-sm font-bold text-neon-green">
             {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
           </div>
+        )}
+
+        {status === 'incomplete' && (
+          <p className="mt-3 text-[11px] text-yellow-400/70 text-center">
+            No clear winner yet — will be saved as incomplete and won&apos;t affect rankings.
+          </p>
         )}
       </div>
 
@@ -224,10 +250,10 @@ export default function MatchEntryForm({ players }: Props) {
 
       <button
         onClick={handleSubmit}
-        disabled={submitting || !winner || !allSelected}
+        disabled={submitting || !allSelected}
         className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        {submitting ? 'Recording Match...' : 'Record Match'}
+        {submitting ? 'Saving...' : status === 'complete' ? 'Record Match' : 'Save Incomplete Match'}
       </button>
 
       {/* Player picker bottom sheet */}

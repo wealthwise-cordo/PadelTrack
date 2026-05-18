@@ -43,11 +43,12 @@ export interface StoredMatch {
   id: string
   playedAt: string
   submittedAt: string
+  status: 'complete' | 'incomplete'
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
   teamBPlayer2Id: string
-  winner: 'A' | 'B'
+  winner: 'A' | 'B' | null
   teamAPTRBefore: number
   teamBPTRBefore: number
   teamAPTRAfter: number
@@ -206,67 +207,43 @@ export function getMatchCount() {
 // Match creation (all PTR logic lives here)
 // ---------------------------------------------------------------------------
 
-export function createMatch(data: {
-  teamAPlayer1Id: string
-  teamAPlayer2Id: string
-  teamBPlayer1Id: string
-  teamBPlayer2Id: string
-  sets: { teamAGames: number; teamBGames: number }[]
-  winner: 'A' | 'B'
-}): { matchId: string; ptrDelta: number; isUpset: boolean } | { error: string } {
-  const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
+function applyPTR(
+  match: StoredMatch,
+  winner: 'A' | 'B',
+  now: string
+) {
+  const p1 = _players.find(p => p.id === match.teamAPlayer1Id)!
+  const p2 = _players.find(p => p.id === match.teamAPlayer2Id)!
+  const p3 = _players.find(p => p.id === match.teamBPlayer1Id)!
+  const p4 = _players.find(p => p.id === match.teamBPlayer2Id)!
 
-  const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
-  if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
-
-  const p1 = _players.find(p => p.id === teamAPlayer1Id)
-  const p2 = _players.find(p => p.id === teamAPlayer2Id)
-  const p3 = _players.find(p => p.id === teamBPlayer1Id)
-  const p4 = _players.find(p => p.id === teamBPlayer2Id)
-
-  if (!p1 || !p2 || !p3 || !p4) return { error: 'One or more players not found' }
-
-  const teamAPTRBefore = (p1.ptr + p2.ptr) / 2
-  const teamBPTRBefore = (p3.ptr + p4.ptr) / 2
-
-  const setsWithNumber = sets.map((s, i) => ({ ...s, setNumber: i + 1 }))
+  const sets = match.sets.map(s => ({ teamAGames: s.teamAGames, teamBGames: s.teamBGames }))
+  const playedSets = sets.filter(s => s.teamAGames + s.teamBGames > 0)
 
   const result = calculatePTRChanges(
     [p1.ptr, p2.ptr],
     [p3.ptr, p4.ptr],
     [calculateReliability(p1.matchesPlayed), calculateReliability(p2.matchesPlayed)],
     [calculateReliability(p3.matchesPlayed), calculateReliability(p4.matchesPlayed)],
-    setsWithNumber,
+    match.sets,
     winner
   )
 
-  const setsA = sets.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB = sets.filter(s => s.teamBGames > s.teamAGames).length
-  const gamesA = sets.reduce((acc, s) => acc + s.teamAGames, 0)
-  const gamesB = sets.reduce((acc, s) => acc + s.teamBGames, 0)
+  const setsA = playedSets.filter(s => s.teamAGames > s.teamBGames).length
+  const setsB = playedSets.filter(s => s.teamBGames > s.teamAGames).length
+  const gamesA = playedSets.reduce((acc, s) => acc + s.teamAGames, 0)
+  const gamesB = playedSets.reduce((acc, s) => acc + s.teamBGames, 0)
 
-  const matchId = uid()
-  const now = new Date().toISOString()
-
-  const match: StoredMatch = {
-    id: matchId,
-    playedAt: now,
-    submittedAt: now,
-    teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+  Object.assign(match, {
     winner,
-    teamAPTRBefore,
-    teamBPTRBefore,
-    teamAPTRAfter: teamAPTRBefore + result.teamADelta,
-    teamBPTRAfter: teamBPTRBefore + result.teamBDelta,
+    status: 'complete' as const,
+    teamAPTRAfter: match.teamAPTRBefore + result.teamADelta,
+    teamBPTRAfter: match.teamBPTRBefore + result.teamBDelta,
     ptrDelta: Math.abs(result.teamADelta),
     scoreMultiplier: result.scoreMultiplier,
     isUpset: result.isUpset,
     matchQuality: result.matchQuality,
-    notes: null,
-    sets: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
-  }
-
-  _matches.push(match)
+  })
 
   const updatePlayer = (
     p: StoredPlayer,
@@ -278,7 +255,6 @@ export function createMatch(data: {
     const newStreak = isWinner
       ? (p.currentStreak > 0 ? p.currentStreak + 1 : 1)
       : (p.currentStreak < 0 ? p.currentStreak - 1 : -1)
-
     Object.assign(p, {
       ptr: p.ptr + delta,
       matchesPlayed: newMatches,
@@ -300,25 +276,95 @@ export function createMatch(data: {
   updatePlayer(p3, result.teamBDelta, winner === 'B', setsB, setsA, gamesB, gamesA)
   updatePlayer(p4, result.teamBDelta, winner === 'B', setsB, setsA, gamesB, gamesA)
 
-  const pushHistory = (p: StoredPlayer, before: number, delta: number) => {
-    _ptrHistory.push({
-      id: uid(),
-      playerId: p.id,
-      matchId,
-      ptrBefore: before,
-      ptrAfter: p.ptr,
-      delta,
-      reliability: p.reliability,
-      createdAt: now,
-    })
+  const pushHistory = (p: StoredPlayer, ptrBefore: number, delta: number) => {
+    _ptrHistory.push({ id: uid(), playerId: p.id, matchId: match.id, ptrBefore, ptrAfter: p.ptr, delta, reliability: p.reliability, createdAt: now })
   }
-
   pushHistory(p1, p1.ptr - result.teamADelta, result.teamADelta)
   pushHistory(p2, p2.ptr - result.teamADelta, result.teamADelta)
   pushHistory(p3, p3.ptr - result.teamBDelta, result.teamBDelta)
   pushHistory(p4, p4.ptr - result.teamBDelta, result.teamBDelta)
+}
 
-  return { matchId, ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
+export function createMatch(data: {
+  teamAPlayer1Id: string
+  teamAPlayer2Id: string
+  teamBPlayer1Id: string
+  teamBPlayer2Id: string
+  sets: { teamAGames: number; teamBGames: number }[]
+  winner: 'A' | 'B' | null
+  status: 'complete' | 'incomplete'
+}): { matchId: string; ptrDelta: number; isUpset: boolean; status: string } | { error: string } {
+  const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status } = data
+
+  const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
+  if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
+
+  const p1 = _players.find(p => p.id === teamAPlayer1Id)
+  const p2 = _players.find(p => p.id === teamAPlayer2Id)
+  const p3 = _players.find(p => p.id === teamBPlayer1Id)
+  const p4 = _players.find(p => p.id === teamBPlayer2Id)
+
+  if (!p1 || !p2 || !p3 || !p4) return { error: 'One or more players not found' }
+
+  const teamAPTRBefore = (p1.ptr + p2.ptr) / 2
+  const teamBPTRBefore = (p3.ptr + p4.ptr) / 2
+  const matchId = uid()
+  const now = new Date().toISOString()
+
+  const match: StoredMatch = {
+    id: matchId,
+    playedAt: now,
+    submittedAt: now,
+    status,
+    teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+    winner: null,
+    teamAPTRBefore,
+    teamBPTRBefore,
+    teamAPTRAfter: teamAPTRBefore,
+    teamBPTRAfter: teamBPTRBefore,
+    ptrDelta: 0,
+    scoreMultiplier: 1,
+    isUpset: false,
+    matchQuality: 0,
+    notes: null,
+    sets: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
+  }
+
+  _matches.push(match)
+
+  if (status === 'complete' && winner) {
+    applyPTR(match, winner, now)
+  }
+
+  return { matchId, ptrDelta: match.ptrDelta, isUpset: match.isUpset, status }
+}
+
+export function updateMatch(
+  id: string,
+  sets: { teamAGames: number; teamBGames: number }[],
+  winner: 'A' | 'B' | null,
+  status: 'complete' | 'incomplete'
+): { ok: true } | { error: string } {
+  const match = _matches.find(m => m.id === id)
+  if (!match) return { error: 'Match not found' }
+  if (match.status === 'complete') return { error: 'Cannot edit a completed match' }
+
+  match.sets = sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames }))
+
+  if (status === 'complete' && winner) {
+    const now = new Date().toISOString()
+    applyPTR(match, winner, now)
+  } else {
+    match.status = 'incomplete'
+    match.winner = null
+  }
+
+  return { ok: true }
+}
+
+export function getMatchById(id: string) {
+  const m = _matches.find(m => m.id === id)
+  return m ? hydrate(m) : null
 }
 
 // ---------------------------------------------------------------------------

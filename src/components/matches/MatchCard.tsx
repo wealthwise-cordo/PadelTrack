@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from 'date-fns'
-import { Zap } from 'lucide-react'
+import { Zap, Pencil } from 'lucide-react'
+import Link from 'next/link'
 import PTRBadge from '@/components/shared/PTRBadge'
 import { getInitials, getFullScore } from '@/lib/utils'
 import type { MatchWithPlayers } from '@/types'
@@ -12,6 +13,7 @@ export default function MatchCard({ match }: Props) {
   const teamA = [match.teamAPlayer1, match.teamAPlayer2]
   const teamB = [match.teamBPlayer1, match.teamBPlayer2]
   const aWon = match.winner === 'A'
+  const incomplete = match.status === 'incomplete'
 
   return (
     <div className="ptr-card">
@@ -21,21 +23,31 @@ export default function MatchCard({ match }: Props) {
           {formatDistanceToNow(new Date(match.playedAt), { addSuffix: true })}
         </span>
         <div className="flex items-center gap-2">
-          {match.isUpset && (
+          {incomplete && (
+            <Link
+              href={`/matches/${match.id}/edit`}
+              className="text-[10px] bg-yellow-400/15 text-yellow-400 rounded px-1.5 py-0.5 font-medium flex items-center gap-1 hover:bg-yellow-400/25 transition-colors"
+            >
+              <Pencil className="h-2.5 w-2.5" /> INCOMPLETE
+            </Link>
+          )}
+          {!incomplete && match.isUpset && (
             <span className="text-[10px] bg-orange-400/20 text-orange-400 rounded px-1.5 py-0.5 font-medium flex items-center gap-1">
               <Zap className="h-2.5 w-2.5" /> UPSET
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground">
-            Quality: {match.matchQuality.toFixed(1)}/10
-          </span>
+          {!incomplete && (
+            <span className="text-[10px] text-muted-foreground">
+              Quality: {match.matchQuality.toFixed(1)}/10
+            </span>
+          )}
         </div>
       </div>
 
       {/* Teams */}
       <div className="flex items-center gap-3">
         {/* Team A */}
-        <div className={`flex-1 ${aWon ? '' : 'opacity-60'}`}>
+        <div className={`flex-1 ${!incomplete && aWon ? '' : 'opacity-60'}`}>
           <div className="flex items-center gap-1.5 mb-1">
             {teamA.map(p => (
               <div
@@ -47,7 +59,7 @@ export default function MatchCard({ match }: Props) {
                 {getInitials(p.name)}
               </div>
             ))}
-            {aWon && <span className="text-[10px] text-neon-green font-semibold ml-1">WIN</span>}
+            {!incomplete && aWon && <span className="text-[10px] text-neon-green font-semibold ml-1">WIN</span>}
           </div>
           <div className="text-xs text-muted-foreground">
             {teamA.map(p => p.name.split(' ')[0]).join(' & ')}
@@ -59,13 +71,15 @@ export default function MatchCard({ match }: Props) {
           <div className="font-mono font-bold text-sm text-foreground">
             {getFullScore(match.sets)}
           </div>
-          <PTRBadge delta={aWon ? match.ptrDelta : -match.ptrDelta} size="sm" />
+          {!incomplete && (
+            <PTRBadge delta={aWon ? match.ptrDelta : -match.ptrDelta} size="sm" />
+          )}
         </div>
 
         {/* Team B */}
-        <div className={`flex-1 text-right ${!aWon ? '' : 'opacity-60'}`}>
+        <div className={`flex-1 text-right ${!incomplete && !aWon ? '' : 'opacity-60'}`}>
           <div className="flex items-center justify-end gap-1.5 mb-1">
-            {!aWon && <span className="text-[10px] text-neon-green font-semibold mr-1">WIN</span>}
+            {!incomplete && !aWon && <span className="text-[10px] text-neon-green font-semibold mr-1">WIN</span>}
             {teamB.map(p => (
               <div
                 key={p.id}
