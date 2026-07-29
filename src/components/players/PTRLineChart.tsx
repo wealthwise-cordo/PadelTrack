@@ -13,12 +13,13 @@ interface Props {
 
 export default function PTRLineChart({ history, color, startingPTR = 1000 }: Props) {
   const data = [
-    { match: 0, ptr: startingPTR, label: 'Start' },
+    { match: 0, ptr: startingPTR, label: 'Start', isEvent: false },
     ...history.map((h, i) => ({
       match: i + 1,
       ptr: Math.round(h.ptrAfter),
       delta: h.delta,
-      label: `Match ${i + 1}`,
+      label: h.matchId ? `Match ${i + 1}` : 'Event',
+      isEvent: !h.matchId,
     })),
   ]
 
@@ -53,7 +54,7 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
             `${value} PTR ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(1)})` : ''}`,
             'PTR',
           ]}
-          labelFormatter={(v) => v === 0 ? 'Start' : `Match ${v}`}
+          labelFormatter={(v, payload) => payload?.[0]?.payload?.label ?? (v === 0 ? 'Start' : `Match ${v}`)}
         />
         <ReferenceLine y={startingPTR} stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
         <Line
@@ -61,7 +62,25 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
           dataKey="ptr"
           stroke={color}
           strokeWidth={2}
-          dot={{ fill: color, strokeWidth: 0, r: 3 }}
+          dot={(props: { cx: number; cy: number; payload: { match: number; isEvent: boolean } }) => {
+            const { cx, cy, payload } = props
+            if (payload.isEvent) {
+              return (
+                <rect
+                  key={`dot-${payload.match}`}
+                  x={cx - 3.5}
+                  y={cy - 3.5}
+                  width={7}
+                  height={7}
+                  fill="rgba(10,15,30,1)"
+                  stroke={color}
+                  strokeWidth={2}
+                  transform={`rotate(45 ${cx} ${cy})`}
+                />
+              )
+            }
+            return <circle key={`dot-${payload.match}`} cx={cx} cy={cy} r={3} fill={color} />
+          }}
           activeDot={{ r: 5, strokeWidth: 0 }}
         />
       </LineChart>

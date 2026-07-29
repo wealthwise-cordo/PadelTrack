@@ -2,32 +2,89 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Shuffle, Minus, Plus, MapPin } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft, Shuffle, Minus, Plus, MapPin, History, ChevronRight } from 'lucide-react'
 import { getInitials, formatPTR } from '@/lib/utils'
 import type { PlayerWithStats } from '@/types'
+import type { AmericanoEventSummary } from '@/lib/americano-store'
 
 interface Props {
   players: PlayerWithStats[]
+  pastEvents: AmericanoEventSummary[]
 }
 
 type ScoreMode = 'points' | 'games'
+type RosterMode = 'full' | 'seven' | 'five' | 'half'
 
 const MODE_CONFIG: Record<ScoreMode, { label: string; default: number; min: number; max: number; step: number }> = {
   points: { label: 'Points', default: 21, min: 4, max: 40, step: 1 },
   games: { label: 'Games', default: 6, min: 1, max: 12, step: 1 },
 }
 
-export default function AmericanoSetup({ players }: Props) {
+const ROSTER_CONFIG: Record<RosterMode, { label: string; count: number }> = {
+  full: { label: '8', count: 8 },
+  seven: { label: '7', count: 7 },
+  five: { label: '5', count: 5 },
+  half: { label: '4', count: 4 },
+}
+
+export default function AmericanoSetup({ players, pastEvents }: Props) {
+  const router = useRouter()
   const [mode, setMode] = useState<ScoreMode>('points')
   const [target, setTarget] = useState(MODE_CONFIG.points.default)
+  const [rosterMode, setRosterMode] = useState<RosterMode>('full')
+  const [excludedIds, setExcludedIds] = useState<string[]>([])
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState('')
 
   const changeMode = (next: ScoreMode) => {
     setMode(next)
     setTarget(MODE_CONFIG[next].default)
   }
 
+  const changeRosterMode = (next: RosterMode) => {
+    setRosterMode(next)
+    setExcludedIds([])
+  }
+
   const { min, max, step } = MODE_CONFIG[mode]
   const adjust = (delta: number) => setTarget(t => Math.min(max, Math.max(min, t + delta)))
+  const byId = new Map(players.map(p => [p.id, p]))
+
+  const targetCount = ROSTER_CONFIG[rosterMode].count
+  const maxExclusions = players.length - targetCount
+  const included = players.filter(p => !excludedIds.includes(p.id))
+
+  const toggleExclude = (id: string) => {
+    if (rosterMode === 'full') return
+    setExcludedIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id)
+      if (prev.length >= maxExclusions) return prev
+      return [...prev, id]
+    })
+  }
+
+  const startEvent = async () => {
+    setStarting(true)
+    setError('')
+    try {
+      const res = await fetch('/api/events/americano', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerIds: included.map(p => p.id), scoreMode: mode, target }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Failed to start event')
+        setStarting(false)
+        return
+      }
+      router.push(`/events/americano/${data.id}`)
+    } catch {
+      setError('Network error')
+      setStarting(false)
+    }
+  }
 
   return (
     <div className="pt-5 pb-4 space-y-4">
@@ -99,39 +156,132 @@ export default function AmericanoSetup({ players }: Props) {
         </div>
       </div>
 
+      {/* Roster size */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Roster</div>
+        <div className="grid grid-cols-4 gap-2">
+          {(Object.keys(ROSTER_CONFIG) as RosterMode[]).map(m => (
+            <button
+              key={m}
+              onClick={() => changeRosterMode(m)}
+              className={`py-2 rounded-xl text-sm font-bold transition-all ${
+                rosterMode === m
+                  ? 'bg-neon-green text-background'
+                  : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+              }`}
+            >
+              {ROSTER_CONFIG[m].label}
+            </button>
+          ))}
+        </div>
+        {rosterMode !== 'full' && (
+          <div className="text-[11px] text-muted-foreground text-center">
+            Tap {maxExclusions} player{maxExclusions === 1 ? '' : 's'} to sit out — {excludedIds.length}/{maxExclusions} selected
+          </div>
+        )}
+      </div>
+
       {/* Players */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Players</span>
-          <span className="text-xs text-muted-foreground font-mono">{players.length}/8</span>
+          <span className="text-xs text-muted-foreground font-mono">
+            {included.length}/{targetCount}
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {players.map(p => (
-            <div
-              key={p.id}
-              className="flex items-center gap-2 h-14 px-3 rounded-xl border border-white/15 bg-white/5"
-            >
-              <div
-                className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
-                style={{ backgroundColor: p.avatarColor, boxShadow: `0 0 12px ${p.avatarColor}44` }}
+          {players.map(p => {
+            const excluded = excludedIds.includes(p.id)
+            return (
+              <button
+                key={p.id}
+                onClick={() => toggleExclude(p.id)}
+                disabled={rosterMode === 'full'}
+                className={`flex items-center gap-2 h-14 px-3 rounded-xl border transition-all ${
+                  excluded
+                    ? 'border-white/5 bg-white/[0.02] opacity-40'
+                    : 'border-white/15 bg-white/5'
+                } ${rosterMode === 'full' ? 'cursor-default' : 'hover:bg-white/10'}`}
               >
-                {getInitials(p.name)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold truncate">{p.name.split(' ')[0]}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">{formatPTR(p.ptr)}</div>
-              </div>
-            </div>
-          ))}
+                <div
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
+                  style={{ backgroundColor: p.avatarColor, boxShadow: excluded ? 'none' : `0 0 12px ${p.avatarColor}44` }}
+                >
+                  {getInitials(p.name)}
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className={`text-xs font-semibold truncate ${excluded ? 'line-through' : ''}`}>
+                    {p.name.split(' ')[0]}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono">
+                    {excluded ? 'Sitting out' : formatPTR(p.ptr)}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </div>
 
+      {error && <div className="text-sm text-red-400 text-center">{error}</div>}
       <button
-        disabled
-        className="w-full py-3.5 rounded-xl font-bold text-sm bg-white/5 text-muted-foreground border border-white/10 cursor-not-allowed"
+        onClick={startEvent}
+        disabled={starting || players.length !== 8 || included.length !== targetCount}
+        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
-        Round generation coming soon
+        {starting ? 'Generating schedule...' : 'Start Event'}
       </button>
+
+      {/* Past events */}
+      {pastEvents.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Past Events</span>
+          </div>
+          <div className="space-y-2">
+            {pastEvents.map(e => {
+              const leader = e.leaderboard[0]
+              const leaderPlayer = leader ? byId.get(leader.playerId) : undefined
+              return (
+                <Link
+                  key={e.id}
+                  href={`/events/americano/${e.id}`}
+                  className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-semibold">
+                        {new Date(e.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${
+                          e.status === 'complete'
+                            ? 'bg-neon-green/15 text-neon-green'
+                            : 'bg-yellow-400/15 text-yellow-400'
+                        }`}
+                      >
+                        {e.status === 'complete' ? 'Complete' : `Round ${e.matchesComplete}/${e.matchesTotal}`}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {leaderPlayer ? (
+                        <>
+                          <span className="text-white/70 font-medium">{leaderPlayer.name.split(' ')[0]}</span> leads
+                          with {leader!.points} pts
+                        </>
+                      ) : (
+                        'No scores yet'
+                      )}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

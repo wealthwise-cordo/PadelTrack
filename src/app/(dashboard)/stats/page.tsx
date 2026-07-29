@@ -1,5 +1,6 @@
 import { getPlayers, getMatches } from '@/lib/store'
-import { Trophy, Zap, Target, TrendingUp, Heart } from 'lucide-react'
+import { getEventWinCounts } from '@/lib/americano-store'
+import { Trophy, Zap, Target, TrendingUp, Heart, Crown } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
 import StatLeaderboard from '@/components/stats/StatLeaderboard'
 import type { PlayerWithStats } from '@/types'
@@ -42,7 +43,12 @@ function tiebreakConversion(p: PlayerWithStats): number {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default async function StatsPage() {
-  const [players, matches] = await Promise.all([getPlayers(), getMatches()])
+  const [players, matches, eventWinCounts] = await Promise.all([
+    getPlayers(),
+    getMatches(),
+    getEventWinCounts(),
+  ])
+  const eventWins = (p: PlayerWithStats) => eventWinCounts.get(p.id) ?? 0
 
   const totalMatches = matches.length
   const totalUpsets = matches.filter(m => m.isUpset).length
@@ -74,6 +80,9 @@ export default async function StatsPage() {
   )[0]
   const hasTiebreaks = players.some(p => p.tiebreaksWon > 0)
 
+  const eventists = rank(players, eventWins, p => p.ptr)
+  const eventist = eventists[0] && eventWins(eventists[0]) > 0 ? eventists[0] : null
+
   // ── Leaderboard entries ────────────────────────────────────────────────────
 
   const matchesWon    = rank(players, p => p.wins, p => p.setsWon)
@@ -85,6 +94,7 @@ export default async function StatsPage() {
     p => p.setsWon + p.setsLost,
     p => p.gamesWon + p.gamesLost,
   )
+  const eventWinsRanked = rank(players, eventWins, p => p.ptr)
 
   return (
     <div className="py-6 space-y-6">
@@ -157,6 +167,16 @@ export default async function StatsPage() {
               : ''}
           />
         )}
+
+        {eventist && (
+          <AwardCard
+            icon={<Crown className="h-5 w-5 text-purple-400" />}
+            title="Eventist"
+            desc="Most Americano events won"
+            player={eventist}
+            stat={`${eventWins(eventist)} event${eventWins(eventist) === 1 ? '' : 's'} won`}
+          />
+        )}
       </div>
 
       {/* Stat leaderboards */}
@@ -190,6 +210,14 @@ export default async function StatsPage() {
             sub: p.tiebreaksPlayed > 0 ? `${Math.round(tiebreakConversion(p) * 100)}% conversion` : undefined,
           }))}
         />
+        <StatLeaderboard
+          title="Event Wins"
+          entries={eventWinsRanked.map(p => ({
+            player: p,
+            value: eventWins(p),
+            display: String(eventWins(p)),
+          }))}
+        />
       </div>
     </div>
   )
@@ -205,7 +233,7 @@ function AwardCard({
   desc: string
   player: PlayerWithStats
   stat: string
-  sub: string
+  sub?: string
 }) {
   return (
     <div className="glass rounded-xl p-4 flex items-start gap-3">

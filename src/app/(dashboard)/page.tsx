@@ -1,4 +1,4 @@
-import { Flame, TrendingUp, TrendingDown } from 'lucide-react'
+import { Flame, TrendingUp, TrendingDown, Trophy } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
 import LiveRefreshButton from '@/components/leaderboard/LiveRefreshButton'
 import { getPlayers, getMatchCount } from '@/lib/store'

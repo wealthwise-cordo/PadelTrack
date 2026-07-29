@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation'
 import { getPlayer, getPlayers, getMatches } from '@/lib/store'
+import { getEventWinCounts } from '@/lib/americano-store'
 import PTRLineChart from '@/components/players/PTRLineChart'
 import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import { getInitials, formatPTR, getWinRate, getReliabilityLabel } from '@/lib/utils'
-import { Trophy, Target, Zap, TrendingUp } from 'lucide-react'
+import { Trophy, Target, Zap, TrendingUp, Crown } from 'lucide-react'
 
 export const revalidate = 0
 
@@ -39,10 +40,11 @@ async function getHeadToHead(playerId: string) {
 }
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
-  const [player, allPlayers, h2h] = await Promise.all([
+  const [player, allPlayers, h2h, eventWinCounts] = await Promise.all([
     getPlayer(params.id),
     getPlayers(),
     getHeadToHead(params.id),
+    getEventWinCounts(),
   ])
 
   if (!player) notFound()
@@ -50,16 +52,20 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   if (!player) notFound()
 
   const rank = allPlayers.findIndex(p => p.id === player.id) + 1
+  const eventWins = eventWinCounts.get(player.id) ?? 0
   const lastDelta = player.ptrHistory.length > 0
     ? player.ptrHistory[player.ptrHistory.length - 1].delta
     : 0
 
   const winRate = getWinRate(player.wins, player.matchesPlayed)
+  // Events contribute a PTR history point (matchId null) but aren't ranked
+  // matches, so they're excluded here to keep these per-match averages accurate.
+  const rankedHistory = player.ptrHistory.filter(h => h.matchId)
   const avgGainPerWin = player.wins > 0
-    ? player.ptrHistory.filter(h => h.delta > 0).reduce((s, h) => s + h.delta, 0) / player.wins
+    ? rankedHistory.filter(h => h.delta > 0).reduce((s, h) => s + h.delta, 0) / player.wins
     : 0
   const avgLossPerLoss = player.losses > 0
-    ? Math.abs(player.ptrHistory.filter(h => h.delta < 0).reduce((s, h) => s + h.delta, 0) / player.losses)
+    ? Math.abs(rankedHistory.filter(h => h.delta < 0).reduce((s, h) => s + h.delta, 0) / player.losses)
     : 0
 
   return (
@@ -126,6 +132,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           { label: 'Avg Loss / Defeat', value: `-${avgLossPerLoss.toFixed(1)}`, icon: Trophy },
           { label: 'Sets Won', value: `${player.setsWon}–${player.setsLost}`, icon: Target },
           { label: 'Games Won', value: `${player.gamesWon}–${player.gamesLost}`, icon: Zap },
+          { label: 'Event Wins', value: `${eventWins}`, icon: Crown },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="glass rounded-xl p-3">
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-1">
