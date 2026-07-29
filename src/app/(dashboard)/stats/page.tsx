@@ -116,6 +116,7 @@ export default async function StatsPage() {
           <AwardCard
             icon={<Trophy className="h-5 w-5 text-yellow-400" />}
             title="Big Winner"
+            desc="Most matches won this tour"
             player={bigWinner}
             stat={`${bigWinner.wins}W`}
             sub={`${bigWinner.setsWon} sets won`}
@@ -126,9 +127,10 @@ export default async function StatsPage() {
           <AwardCard
             icon={<Heart className="h-5 w-5 text-pink-400" />}
             title="Thanks for Playing"
+            desc="Most time on court — the grinder"
             player={thanksForPlaying}
             stat={`${thanksForPlaying.matchesPlayed} matches`}
-            sub={`${thanksForPlaying.setsWon + thanksForPlaying.setsLost} sets · ${thanksForPlaying.gamesWon + thanksForPlaying.gamesLost} games played`}
+            sub={`${thanksForPlaying.setsWon + thanksForPlaying.setsLost} sets · ${thanksForPlaying.gamesWon + thanksForPlaying.gamesLost} games`}
           />
         )}
 
@@ -136,6 +138,7 @@ export default async function StatsPage() {
           <AwardCard
             icon={<Target className="h-5 w-5 text-orange-400" />}
             title="Choker"
+            desc="Wins the games but can't close the sets"
             player={choker}
             stat={`${Math.round((p => (p.gamesWon / (p.gamesWon + p.gamesLost)) * 100)(choker))}% game win rate`}
             sub={`Only ${Math.round((p => (p.setsWon / (p.setsWon + p.setsLost)) * 100)(choker))}% set win rate`}
@@ -146,10 +149,11 @@ export default async function StatsPage() {
           <AwardCard
             icon={<Zap className="h-5 w-5 text-neon-blue" />}
             title="Tiebreak King"
+            desc="Clutch performer when it goes to a decider"
             player={tiebreakKing}
-            stat={`${tiebreakKing.tiebreaksWon} tiebreaks`}
+            stat={`${tiebreakKing.tiebreaksWon} tiebreaks won`}
             sub={tiebreakKing.tiebreaksPlayed > 0
-              ? `${Math.round(tiebreakConversion(tiebreakKing) * 100)}% win rate in tiebreaks`
+              ? `${Math.round(tiebreakConversion(tiebreakKing) * 100)}% conversion rate`
               : ''}
           />
         )}
@@ -194,10 +198,11 @@ export default async function StatsPage() {
 // ─── Award card ───────────────────────────────────────────────────────────────
 
 function AwardCard({
-  icon, title, player, stat, sub,
+  icon, title, desc, player, stat, sub,
 }: {
   icon: React.ReactNode
   title: string
+  desc: string
   player: PlayerWithStats
   stat: string
   sub: string
@@ -206,7 +211,8 @@ function AwardCard({
     <div className="glass rounded-xl p-4 flex items-start gap-3">
       <div className="shrink-0 mt-0.5">{icon}</div>
       <div className="flex-1 min-w-0">
-        <div className="text-xs text-muted-foreground mb-1">{title}</div>
+        <div className="text-xs font-semibold text-foreground/80 mb-0.5">{title}</div>
+        <div className="text-[10px] text-muted-foreground mb-2 leading-relaxed">{desc}</div>
         <div className="flex items-center gap-2 mb-0.5">
           <div
             className="h-5 w-5 rounded-full flex items-center justify-center text-[8px] font-bold text-background shrink-0"

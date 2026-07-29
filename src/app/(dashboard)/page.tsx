@@ -1,4 +1,4 @@
-import { Trophy, TrendingUp } from 'lucide-react'
+import { Flame, TrendingUp, TrendingDown } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
 import LiveRefreshButton from '@/components/leaderboard/LiveRefreshButton'
 import { getPlayers, getMatchCount } from '@/lib/store'
@@ -7,10 +7,16 @@ export const revalidate = 0
 
 export default async function LeaderboardPage() {
   const [players, totalMatches] = await Promise.all([getPlayers(), getMatchCount()])
-  const topPlayer = players[0]
+
+  const hottestStreak = players.reduce((best, p) =>
+    (p.currentStreak > 0 ? p.currentStreak : 0) > (best.currentStreak > 0 ? best.currentStreak : 0) ? p : best
+  , players[0])
+
   const biggestMover = players.reduce((best, p) =>
     Math.abs(p.ptrDelta ?? 0) > Math.abs(best?.ptrDelta ?? 0) ? p : best
   , players[0])
+
+  const moverDelta = biggestMover?.ptrDelta ?? 0
 
   return (
     <div className="py-6 space-y-6">
@@ -31,26 +37,31 @@ export default async function LeaderboardPage() {
       {players.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <div className="glass rounded-xl p-3">
-            <div className="flex items-center gap-1.5 text-[10px] text-yellow-400 mb-2">
-              <Trophy className="h-3 w-3" /> Tour Leader
+            <div className="flex items-center gap-1.5 text-[10px] text-orange-400 mb-2">
+              <Flame className="h-3 w-3" /> Hottest Streak
             </div>
             <div className="flex items-center gap-2">
               <div
                 className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-background"
-                style={{ backgroundColor: topPlayer.avatarColor }}
+                style={{ backgroundColor: hottestStreak.avatarColor }}
               >
-                {topPlayer.name.split(' ').map(n => n[0]).join('')}
+                {hottestStreak.name.split(' ').map(n => n[0]).join('')}
               </div>
               <div>
-                <div className="font-semibold text-sm">{topPlayer.name.split(' ')[0]}</div>
-                <div className="font-mono text-xs text-neon-green">{Math.round(topPlayer.ptr)} PTR</div>
+                <div className="font-semibold text-sm">{hottestStreak.name.split(' ')[0]}</div>
+                <div className="font-mono text-xs text-orange-400">
+                  {hottestStreak.currentStreak > 0 ? `${hottestStreak.currentStreak}W streak` : '—'}
+                </div>
               </div>
             </div>
           </div>
 
           <div className="glass rounded-xl p-3">
-            <div className="flex items-center gap-1.5 text-[10px] text-neon-blue mb-2">
-              <TrendingUp className="h-3 w-3" /> Biggest Move
+            <div className={`flex items-center gap-1.5 text-[10px] mb-2 ${moverDelta >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
+              {moverDelta >= 0
+                ? <TrendingUp className="h-3 w-3" />
+                : <TrendingDown className="h-3 w-3" />
+              } Biggest Mover
             </div>
             <div className="flex items-center gap-2">
               <div
@@ -61,8 +72,8 @@ export default async function LeaderboardPage() {
               </div>
               <div>
                 <div className="font-semibold text-sm">{biggestMover.name.split(' ')[0]}</div>
-                <div className={`font-mono text-xs ${(biggestMover.ptrDelta ?? 0) >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
-                  {(biggestMover.ptrDelta ?? 0) > 0 ? '+' : ''}{(biggestMover.ptrDelta ?? 0).toFixed(1)}
+                <div className={`font-mono text-xs ${moverDelta >= 0 ? 'text-neon-green' : 'text-red-400'}`}>
+                  {moverDelta > 0 ? '+' : ''}{moverDelta.toFixed(1)}
                 </div>
               </div>
             </div>

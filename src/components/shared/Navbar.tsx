@@ -2,14 +2,25 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Trophy, Swords, History, BarChart3 } from 'lucide-react'
+import { Trophy, Swords, History, BarChart3, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const nav = [
+const sideNav = [
   { href: '/', label: 'Rankings', icon: Trophy },
-  { href: '/matches/new', label: 'New Match', icon: Swords },
-  { href: '/matches', label: 'History', icon: History },
   { href: '/stats', label: 'Stats', icon: BarChart3 },
+]
+
+const sideNavRight = [
+  { href: '/events', label: 'Events', icon: LayoutGrid },
+  { href: '/matches', label: 'History', icon: History },
+]
+
+const desktopNav = [
+  { href: '/', label: 'Rankings', icon: Trophy },
+  { href: '/stats', label: 'Stats', icon: BarChart3 },
+  { href: '/matches/new', label: 'New Match', icon: Swords },
+  { href: '/events', label: 'Events', icon: LayoutGrid },
+  { href: '/matches', label: 'History', icon: History },
 ]
 
 export default function Navbar() {
@@ -29,13 +40,15 @@ export default function Navbar() {
           </div>
         </div>
         <nav className="flex items-center gap-1">
-          {nav.map(({ href, label, icon: Icon }) => (
+          {desktopNav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-                pathname === href
+                href === '/matches/new'
+                  ? 'bg-neon-orange/10 text-neon-orange hover:bg-neon-orange/20'
+                  : pathname === href
                   ? 'bg-neon-green/10 text-neon-green'
                   : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
               )}
@@ -49,8 +62,31 @@ export default function Navbar() {
       </header>
 
       {/* Bottom bar — mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass !bg-black/70 backdrop-blur border-t border-white/10 [padding-bottom:env(safe-area-inset-bottom)]">
-        {nav.map(({ href, label, icon: Icon }) => (
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex glass !bg-black/90 backdrop-blur border-t border-white/10 [padding-bottom:env(safe-area-inset-bottom)]">
+        {sideNav.map(({ href, label, icon: Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              'flex-1 flex flex-col items-center gap-1 py-2 text-[10px] font-medium transition-all',
+              pathname === href ? 'text-neon-green' : 'text-muted-foreground'
+            )}
+          >
+            <Icon className="h-5 w-5" />
+            {label}
+          </Link>
+        ))}
+
+        {/* Centre — New Match */}
+        <Link
+          href="/matches/new"
+          className="flex-1 flex flex-col items-center gap-1 py-2 text-[10px] font-bold transition-all text-neon-orange"
+        >
+          <Swords className="h-5 w-5" />
+          New Match
+        </Link>
+
+        {sideNavRight.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
