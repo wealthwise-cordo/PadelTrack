@@ -35,6 +35,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
   const [target, setTarget] = useState(MODE_CONFIG.points.default)
   const [rosterMode, setRosterMode] = useState<RosterMode>('full')
   const [excludedIds, setExcludedIds] = useState<string[]>([])
+  const [isRanked, setIsRanked] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -83,7 +84,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
       const res = await fetch('/api/events/americano', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerIds: included.map(p => p.id), scoreMode: mode, target }),
+        body: JSON.stringify({ playerIds: included.map(p => p.id), scoreMode: mode, target, isRanked }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -235,6 +236,34 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
         </div>
       </div>
 
+      {/* Ranked / unranked */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Match Type</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setIsRanked(true)}
+            className={`py-2 rounded-xl text-sm font-bold transition-all ${
+              isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+            }`}
+          >
+            Ranked
+          </button>
+          <button
+            onClick={() => setIsRanked(false)}
+            className={`py-2 rounded-xl text-sm font-bold transition-all ${
+              !isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+            }`}
+          >
+            Unranked
+          </button>
+        </div>
+        {!isRanked && (
+          <div className="text-[10px] text-muted-foreground text-center">
+            Event still plays out and saves normally — PTR won&apos;t change
+          </div>
+        )}
+      </div>
+
       {error && <div className="text-sm text-red-400 text-center">{error}</div>}
       <button
         onClick={startEvent}
@@ -274,6 +303,11 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
                       >
                         {e.status === 'complete' ? 'Complete' : `Round ${e.matchesComplete}/${e.matchesTotal}`}
                       </span>
+                      {!e.isRanked && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide bg-white/10 text-muted-foreground">
+                          Unranked
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {leaderPlayer ? (

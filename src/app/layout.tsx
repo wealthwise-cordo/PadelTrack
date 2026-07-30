@@ -2,13 +2,13 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Padel Tour — Spain 2026',
+  title: 'World Padel Tour — Portman, Spain 2026',
   description: 'The official ranking system for the private padel tour.',
   icons: { icon: '/favicon.ico' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Padel Tour',
+    title: 'World Padel Tour',
   },
 }
 

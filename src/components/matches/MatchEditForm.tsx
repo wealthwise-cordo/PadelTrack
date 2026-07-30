@@ -95,8 +95,13 @@ export default function MatchEditForm({ match }: { match: MatchWithPlayers }) {
       <div className="glass rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Score</div>
-          <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'}`}>
-            {status === 'complete' ? 'COMPLETE' : 'INCOMPLETE'}
+          <div className="flex items-center gap-1.5">
+            {!match.isRanked && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-muted-foreground">UNRANKED</span>
+            )}
+            <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'}`}>
+              {status === 'complete' ? 'COMPLETE' : 'INCOMPLETE'}
+            </div>
           </div>
         </div>
 

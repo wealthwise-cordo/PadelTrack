@@ -52,6 +52,7 @@ model Match {
   playedAt        DateTime     @default(now())
   submittedAt     DateTime     @default(now())
   status          String       @default("complete")
+  isRanked        Boolean      @default(true)
   winner          String?
   teamAPlayer1Id  String
   teamAPlayer2Id  String
@@ -85,7 +86,7 @@ model MatchSet {
 }
 
 model PTRHistory {
-  id          String          @id @default(cuid())
+  id          String           @id @default(cuid())
   playerId    String
   matchId     String?
   eventId     String?
@@ -93,10 +94,12 @@ model PTRHistory {
   ptrAfter    Float
   delta       Float
   reliability Float
-  createdAt   DateTime        @default(now())
-  player      Player          @relation(fields: [playerId], references: [id])
-  match       Match?          @relation(fields: [matchId], references: [id])
-  event       AmericanoEvent? @relation(fields: [eventId], references: [id])
+  createdAt   DateTime         @default(now())
+  player      Player           @relation(fields: [playerId], references: [id])
+  match       Match?           @relation(fields: [matchId], references: [id])
+  event       AmericanoEvent?  @relation(fields: [eventId], references: [id])
+  rrEventId   String?
+  rrEvent     RoundRobinEvent? @relation(fields: [rrEventId], references: [id])
 }
 
 model AmericanoEvent {
@@ -105,6 +108,7 @@ model AmericanoEvent {
   status     String           @default("in_progress") // in_progress | complete
   scoreMode  String // "points" | "games"
   target     Int
+  isRanked   Boolean          @default(true)
   playerIds  String[]
   ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
   matches    AmericanoMatch[]
@@ -123,6 +127,34 @@ model AmericanoMatch {
   teamBScore     Int?
   status         String         @default("pending") // pending | complete
   event          AmericanoEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+model RoundRobinEvent {
+  id            String            @id @default(cuid())
+  createdAt     DateTime          @default(now())
+  status        String            @default("in_progress") // in_progress | complete
+  target        Int // games target, first-to (not best-of)
+  isRanked      Boolean           @default(true)
+  teamPlayerIds String[] // flattened, consecutive pairs = teams: [t0p1,t0p2,t1p1,t1p2,...]
+  ptrDeltas     Json? // { [playerId]: delta } applied when the event completed
+  matches       RoundRobinMatch[]
+  ptrHistory    PTRHistory[]
+}
+
+model RoundRobinMatch {
+  id             String          @id @default(cuid())
+  eventId        String
+  round          Int
+  teamAPlayer1Id String
+  teamAPlayer2Id String
+  teamBPlayer1Id String
+  teamBPlayer2Id String
+  teamAScore     Int?
+  teamBScore     Int?
+  status         String          @default("pending") // pending | complete
+  event          RoundRobinEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
 }

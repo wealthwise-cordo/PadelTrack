@@ -1,12 +1,12 @@
 import { Flame, TrendingUp, TrendingDown, Trophy } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
 import LiveRefreshButton from '@/components/leaderboard/LiveRefreshButton'
-import { getPlayers, getMatchCount } from '@/lib/store'
+import { getPlayers, getMatchCount, getEventCount } from '@/lib/store'
 
 export const revalidate = 0
 
 export default async function LeaderboardPage() {
-  const [players, totalMatches] = await Promise.all([getPlayers(), getMatchCount()])
+  const [players, totalMatches, totalEvents] = await Promise.all([getPlayers(), getMatchCount(), getEventCount()])
 
   const hottestStreak = players.reduce((best, p) =>
     (p.currentStreak > 0 ? p.currentStreak : 0) > (best.currentStreak > 0 ? best.currentStreak : 0) ? p : best
@@ -24,10 +24,11 @@ export default async function LeaderboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight">
-            Padel <span className="text-neon-green">Tour</span>
+            World Padel <span className="text-neon-green">Tour</span>
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Spain 2026 · {totalMatches} matches played
+          <p className="text-xs text-muted-foreground mt-0.5">Portman, Spain 2026</p>
+          <p className="text-xs text-muted-foreground">
+            {totalMatches} matches played · {totalEvents} events played
           </p>
         </div>
         <LiveRefreshButton />

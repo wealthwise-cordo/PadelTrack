@@ -7,16 +7,18 @@ import { formatDistanceToNow } from 'date-fns'
 import { getInitials, getFullScore } from '@/lib/utils'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
+import type { RoundRobinEventSummary } from '@/lib/round-robin-store'
 
 const PASSCODE = '5299'
 
 interface Props {
   matches: MatchWithPlayers[]
   americanoEvents: AmericanoEventSummary[]
+  roundRobinEvents: RoundRobinEventSummary[]
   players: PlayerWithStats[]
 }
 
-export default function AdminPanel({ matches, americanoEvents, players }: Props) {
+export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, players }: Props) {
   const router = useRouter()
   const [unlocked, setUnlocked] = useState(false)
   const [code, setCode] = useState('')
@@ -28,6 +30,8 @@ export default function AdminPanel({ matches, americanoEvents, players }: Props)
   const [deleteError, setDeleteError] = useState('')
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
   const [eventDeleteError, setEventDeleteError] = useState('')
+  const [deletingRRId, setDeletingRRId] = useState<string | null>(null)
+  const [rrDeleteError, setRRDeleteError] = useState('')
 
   const byId = new Map(players.map(p => [p.id, p]))
 
@@ -74,6 +78,24 @@ export default function AdminPanel({ matches, americanoEvents, players }: Props)
       setEventDeleteError('Network error')
     } finally {
       setDeletingEventId(null)
+    }
+  }
+
+  const handleDeleteRR = async (id: string) => {
+    setDeletingRRId(id)
+    setRRDeleteError('')
+    try {
+      const res = await fetch(`/api/admin/events/round-robin/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json()
+        setRRDeleteError(d.error || 'Delete failed')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setRRDeleteError('Network error')
+    } finally {
+      setDeletingRRId(null)
     }
   }
 
@@ -173,6 +195,9 @@ export default function AdminPanel({ matches, americanoEvents, players }: Props)
                   {incomplete && (
                     <span className="text-[9px] bg-yellow-400/15 text-yellow-400 rounded px-1 py-0.5 font-medium">INC</span>
                   )}
+                  {!match.isRanked && (
+                    <span className="text-[9px] bg-white/10 text-muted-foreground rounded px-1 py-0.5 font-medium">UNRANKED</span>
+                  )}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
                   {formatDistanceToNow(new Date(match.playedAt), { addSuffix: true })}
@@ -220,6 +245,9 @@ export default function AdminPanel({ matches, americanoEvents, players }: Props)
                   >
                     {event.status === 'complete' ? 'COMPLETE' : `${event.matchesComplete}/${event.matchesTotal}`}
                   </span>
+                  {!event.isRanked && (
+                    <span className="text-[9px] rounded px-1 py-0.5 font-medium bg-white/10 text-muted-foreground">UNRANKED</span>
+                  )}
                 </div>
                 <div className="text-[10px] text-muted-foreground truncate">{rosterNames}</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
@@ -231,6 +259,61 @@ export default function AdminPanel({ matches, americanoEvents, players }: Props)
               <button
                 onClick={() => handleDeleteEvent(event.id)}
                 disabled={deletingEventId === event.id}
+                className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
+                title="Delete event"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Round Robin events */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Round Robin Events</h2>
+
+        {rrDeleteError && <p className="text-sm text-red-400 text-center">{rrDeleteError}</p>}
+
+        {roundRobinEvents.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No events recorded.</p>
+        )}
+
+        {roundRobinEvents.map(event => {
+          const leader = event.leaderboard[0]
+          const leaderNames = leader
+            ? `${byId.get(leader.playerIds[0])?.name.split(' ')[0] ?? '?'} & ${byId.get(leader.playerIds[1])?.name.split(' ')[0] ?? '?'}`
+            : null
+          const rosterNames = event.teams
+            .map(team => team.map(id => byId.get(id)?.name.split(' ')[0] ?? '?').join('/'))
+            .join(', ')
+
+          return (
+            <div key={event.id} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs font-bold">{event.teams.length} teams</span>
+                  <span
+                    className={`text-[9px] rounded px-1 py-0.5 font-medium ${
+                      event.status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'
+                    }`}
+                  >
+                    {event.status === 'complete' ? 'COMPLETE' : `${event.matchesComplete}/${event.matchesTotal}`}
+                  </span>
+                  {!event.isRanked && (
+                    <span className="text-[9px] rounded px-1 py-0.5 font-medium bg-white/10 text-muted-foreground">UNRANKED</span>
+                  )}
+                </div>
+                <div className="text-[10px] text-muted-foreground truncate">{rosterNames}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {leaderNames ? `${leaderNames} leads with ${leader!.points} pts · ` : ''}
+                  {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleDeleteRR(event.id)}
+                disabled={deletingRRId === event.id}
                 className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
                 title="Delete event"
               >

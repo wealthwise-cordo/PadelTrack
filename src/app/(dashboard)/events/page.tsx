@@ -13,9 +13,9 @@ export default function EventsPage() {
     {
       icon: <RotateCcw className="h-6 w-6 text-neon-blue" />,
       name: 'Round Robin',
-      description: 'Every pairing plays each other at least once. Best overall record wins.',
+      description: 'Fixed partners, every team plays every team once. First to 4/6/8 games per match.',
       tag: 'Full schedule',
-      href: null,
+      href: '/events/round-robin',
     },
     {
       icon: <Zap className="h-6 w-6 text-yellow-400" />,

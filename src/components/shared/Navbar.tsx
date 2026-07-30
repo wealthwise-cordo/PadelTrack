@@ -34,9 +34,9 @@ export default function Navbar() {
           <Trophy className="h-5 w-5 text-neon-green" />
           <div className="flex flex-col leading-tight">
             <span className="font-bold text-sm tracking-widest text-foreground/90">
-              PADEL <span className="text-neon-green">TOUR</span>
+              WORLD PADEL <span className="text-neon-green">TOUR</span>
             </span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Spain 2026</span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Portman, Spain 2026</span>
           </div>
         </div>
         <nav className="flex items-center gap-1">

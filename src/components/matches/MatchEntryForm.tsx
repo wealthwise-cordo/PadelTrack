@@ -37,6 +37,7 @@ export default function MatchEntryForm({ players }: Props) {
   const [pickingSlot, setPickingSlot] = useState<number | null>(null)
   const [sets, setSets] = useState<SetScore[]>(EMPTY_SETS)
   const [hasEditedScore, setHasEditedScore] = useState(false)
+  const [isRanked, setIsRanked] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
@@ -104,7 +105,7 @@ export default function MatchEntryForm({ players }: Props) {
         body: JSON.stringify({
           teamAPlayer1Id: teamA1, teamAPlayer2Id: teamA2,
           teamBPlayer1Id: teamB1, teamBPlayer2Id: teamB2,
-          sets, winner, status,
+          sets, winner, status, isRanked,
         }),
       })
       if (!res.ok) {
@@ -277,6 +278,34 @@ export default function MatchEntryForm({ players }: Props) {
         {allSelected && hasEditedScore && winner && (
           <div className="mt-3 text-center text-sm font-bold text-neon-green">
             {getPlayer(winner === 'A' ? teamA1 : teamB1)?.name.split(' ')[0]} &amp; {getPlayer(winner === 'A' ? teamA2 : teamB2)?.name.split(' ')[0]} win
+          </div>
+        )}
+      </div>
+
+      {/* Ranked / unranked */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Match Type</div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setIsRanked(true)}
+            className={`py-2 rounded-xl text-sm font-bold transition-all ${
+              isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+            }`}
+          >
+            Ranked
+          </button>
+          <button
+            onClick={() => setIsRanked(false)}
+            className={`py-2 rounded-xl text-sm font-bold transition-all ${
+              !isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+            }`}
+          >
+            Unranked
+          </button>
+        </div>
+        {!isRanked && (
+          <div className="text-[10px] text-muted-foreground text-center">
+            Stats, streaks, and history are still recorded — PTR won&apos;t change
           </div>
         )}
       </div>

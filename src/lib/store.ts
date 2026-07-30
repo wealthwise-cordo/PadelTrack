@@ -85,6 +85,7 @@ function hydrateMatch(m: MatchFull): MatchWithPlayers {
     id: m.id,
     playedAt: m.playedAt.toISOString(),
     status: m.status as 'complete' | 'incomplete',
+    isRanked: m.isRanked,
     winner: m.winner as 'A' | 'B' | null,
     teamAPlayer1Id: m.teamAPlayer1Id,
     teamAPlayer2Id: m.teamAPlayer2Id,
@@ -162,6 +163,14 @@ export async function getMatchCount(): Promise<number> {
   return prisma.match.count()
 }
 
+export async function getEventCount(): Promise<number> {
+  const [americanoCount, roundRobinCount] = await Promise.all([
+    prisma.americanoEvent.count(),
+    prisma.roundRobinEvent.count(),
+  ])
+  return americanoCount + roundRobinCount
+}
+
 // ---------------------------------------------------------------------------
 // Match creation
 // ---------------------------------------------------------------------------
@@ -174,8 +183,10 @@ export async function createMatch(data: {
   sets: { teamAGames: number; teamBGames: number }[]
   winner: 'A' | 'B' | null
   status: 'complete' | 'incomplete'
+  isRanked?: boolean
 }): Promise<{ matchId: string; ptrDelta: number; isUpset: boolean; status: string } | { error: string }> {
   const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status } = data
+  const isRanked = data.isRanked ?? true
 
   const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
   if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
@@ -191,6 +202,7 @@ export async function createMatch(data: {
       const match = await tx.match.create({
         data: {
           status,
+          isRanked,
           teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
           teamAPTRBefore, teamBPTRBefore,
           teamAPTRAfter: teamAPTRBefore,
@@ -198,7 +210,7 @@ export async function createMatch(data: {
           sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
         },
       })
-      const result = await applyPTR(tx, match.id, { p1, p2, p3, p4 }, sets, winner, teamAPTRBefore, teamBPTRBefore)
+      const result = await applyPTR(tx, match.id, { p1, p2, p3, p4 }, sets, winner, teamAPTRBefore, teamBPTRBefore, isRanked)
       return { matchId: match.id, ptrDelta: result.ptrDelta, isUpset: result.isUpset, status }
     })
   }
@@ -206,6 +218,7 @@ export async function createMatch(data: {
   const match = await prisma.match.create({
     data: {
       status: 'incomplete',
+      isRanked,
       winner: null,
       teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
       teamAPTRBefore, teamBPTRBefore,
@@ -246,7 +259,7 @@ export async function updateMatch(
       await tx.matchSet.createMany({
         data: sets.map((s, i) => ({ matchId: id, setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
       })
-      await applyPTR(tx, id, { p1, p2, p3, p4 }, sets, winner, match.teamAPTRBefore, match.teamBPTRBefore)
+      await applyPTR(tx, id, { p1, p2, p3, p4 }, sets, winner, match.teamAPTRBefore, match.teamBPTRBefore, match.isRanked)
     })
   } else {
     await prisma.$transaction([
@@ -395,6 +408,7 @@ async function applyPTR(
   winner: 'A' | 'B',
   teamAPTRBefore: number,
   teamBPTRBefore: number,
+  isRanked: boolean,
 ): Promise<{ ptrDelta: number; isUpset: boolean }> {
   const { p1, p2, p3, p4 } = players
 
@@ -407,6 +421,10 @@ async function applyPTR(
     winner,
   )
 
+  // Unranked matches still update stats/streaks/tiebreaks normally — only
+  // the actual PTR movement is suppressed, by zeroing every delta below.
+  const rankMultiplier = isRanked ? 1 : 0
+
   const playedSets = sets.filter(s => s.teamAGames + s.teamBGames > 0)
   const setsA = playedSets.filter(s => s.teamAGames > s.teamBGames).length
   const setsB = playedSets.filter(s => s.teamBGames > s.teamAGames).length
@@ -417,8 +435,12 @@ async function applyPTR(
   const tbWonB = sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
   const tbTotal = tbWonA + tbWonB
 
-  const [dA1, dA2] = result.playerADeltas
-  const [dB1, dB2] = result.playerBDeltas
+  const dA1 = result.playerADeltas[0] * rankMultiplier
+  const dA2 = result.playerADeltas[1] * rankMultiplier
+  const dB1 = result.playerBDeltas[0] * rankMultiplier
+  const dB2 = result.playerBDeltas[1] * rankMultiplier
+  const teamADelta = result.teamADelta * rankMultiplier
+  const teamBDelta = result.teamBDelta * rankMultiplier
 
   const updatePlayer = (p: Player, delta: number, isWinner: boolean, sw: number, sl: number, gw: number, gl: number, tbWon: number) => {
     const newMatches = p.matchesPlayed + 1
@@ -469,9 +491,9 @@ async function applyPTR(
       data: {
         status: 'complete',
         winner,
-        teamAPTRAfter: teamAPTRBefore + result.teamADelta,
-        teamBPTRAfter: teamBPTRBefore + result.teamBDelta,
-        ptrDelta: Math.abs(result.teamADelta),
+        teamAPTRAfter: teamAPTRBefore + teamADelta,
+        teamBPTRAfter: teamBPTRBefore + teamBDelta,
+        ptrDelta: Math.abs(teamADelta),
         scoreMultiplier: result.scoreMultiplier,
         isUpset: result.isUpset,
         matchQuality: result.matchQuality,
@@ -479,5 +501,5 @@ async function applyPTR(
     }),
   ])
 
-  return { ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
+  return { ptrDelta: Math.abs(teamADelta), isUpset: result.isUpset }
 }

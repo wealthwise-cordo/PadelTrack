@@ -129,6 +129,11 @@ export default function AmericanoEventView({ event, players }: Props) {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <h1 className="text-2xl font-black tracking-tight flex-1">Americano</h1>
+        {!event.isRanked && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-muted-foreground font-bold uppercase tracking-wide">
+            Unranked
+          </span>
+        )}
         {event.status === 'complete' && (
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-neon-green/15 text-neon-green font-bold uppercase tracking-wide">
             Complete
@@ -244,7 +249,7 @@ export default function AmericanoEventView({ event, players }: Props) {
 
       {event.status === 'complete' && (
         <div className="text-center text-sm font-bold text-neon-green py-2">
-          🏆 Event complete — PTR updated for all players
+          {event.isRanked ? '🏆 Event complete — PTR updated for all players' : '🏆 Event complete — unranked, PTR unaffected'}
         </div>
       )}
 

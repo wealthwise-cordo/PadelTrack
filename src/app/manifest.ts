@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Padel Tour Spain 2026',
-    short_name: 'Padel Tour',
+    name: 'World Padel Tour — Portman, Spain 2026',
+    short_name: 'World Padel Tour',
     description: 'The official ranking system for the private padel tour.',
     start_url: '/',
     display: 'standalone',

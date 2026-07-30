@@ -41,6 +41,7 @@ export interface MatchWithPlayers {
   id: string
   playedAt: string
   status: 'complete' | 'incomplete'
+  isRanked: boolean
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string

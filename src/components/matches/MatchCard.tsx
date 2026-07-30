@@ -22,6 +22,11 @@ export default function MatchCard({ match }: Props) {
           {formatDistanceToNow(new Date(match.playedAt), { addSuffix: true })}
         </span>
         <div className="flex items-center gap-2">
+          {!match.isRanked && (
+            <span className="text-[10px] bg-white/10 text-muted-foreground rounded px-1.5 py-0.5 font-medium">
+              UNRANKED
+            </span>
+          )}
           {incomplete && (
             <Link
               href={`/matches/${match.id}/edit`}

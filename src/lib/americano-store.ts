@@ -4,7 +4,7 @@ import { calculateExpectedWin, calculateKFactor, calculateReliability } from './
 
 // Overall weight applied to the event's PTR effect relative to a normal
 // ranked match.
-const AMERICANO_PTR_WEIGHT = 0.75
+const AMERICANO_PTR_WEIGHT = 0.6
 // How much beating/missing your pre-event expectation can amplify or
 // dampen the placement-driven delta (clamped to a 0.5x-1.5x multiplier).
 const AMERICANO_EXPECTATION_SENSITIVITY = 0.5
@@ -27,6 +27,7 @@ export interface AmericanoEventView {
   status: 'in_progress' | 'complete'
   scoreMode: 'points' | 'games'
   target: number
+  isRanked: boolean
   playerIds: string[]
   matches: AmericanoMatchView[]
   ptrDeltas: Record<string, number> | null
@@ -38,6 +39,7 @@ export interface AmericanoEventSummary {
   status: 'in_progress' | 'complete'
   scoreMode: 'points' | 'games'
   target: number
+  isRanked: boolean
   playerIds: string[]
   matchesComplete: number
   matchesTotal: number
@@ -47,13 +49,15 @@ export interface AmericanoEventSummary {
 export async function createAmericanoEvent(
   playerIds: string[],
   scoreMode: 'points' | 'games',
-  target: number
+  target: number,
+  isRanked = true
 ): Promise<string> {
   const fixtures = generateAmericanoSchedule(playerIds)
   const event = await prisma.americanoEvent.create({
     data: {
       scoreMode,
       target,
+      isRanked,
       playerIds,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -74,6 +78,7 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
     status: event.status as 'in_progress' | 'complete',
     scoreMode: event.scoreMode as 'points' | 'games',
     target: event.target,
+    isRanked: event.isRanked,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
@@ -106,6 +111,7 @@ export async function listAmericanoEvents(): Promise<AmericanoEventSummary[]> {
       status: event.status as 'in_progress' | 'complete',
       scoreMode: event.scoreMode as 'points' | 'games',
       target: event.target,
+      isRanked: event.isRanked,
       playerIds: event.playerIds,
       matchesComplete,
       matchesTotal: event.matches.length,
@@ -270,7 +276,11 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
         Math.min(0.5, sign * expectationRounds * AMERICANO_EXPECTATION_SENSITIVITY)
       )
 
-      const finalDelta = Math.round(marginRounds * avgK * AMERICANO_PTR_WEIGHT * multiplier * 10) / 10
+      // Unranked events still play out and save normally — the PTR effect
+      // is just zeroed out here (a quick multiply-by-0), same as an
+      // unranked regular match.
+      const rawDelta = Math.round(marginRounds * avgK * AMERICANO_PTR_WEIGHT * multiplier * 10) / 10
+      const finalDelta = event.isRanked ? rawDelta : 0
       appliedDeltas[playerId] = finalDelta
 
       await tx.player.update({
