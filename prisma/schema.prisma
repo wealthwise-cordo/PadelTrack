@@ -85,27 +85,30 @@ model MatchSet {
 }
 
 model PTRHistory {
-  id          String   @id @default(cuid())
+  id          String          @id @default(cuid())
   playerId    String
   matchId     String?
+  eventId     String?
   ptrBefore   Float
   ptrAfter    Float
   delta       Float
   reliability Float
-  createdAt   DateTime @default(now())
-  player      Player   @relation(fields: [playerId], references: [id])
-  match       Match?   @relation(fields: [matchId], references: [id])
+  createdAt   DateTime        @default(now())
+  player      Player          @relation(fields: [playerId], references: [id])
+  match       Match?          @relation(fields: [matchId], references: [id])
+  event       AmericanoEvent? @relation(fields: [eventId], references: [id])
 }
 
 model AmericanoEvent {
-  id        String           @id @default(cuid())
-  createdAt DateTime         @default(now())
-  status    String           @default("in_progress") // in_progress | complete
-  scoreMode String // "points" | "games"
-  target    Int
-  playerIds String[]
-  ptrDeltas Json? // { [playerId]: delta } applied when the event completed
-  matches   AmericanoMatch[]
+  id         String           @id @default(cuid())
+  createdAt  DateTime         @default(now())
+  status     String           @default("in_progress") // in_progress | complete
+  scoreMode  String // "points" | "games"
+  target     Int
+  playerIds  String[]
+  ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
+  matches    AmericanoMatch[]
+  ptrHistory PTRHistory[]
 }
 
 model AmericanoMatch {

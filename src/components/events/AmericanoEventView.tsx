@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Trophy } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
+import { computeExcludedRounds, computeLeaderboardPoints } from '@/lib/americano'
 import type { PlayerWithStats } from '@/types'
 import type { AmericanoEventView as EventData } from '@/lib/americano-store'
 
@@ -29,13 +30,14 @@ export default function AmericanoEventView({ event, players }: Props) {
   const current = pending[0]
   const next = pending[1]
 
-  const points = new Map<string, number>(event.playerIds.map(id => [id, 0]))
-  for (const m of completed) {
-    points.set(m.teamAPlayer1Id, (points.get(m.teamAPlayer1Id) ?? 0) + (m.teamAScore ?? 0))
-    points.set(m.teamAPlayer2Id, (points.get(m.teamAPlayer2Id) ?? 0) + (m.teamAScore ?? 0))
-    points.set(m.teamBPlayer1Id, (points.get(m.teamBPlayer1Id) ?? 0) + (m.teamBScore ?? 0))
-    points.set(m.teamBPlayer2Id, (points.get(m.teamBPlayer2Id) ?? 0) + (m.teamBScore ?? 0))
+  const excludedRounds = computeExcludedRounds(event.matches, event.playerIds)
+  const excludedNote = (m: { round: number; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }) => {
+    const names = [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]
+      .filter(id => excludedRounds.get(id) === m.round)
+      .map(firstName)
+    return names.length > 0 ? `Doesn't count toward ${names.join(' & ')}'s total` : null
   }
+  const points = computeLeaderboardPoints(event.matches, event.playerIds)
   const leaderboard = event.playerIds
     .map(id => ({ id, pts: points.get(id) ?? 0 }))
     .sort((a, b) => b.pts - a.pts)
@@ -207,6 +209,9 @@ export default function AmericanoEventView({ event, players }: Props) {
             />
           </div>
           <div className="text-[10px] text-muted-foreground text-center">Scores must add up to {target}</div>
+          {excludedNote(current) && (
+            <div className="text-[10px] text-yellow-400/80 text-center">{excludedNote(current)}</div>
+          )}
 
           {error && <div className="text-xs text-red-400 text-center">{error}</div>}
 
@@ -255,21 +260,26 @@ export default function AmericanoEventView({ event, players }: Props) {
           {[...event.matches]
             .sort((a, b) => a.round - b.round)
             .map(m => (
-              <div key={m.id} className="flex items-center gap-2 py-2 text-xs">
-                <span className="w-5 shrink-0 font-mono text-muted-foreground">{m.round}</span>
-                <span className="flex-1 min-w-0 truncate text-muted-foreground">
-                  {firstName(m.teamAPlayer1Id)} &amp; {firstName(m.teamAPlayer2Id)}
-                </span>
-                <span
-                  className={`w-16 shrink-0 text-center font-mono font-bold ${
-                    m.status === 'complete' ? 'text-foreground' : 'text-muted-foreground/40'
-                  }`}
-                >
-                  {m.status === 'complete' ? `${m.teamAScore}–${m.teamBScore}` : '— vs —'}
-                </span>
-                <span className="flex-1 min-w-0 truncate text-right text-muted-foreground">
-                  {firstName(m.teamBPlayer1Id)} &amp; {firstName(m.teamBPlayer2Id)}
-                </span>
+              <div key={m.id} className="py-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-5 shrink-0 font-mono text-muted-foreground">{m.round}</span>
+                  <span className="flex-1 min-w-0 truncate text-muted-foreground">
+                    {firstName(m.teamAPlayer1Id)} &amp; {firstName(m.teamAPlayer2Id)}
+                  </span>
+                  <span
+                    className={`w-16 shrink-0 text-center font-mono font-bold ${
+                      m.status === 'complete' ? 'text-foreground' : 'text-muted-foreground/40'
+                    }`}
+                  >
+                    {m.status === 'complete' ? `${m.teamAScore}–${m.teamBScore}` : '— vs —'}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-right text-muted-foreground">
+                    {firstName(m.teamBPlayer1Id)} &amp; {firstName(m.teamBPlayer2Id)}
+                  </span>
+                </div>
+                {excludedNote(m) && (
+                  <div className="text-[9px] text-yellow-400/70 text-center mt-1">{excludedNote(m)}</div>
+                )}
               </div>
             ))}
         </div>

@@ -1,11 +1,13 @@
 import { prisma } from './prisma'
-import { generateAmericanoSchedule } from './americano'
-import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
+import { generateAmericanoSchedule, computeLeaderboardPoints } from './americano'
+import { calculateExpectedWin, calculateKFactor, calculateReliability } from './ptr-algorithm'
 
-// Weight applied to Americano matches relative to a normal ranked match.
-// The whole event's net effect on a player's PTR is scaled to roughly this
-// fraction of what one typical ranked match would produce.
+// Overall weight applied to the event's PTR effect relative to a normal
+// ranked match.
 const AMERICANO_PTR_WEIGHT = 0.75
+// How much beating/missing your pre-event expectation can amplify or
+// dampen the placement-driven delta (clamped to a 0.5x-1.5x multiplier).
+const AMERICANO_EXPECTATION_SENSITIVITY = 0.5
 
 export interface AmericanoMatchView {
   id: string
@@ -95,16 +97,8 @@ export async function listAmericanoEvents(): Promise<AmericanoEventSummary[]> {
   })
 
   return events.map(event => {
-    const points = new Map<string, number>(event.playerIds.map(id => [id, 0]))
-    let matchesComplete = 0
-    for (const m of event.matches) {
-      if (m.status !== 'complete' || m.teamAScore === null || m.teamBScore === null) continue
-      matchesComplete++
-      points.set(m.teamAPlayer1Id, (points.get(m.teamAPlayer1Id) ?? 0) + m.teamAScore)
-      points.set(m.teamAPlayer2Id, (points.get(m.teamAPlayer2Id) ?? 0) + m.teamAScore)
-      points.set(m.teamBPlayer1Id, (points.get(m.teamBPlayer1Id) ?? 0) + m.teamBScore)
-      points.set(m.teamBPlayer2Id, (points.get(m.teamBPlayer2Id) ?? 0) + m.teamBScore)
-    }
+    const points = computeLeaderboardPoints(event.matches, event.playerIds)
+    const matchesComplete = event.matches.filter(m => m.status === 'complete').length
 
     return {
       id: event.id,
@@ -170,12 +164,60 @@ export async function submitAmericanoScore(
   return { ok: true }
 }
 
-// Translates a completed event into PTR movement: each match's delta is
-// computed with the normal ranked-match algorithm against players' PTR
-// going into the event, the deltas are averaged per player across the
-// matches they played, then scaled down by AMERICANO_PTR_WEIGHT and applied
-// once. Win/loss records, streaks, and matchesPlayed are left untouched —
-// this is a lightweight signal, not a ranked result.
+// In-progress events can be deleted freely (they've never touched PTR).
+// Completed events require allowComplete — used by the admin panel — and
+// reverse the PTR they applied before removing the event and its matches.
+export async function deleteAmericanoEvent(
+  id: string,
+  opts?: { allowComplete?: boolean }
+): Promise<{ ok: true } | { error: string }> {
+  const event = await prisma.americanoEvent.findUnique({ where: { id } })
+  if (!event) return { error: 'Event not found' }
+  if (event.status === 'complete' && !opts?.allowComplete) {
+    return { error: 'Completed events can only be deleted from the admin page' }
+  }
+
+  await prisma.$transaction(async tx => {
+    if (event.status === 'complete') {
+      const history = await tx.pTRHistory.findMany({ where: { eventId: id } })
+      for (const h of history) {
+        await tx.player.update({
+          where: { id: h.playerId },
+          data: { ptr: { decrement: h.delta } },
+        })
+      }
+      await tx.pTRHistory.deleteMany({ where: { eventId: id } })
+    }
+    await tx.americanoEvent.delete({ where: { id } })
+  })
+
+  return { ok: true }
+}
+
+// Translates a completed event into PTR movement using final standings
+// rather than per-match results:
+//
+// - "marginRounds" is the placement signal: each player's average, capped
+//   (tanh) point margin against every other participant, in units of the
+//   round target. This is what actually drives the sign of the delta — 1st
+//   place is always positive, last place always negative, and a close
+//   finish among the tail is punished far more gently than a blowout,
+//   since saturating margins against nearby opponents stay small.
+// - "expectationRounds" is how many rounds' worth of points a player
+//   scored above/below what their pre-event PTR predicted, via the same
+//   Elo expected-win formula used for ranked matches.
+// - Expectation can only scale marginRounds's magnitude up or down
+//   (0.5x-1.5x) — it can never flip its sign, so finishing 1st always
+//   raises PTR and finishing last always lowers it, regardless of whether
+//   the result matched expectations.
+// - A single shared K for the whole event — the average of every
+//   participant's own reliability-based K-factor — plus AMERICANO_PTR_WEIGHT
+//   bring it down to an appropriately sized swing. Using one shared K
+//   (rather than each player's own) keeps the event's total PTR movement
+//   zero-sum regardless of the mix of new vs established players.
+//
+// Win/loss records, streaks, and matchesPlayed are left untouched — this
+// is a lightweight signal, not a ranked result.
 async function finalizeAmericanoEvent(eventId: string): Promise<void> {
   const event = await prisma.americanoEvent.findUnique({
     where: { id: eventId },
@@ -185,47 +227,50 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
 
   const players = await prisma.player.findMany({ where: { id: { in: event.playerIds } } })
   const byId = new Map(players.map(p => [p.id, p]))
+  const points = computeLeaderboardPoints(event.matches, event.playerIds)
 
-  const deltaSum = new Map<string, number>()
-  const matchCount = new Map<string, number>()
+  const target = event.target
+  const N = event.playerIds.length
+  const totalPool = Array.from(points.values()).reduce((sum, v) => sum + v, 0)
 
-  for (const m of event.matches) {
-    if (m.teamAScore === null || m.teamBScore === null) continue
-    const pA1 = byId.get(m.teamAPlayer1Id)
-    const pA2 = byId.get(m.teamAPlayer2Id)
-    const pB1 = byId.get(m.teamBPlayer1Id)
-    const pB2 = byId.get(m.teamBPlayer2Id)
-    if (!pA1 || !pA2 || !pB1 || !pB2) continue
-
-    const winner: 'A' | 'B' = m.teamAScore > m.teamBScore ? 'A' : 'B'
-    const sets = [{ setNumber: 1, teamAGames: m.teamAScore, teamBGames: m.teamBScore }]
-
-    const result = calculatePTRChanges(
-      [pA1.ptr, pA2.ptr],
-      [pB1.ptr, pB2.ptr],
-      [calculateReliability(pA1.matchesPlayed), calculateReliability(pA2.matchesPlayed)],
-      [calculateReliability(pB1.matchesPlayed), calculateReliability(pB2.matchesPlayed)],
-      sets,
-      winner
-    )
-
-    const add = (id: string, d: number) => {
-      deltaSum.set(id, (deltaSum.get(id) ?? 0) + d)
-      matchCount.set(id, (matchCount.get(id) ?? 0) + 1)
-    }
-    add(m.teamAPlayer1Id, result.playerADeltas[0])
-    add(m.teamAPlayer2Id, result.playerADeltas[1])
-    add(m.teamBPlayer1Id, result.playerBDeltas[0])
-    add(m.teamBPlayer2Id, result.playerBDeltas[1])
-  }
+  // One shared K for the whole event — the average of every participant's
+  // own reliability-based K-factor — rather than each player using their
+  // own. Keeps the event's total PTR movement zero-sum regardless of who's
+  // new vs established.
+  const avgK = players.reduce(
+    (sum, p) => sum + calculateKFactor(calculateReliability(p.matchesPlayed)),
+    0
+  ) / players.length
 
   const appliedDeltas: Record<string, number> = {}
 
   await prisma.$transaction(async tx => {
-    for (const [playerId, sum] of Array.from(deltaSum)) {
-      const count = matchCount.get(playerId) ?? 1
-      const player = byId.get(playerId)!
-      const finalDelta = Math.round((sum / count) * AMERICANO_PTR_WEIGHT * 10) / 10
+    for (const playerId of event.playerIds) {
+      const player = byId.get(playerId)
+      if (!player) continue
+
+      const others = event.playerIds.filter(id => id !== playerId)
+      const myPoints = points.get(playerId) ?? 0
+
+      const avgExpectedWin = others.reduce((sum, otherId) => {
+        const other = byId.get(otherId)
+        return other ? sum + calculateExpectedWin(player.ptr, other.ptr) : sum
+      }, 0) / others.length
+      const expectedPoints = (avgExpectedWin / (N / 2)) * totalPool
+      const expectationRounds = (myPoints - expectedPoints) / target
+
+      const marginRounds = others.reduce((sum, otherId) => {
+        const otherPoints = points.get(otherId) ?? 0
+        return sum + Math.tanh((myPoints - otherPoints) / target)
+      }, 0) / others.length
+
+      const sign = marginRounds >= 0 ? 1 : -1
+      const multiplier = 1 + Math.max(
+        -0.5,
+        Math.min(0.5, sign * expectationRounds * AMERICANO_EXPECTATION_SENSITIVITY)
+      )
+
+      const finalDelta = Math.round(marginRounds * avgK * AMERICANO_PTR_WEIGHT * multiplier * 10) / 10
       appliedDeltas[playerId] = finalDelta
 
       await tx.player.update({
@@ -236,6 +281,7 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
         data: {
           playerId,
           matchId: null,
+          eventId,
           ptrBefore: player.ptr,
           ptrAfter: player.ptr + finalDelta,
           delta: finalDelta,

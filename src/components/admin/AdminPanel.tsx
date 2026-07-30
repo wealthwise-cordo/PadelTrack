@@ -5,11 +5,18 @@ import { useRouter } from 'next/navigation'
 import { Trash2, RotateCcw, Lock, AlertTriangle } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { getInitials, getFullScore } from '@/lib/utils'
-import type { MatchWithPlayers } from '@/types'
+import type { MatchWithPlayers, PlayerWithStats } from '@/types'
+import type { AmericanoEventSummary } from '@/lib/americano-store'
 
 const PASSCODE = '5299'
 
-export default function AdminPanel({ matches }: { matches: MatchWithPlayers[] }) {
+interface Props {
+  matches: MatchWithPlayers[]
+  americanoEvents: AmericanoEventSummary[]
+  players: PlayerWithStats[]
+}
+
+export default function AdminPanel({ matches, americanoEvents, players }: Props) {
   const router = useRouter()
   const [unlocked, setUnlocked] = useState(false)
   const [code, setCode] = useState('')
@@ -19,6 +26,10 @@ export default function AdminPanel({ matches }: { matches: MatchWithPlayers[] })
   const [resetDone, setResetDone] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
+  const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
+  const [eventDeleteError, setEventDeleteError] = useState('')
+
+  const byId = new Map(players.map(p => [p.id, p]))
 
   const handleUnlock = () => {
     if (code === PASSCODE) {
@@ -45,6 +56,24 @@ export default function AdminPanel({ matches }: { matches: MatchWithPlayers[] })
       setDeleteError('Network error')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleDeleteEvent = async (id: string) => {
+    setDeletingEventId(id)
+    setEventDeleteError('')
+    try {
+      const res = await fetch(`/api/admin/events/americano/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json()
+        setEventDeleteError(d.error || 'Delete failed')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setEventDeleteError('Network error')
+    } finally {
+      setDeletingEventId(null)
     }
   }
 
@@ -156,6 +185,54 @@ export default function AdminPanel({ matches }: { matches: MatchWithPlayers[] })
                 disabled={deletingId === match.id}
                 className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
                 title="Delete match"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Americano events */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Americano Events</h2>
+
+        {eventDeleteError && <p className="text-sm text-red-400 text-center">{eventDeleteError}</p>}
+
+        {americanoEvents.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No events recorded.</p>
+        )}
+
+        {americanoEvents.map(event => {
+          const leader = event.leaderboard[0]
+          const leaderPlayer = leader ? byId.get(leader.playerId) : undefined
+          const rosterNames = event.playerIds.map(id => byId.get(id)?.name.split(' ')[0] ?? '?').join(', ')
+
+          return (
+            <div key={event.id} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs font-bold">{event.playerIds.length} players</span>
+                  <span
+                    className={`text-[9px] rounded px-1 py-0.5 font-medium ${
+                      event.status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'
+                    }`}
+                  >
+                    {event.status === 'complete' ? 'COMPLETE' : `${event.matchesComplete}/${event.matchesTotal}`}
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground truncate">{rosterNames}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {leaderPlayer ? `${leaderPlayer.name.split(' ')[0]} leads with ${leader!.points} pts · ` : ''}
+                  {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleDeleteEvent(event.id)}
+                disabled={deletingEventId === event.id}
+                className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
+                title="Delete event"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

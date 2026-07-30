@@ -157,8 +157,113 @@ function unevenPlayerSchedule(playerIds: string[]): AmericanoFixture[] {
   return fixtures
 }
 
+// When the player count doesn't divide evenly into rounds of 4, a few
+// players end up with one extra match (e.g. 7 players: 2 of them play 7
+// rounds, the other 5 play 6). To keep the leaderboard fair, that extra
+// match is excluded from those players' point totals — so this pushes each
+// such player's final (extra) appearance to the end of the schedule, and
+// renumbers rounds so "last match" and "excluded match" line up.
+function pushExtraMatchesToEnd(fixtures: AmericanoFixture[], playerIds: string[]): AmericanoFixture[] {
+  const playCount = new Map<string, number>(playerIds.map(id => [id, 0]))
+  for (const f of fixtures) {
+    for (const pid of [f.teamAPlayer1Id, f.teamAPlayer2Id, f.teamBPlayer1Id, f.teamBPlayer2Id]) {
+      playCount.set(pid, (playCount.get(pid) ?? 0) + 1)
+    }
+  }
+  const minPlays = Math.min(...Array.from(playCount.values()))
+  const extraPlayers = new Set(playerIds.filter(id => (playCount.get(id) ?? 0) > minPlays))
+  if (extraPlayers.size === 0) return fixtures
+
+  const lastRoundForExtra = new Map<string, number>()
+  for (const f of fixtures) {
+    for (const pid of [f.teamAPlayer1Id, f.teamAPlayer2Id, f.teamBPlayer1Id, f.teamBPlayer2Id]) {
+      if (extraPlayers.has(pid)) lastRoundForExtra.set(pid, f.round)
+    }
+  }
+  const deferredRounds = new Set(Array.from(lastRoundForExtra.values()))
+
+  const normal = fixtures.filter(f => !deferredRounds.has(f.round))
+  const deferred = fixtures.filter(f => deferredRounds.has(f.round)).sort((a, b) => a.round - b.round)
+
+  return [...normal, ...deferred].map((f, i) => ({ ...f, round: i + 1 }))
+}
+
+// Fisher-Yates shuffle. Both scheduling methods are entirely deterministic
+// given player order, so without this the same roster would produce the
+// identical round-by-round schedule every time an event is started —
+// shuffling the input order first gives a different (still fully valid)
+// schedule each time.
+function shuffled(ids: string[]): string[] {
+  const arr = [...ids]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 export function generateAmericanoSchedule(playerIds: string[]): AmericanoFixture[] {
-  if (playerIds.length === 4 || playerIds.length === 8) return evenPlayerSchedule(playerIds)
-  if (playerIds.length === 5 || playerIds.length === 7) return unevenPlayerSchedule(playerIds)
-  throw new Error('Americano scheduling supports 4, 5, 7, or 8 players')
+  const shuffledIds = shuffled(playerIds)
+
+  let fixtures: AmericanoFixture[]
+  if (shuffledIds.length === 4 || shuffledIds.length === 8) fixtures = evenPlayerSchedule(shuffledIds)
+  else if (shuffledIds.length === 5 || shuffledIds.length === 7) fixtures = unevenPlayerSchedule(shuffledIds)
+  else throw new Error('Americano scheduling supports 4, 5, 7, or 8 players')
+
+  return pushExtraMatchesToEnd(fixtures, shuffledIds)
+}
+
+// For players who get one extra match (uneven player counts), returns the
+// round number that should NOT count toward that player's leaderboard
+// total — their final appearance, per pushExtraMatchesToEnd above. Players
+// with an even number of matches have no entry (nothing excluded for them).
+export function computeExcludedRounds<
+  M extends { round: number; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }
+>(matches: M[], playerIds: string[]): Map<string, number> {
+  const playCount = new Map<string, number>(playerIds.map(id => [id, 0]))
+  const lastRound = new Map<string, number>()
+
+  for (const m of matches) {
+    for (const pid of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) {
+      playCount.set(pid, (playCount.get(pid) ?? 0) + 1)
+      if (m.round > (lastRound.get(pid) ?? 0)) lastRound.set(pid, m.round)
+    }
+  }
+
+  const minPlays = Math.min(...Array.from(playCount.values()))
+  const excluded = new Map<string, number>()
+  for (const id of playerIds) {
+    if ((playCount.get(id) ?? 0) > minPlays) excluded.set(id, lastRound.get(id)!)
+  }
+  return excluded
+}
+
+// Leaderboard points per player: sum of the team score for every completed
+// match they played, except their own excluded round (see
+// computeExcludedRounds). Shared by the leaderboard display, event lists,
+// and the PTR calculation so all three always agree on the same numbers.
+export function computeLeaderboardPoints<
+  M extends {
+    round: number
+    status: string
+    teamAScore: number | null
+    teamBScore: number | null
+    teamAPlayer1Id: string
+    teamAPlayer2Id: string
+    teamBPlayer1Id: string
+    teamBPlayer2Id: string
+  }
+>(matches: M[], playerIds: string[]): Map<string, number> {
+  const excludedRounds = computeExcludedRounds(matches, playerIds)
+  const points = new Map<string, number>(playerIds.map(id => [id, 0]))
+
+  for (const m of matches) {
+    if (m.status !== 'complete' || m.teamAScore === null || m.teamBScore === null) continue
+    if (excludedRounds.get(m.teamAPlayer1Id) !== m.round) points.set(m.teamAPlayer1Id, (points.get(m.teamAPlayer1Id) ?? 0) + m.teamAScore)
+    if (excludedRounds.get(m.teamAPlayer2Id) !== m.round) points.set(m.teamAPlayer2Id, (points.get(m.teamAPlayer2Id) ?? 0) + m.teamAScore)
+    if (excludedRounds.get(m.teamBPlayer1Id) !== m.round) points.set(m.teamBPlayer1Id, (points.get(m.teamBPlayer1Id) ?? 0) + m.teamBScore)
+    if (excludedRounds.get(m.teamBPlayer2Id) !== m.round) points.set(m.teamBPlayer2Id, (points.get(m.teamBPlayer2Id) ?? 0) + m.teamBScore)
+  }
+
+  return points
 }

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Shuffle, Minus, Plus, MapPin, History, ChevronRight } from 'lucide-react'
 import { getInitials, formatPTR } from '@/lib/utils'
+import SwipeToDeleteRow from '@/components/shared/SwipeToDeleteRow'
 import type { PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
 
@@ -36,6 +37,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
   const [excludedIds, setExcludedIds] = useState<string[]>([])
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const changeMode = (next: ScoreMode) => {
     setMode(next)
@@ -62,6 +64,16 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
       if (prev.length >= maxExclusions) return prev
       return [...prev, id]
     })
+  }
+
+  const deleteEvent = async (id: string) => {
+    setDeletingId(id)
+    try {
+      await fetch(`/api/events/americano/${id}`, { method: 'DELETE' })
+      router.refresh()
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const startEvent = async () => {
@@ -243,9 +255,8 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
             {pastEvents.map(e => {
               const leader = e.leaderboard[0]
               const leaderPlayer = leader ? byId.get(leader.playerId) : undefined
-              return (
+              const card = (
                 <Link
-                  key={e.id}
                   href={`/events/americano/${e.id}`}
                   className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
                 >
@@ -278,6 +289,15 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
                   <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                 </Link>
               )
+
+              if (e.status === 'in_progress') {
+                return (
+                  <SwipeToDeleteRow key={e.id} onDelete={() => deleteEvent(e.id)} deleting={deletingId === e.id}>
+                    {card}
+                  </SwipeToDeleteRow>
+                )
+              }
+              return <div key={e.id}>{card}</div>
             })}
           </div>
         </div>

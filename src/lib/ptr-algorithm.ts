@@ -1,7 +1,7 @@
 import type { MatchSet, PTRCalculation } from '@/types'
 
 const K_MAX = 50  // volatility for new players
-const K_MIN = 20  // volatility for established players
+const K_MIN = 30  // volatility for established players
 const RELIABILITY_MATCHES = 15 // matches to reach full reliability
 const ELO_DIVISOR = 400
 
