@@ -36,7 +36,7 @@ export default function Navbar() {
             <span className="font-bold text-sm tracking-widest text-foreground/90">
               WORLD PADEL <span className="text-neon-green">TOUR</span>
             </span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Portman, Spain 2026</span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Cartagena, Spain 2026</span>
           </div>
         </div>
         <nav className="flex items-center gap-1">

@@ -26,7 +26,7 @@ export default async function LeaderboardPage() {
           <h1 className="text-2xl font-black tracking-tight">
             World Padel <span className="text-neon-green">Tour</span>
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Portman, Spain 2026</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Cartagena, Spain 2026</p>
           <p className="text-xs text-muted-foreground">
             {totalMatches} matches played · {totalEvents} events played
           </p>
