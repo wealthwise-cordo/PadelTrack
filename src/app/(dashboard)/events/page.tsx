@@ -20,9 +20,9 @@ export default function EventsPage() {
     {
       icon: <Zap className="h-6 w-6 text-yellow-400" />,
       name: 'One Point',
-      description: 'Fast-format knockout where every point counts. Single elimination, max intensity.',
+      description: 'Seeded 8-player knockout. Every match is sudden death — one point decides it.',
       tag: 'Knockout',
-      href: null,
+      href: '/events/one-point',
     },
   ]
 

@@ -8,6 +8,7 @@ import { getInitials, getFullScore } from '@/lib/utils'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
 import type { RoundRobinEventSummary } from '@/lib/round-robin-store'
+import type { OnePointEventSummary } from '@/lib/one-point-store'
 
 const PASSCODE = '5299'
 
@@ -15,10 +16,11 @@ interface Props {
   matches: MatchWithPlayers[]
   americanoEvents: AmericanoEventSummary[]
   roundRobinEvents: RoundRobinEventSummary[]
+  onePointEvents: OnePointEventSummary[]
   players: PlayerWithStats[]
 }
 
-export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, players }: Props) {
+export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, onePointEvents, players }: Props) {
   const router = useRouter()
   const [unlocked, setUnlocked] = useState(false)
   const [code, setCode] = useState('')
@@ -32,6 +34,8 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
   const [eventDeleteError, setEventDeleteError] = useState('')
   const [deletingRRId, setDeletingRRId] = useState<string | null>(null)
   const [rrDeleteError, setRRDeleteError] = useState('')
+  const [deletingOPId, setDeletingOPId] = useState<string | null>(null)
+  const [opDeleteError, setOPDeleteError] = useState('')
 
   const byId = new Map(players.map(p => [p.id, p]))
 
@@ -96,6 +100,24 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
       setRRDeleteError('Network error')
     } finally {
       setDeletingRRId(null)
+    }
+  }
+
+  const handleDeleteOP = async (id: string) => {
+    setDeletingOPId(id)
+    setOPDeleteError('')
+    try {
+      const res = await fetch(`/api/admin/events/one-point/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json()
+        setOPDeleteError(d.error || 'Delete failed')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setOPDeleteError('Network error')
+    } finally {
+      setDeletingOPId(null)
     }
   }
 
@@ -314,6 +336,53 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
               <button
                 onClick={() => handleDeleteRR(event.id)}
                 disabled={deletingRRId === event.id}
+                className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
+                title="Delete event"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* One Point events */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">One Point Events</h2>
+
+        {opDeleteError && <p className="text-sm text-red-400 text-center">{opDeleteError}</p>}
+
+        {onePointEvents.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No events recorded.</p>
+        )}
+
+        {onePointEvents.map(event => {
+          const champion = event.championId ? byId.get(event.championId) : undefined
+          const rosterNames = event.playerIds.map(id => byId.get(id)?.name.split(' ')[0] ?? '?').join(', ')
+
+          return (
+            <div key={event.id} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs font-bold">8 players</span>
+                  <span
+                    className={`text-[9px] rounded px-1 py-0.5 font-medium ${
+                      event.status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'
+                    }`}
+                  >
+                    {event.status === 'complete' ? 'COMPLETE' : `${event.matchesComplete}/${event.matchesTotal}`}
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground truncate">{rosterNames}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {champion ? `${champion.name.split(' ')[0]} won · ` : ''}
+                  {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleDeleteOP(event.id)}
+                disabled={deletingOPId === event.id}
                 className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
                 title="Delete event"
               >

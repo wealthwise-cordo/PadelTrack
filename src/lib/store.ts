@@ -3,6 +3,9 @@ import {
   calculatePTRChanges,
   calculateReliability,
 } from './ptr-algorithm'
+import { listAmericanoEvents } from './americano-store'
+import { listRoundRobinEvents } from './round-robin-store'
+import { listOnePointEvents } from './one-point-store'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -164,11 +167,53 @@ export async function getMatchCount(): Promise<number> {
 }
 
 export async function getEventCount(): Promise<number> {
-  const [americanoCount, roundRobinCount] = await Promise.all([
+  const [americanoCount, roundRobinCount, onePointCount] = await Promise.all([
     prisma.americanoEvent.count(),
     prisma.roundRobinEvent.count(),
+    prisma.onePointEvent.count(),
   ])
-  return americanoCount + roundRobinCount
+  return americanoCount + roundRobinCount + onePointCount
+}
+
+// Event wins across every format: for Americano and Round Robin, whoever
+// tops that event's points leaderboard gets credit (ties all count, since
+// neither format has a tiebreaker — Round Robin credits both players on a
+// tied winning team); for One Point, only the tournament champion counts,
+// since single elimination has no ties. Used for the "Eventist" award and
+// player profile stat.
+export async function getEventWinCounts(): Promise<Map<string, number>> {
+  const wins = new Map<string, number>()
+  const credit = (playerId: string) => wins.set(playerId, (wins.get(playerId) ?? 0) + 1)
+
+  const [americanoEvents, roundRobinEvents, onePointEvents] = await Promise.all([
+    listAmericanoEvents(),
+    listRoundRobinEvents(),
+    listOnePointEvents(),
+  ])
+
+  for (const event of americanoEvents) {
+    if (event.status !== 'complete' || event.leaderboard.length === 0) continue
+    const topScore = event.leaderboard[0].points
+    if (topScore <= 0) continue
+    for (const row of event.leaderboard) {
+      if (row.points === topScore) credit(row.playerId)
+    }
+  }
+
+  for (const event of roundRobinEvents) {
+    if (event.status !== 'complete' || event.leaderboard.length === 0) continue
+    const topScore = event.leaderboard[0].points
+    if (topScore <= 0) continue
+    for (const row of event.leaderboard) {
+      if (row.points === topScore) row.playerIds.forEach(credit)
+    }
+  }
+
+  for (const event of onePointEvents) {
+    if (event.status === 'complete' && event.championId) credit(event.championId)
+  }
+
+  return wins
 }
 
 // ---------------------------------------------------------------------------

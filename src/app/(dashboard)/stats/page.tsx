@@ -1,5 +1,4 @@
-import { getPlayers, getMatches } from '@/lib/store'
-import { getEventWinCounts } from '@/lib/americano-store'
+import { getPlayers, getMatches, getEventWinCounts } from '@/lib/store'
 import { Trophy, Zap, Target, TrendingUp, Heart, Crown } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
 import StatLeaderboard from '@/components/stats/StatLeaderboard'
@@ -172,7 +171,7 @@ export default async function StatsPage() {
           <AwardCard
             icon={<Crown className="h-5 w-5 text-purple-400" />}
             title="Eventist"
-            desc="Most Americano events won"
+            desc="Most events won"
             player={eventist}
             stat={`${eventWins(eventist)} event${eventWins(eventist) === 1 ? '' : 's'} won`}
           />

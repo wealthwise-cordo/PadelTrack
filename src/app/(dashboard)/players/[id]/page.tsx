@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
-import { getPlayer, getPlayers, getMatches } from '@/lib/store'
-import { getEventWinCounts } from '@/lib/americano-store'
+import { getPlayer, getPlayers, getMatches, getEventWinCounts } from '@/lib/store'
 import PTRLineChart from '@/components/players/PTRLineChart'
 import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'

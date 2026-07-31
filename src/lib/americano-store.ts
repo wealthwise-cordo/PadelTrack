@@ -122,25 +122,6 @@ export async function listAmericanoEvents(): Promise<AmericanoEventSummary[]> {
   })
 }
 
-// Event wins: for each completed event, whoever tops that event's points
-// leaderboard gets credit (ties all count, since Americano has no
-// tiebreaker). Used for the "Eventist" award and player profile stat.
-export async function getEventWinCounts(): Promise<Map<string, number>> {
-  const events = await listAmericanoEvents()
-  const wins = new Map<string, number>()
-
-  for (const event of events) {
-    if (event.status !== 'complete' || event.leaderboard.length === 0) continue
-    const topScore = event.leaderboard[0].points
-    if (topScore <= 0) continue
-    for (const row of event.leaderboard) {
-      if (row.points === topScore) wins.set(row.playerId, (wins.get(row.playerId) ?? 0) + 1)
-    }
-  }
-
-  return wins
-}
-
 export async function submitAmericanoScore(
   eventId: string,
   matchId: string,
