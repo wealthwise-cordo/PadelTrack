@@ -6,6 +6,7 @@ import {
 import { listAmericanoEvents } from './americano-store'
 import { listRoundRobinEvents } from './round-robin-store'
 import { listOnePointEvents } from './one-point-store'
+import { listSnakeLaddersEvents } from './snake-ladders-store'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -167,28 +168,31 @@ export async function getMatchCount(): Promise<number> {
 }
 
 export async function getEventCount(): Promise<number> {
-  const [americanoCount, roundRobinCount, onePointCount] = await Promise.all([
+  const [americanoCount, roundRobinCount, onePointCount, snakeLaddersCount] = await Promise.all([
     prisma.americanoEvent.count(),
     prisma.roundRobinEvent.count(),
     prisma.onePointEvent.count(),
+    prisma.snakeLaddersEvent.count(),
   ])
-  return americanoCount + roundRobinCount + onePointCount
+  return americanoCount + roundRobinCount + onePointCount + snakeLaddersCount
 }
 
 // Event wins across every format: for Americano and Round Robin, whoever
 // tops that event's points leaderboard gets credit (ties all count, since
 // neither format has a tiebreaker — Round Robin credits both players on a
 // tied winning team); for One Point, only the tournament champion counts,
-// since single elimination has no ties. Used for the "Eventist" award and
-// player profile stat.
+// since single elimination has no ties; for Snake and Ladders, both
+// players of the final round's top-court winning pair count. Used for the
+// "Eventist" award and player profile stat.
 export async function getEventWinCounts(): Promise<Map<string, number>> {
   const wins = new Map<string, number>()
   const credit = (playerId: string) => wins.set(playerId, (wins.get(playerId) ?? 0) + 1)
 
-  const [americanoEvents, roundRobinEvents, onePointEvents] = await Promise.all([
+  const [americanoEvents, roundRobinEvents, onePointEvents, snakeLaddersEvents] = await Promise.all([
     listAmericanoEvents(),
     listRoundRobinEvents(),
     listOnePointEvents(),
+    listSnakeLaddersEvents(),
   ])
 
   for (const event of americanoEvents) {
@@ -211,6 +215,10 @@ export async function getEventWinCounts(): Promise<Map<string, number>> {
 
   for (const event of onePointEvents) {
     if (event.status === 'complete' && event.championId) credit(event.championId)
+  }
+
+  for (const event of snakeLaddersEvents) {
+    if (event.status === 'complete' && event.firstPlaceIds) event.firstPlaceIds.forEach(credit)
   }
 
   return wins

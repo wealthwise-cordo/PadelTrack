@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { LayoutGrid, Shuffle, RotateCcw, Zap } from 'lucide-react'
+import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown } from 'lucide-react'
 
 export default function EventsPage() {
   const formats = [
@@ -16,6 +16,13 @@ export default function EventsPage() {
       description: 'Fixed partners, every team plays every team once. First to 4/6/8 games per match.',
       tag: 'Full schedule',
       href: '/events/round-robin',
+    },
+    {
+      icon: <ArrowUpDown className="h-6 w-6 text-purple-400" />,
+      name: 'Snake and Ladders',
+      description: '8 players, 2 courts. Win and climb to the top court, lose and slide to the bottom — final round decides 1st through 4th.',
+      tag: 'Ladder',
+      href: '/events/snake-ladders',
     },
     {
       icon: <Zap className="h-6 w-6 text-yellow-400" />,

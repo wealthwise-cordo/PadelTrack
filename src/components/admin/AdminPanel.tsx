@@ -9,6 +9,7 @@ import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
 import type { RoundRobinEventSummary } from '@/lib/round-robin-store'
 import type { OnePointEventSummary } from '@/lib/one-point-store'
+import type { SnakeLaddersEventSummary } from '@/lib/snake-ladders-store'
 
 const PASSCODE = '5299'
 
@@ -17,10 +18,11 @@ interface Props {
   americanoEvents: AmericanoEventSummary[]
   roundRobinEvents: RoundRobinEventSummary[]
   onePointEvents: OnePointEventSummary[]
+  snakeLaddersEvents: SnakeLaddersEventSummary[]
   players: PlayerWithStats[]
 }
 
-export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, onePointEvents, players }: Props) {
+export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, onePointEvents, snakeLaddersEvents, players }: Props) {
   const router = useRouter()
   const [unlocked, setUnlocked] = useState(false)
   const [code, setCode] = useState('')
@@ -36,6 +38,8 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
   const [rrDeleteError, setRRDeleteError] = useState('')
   const [deletingOPId, setDeletingOPId] = useState<string | null>(null)
   const [opDeleteError, setOPDeleteError] = useState('')
+  const [deletingSLId, setDeletingSLId] = useState<string | null>(null)
+  const [slDeleteError, setSLDeleteError] = useState('')
 
   const byId = new Map(players.map(p => [p.id, p]))
 
@@ -118,6 +122,24 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
       setOPDeleteError('Network error')
     } finally {
       setDeletingOPId(null)
+    }
+  }
+
+  const handleDeleteSL = async (id: string) => {
+    setDeletingSLId(id)
+    setSLDeleteError('')
+    try {
+      const res = await fetch(`/api/admin/events/snake-ladders/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json()
+        setSLDeleteError(d.error || 'Delete failed')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setSLDeleteError('Network error')
+    } finally {
+      setDeletingSLId(null)
     }
   }
 
@@ -383,6 +405,53 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
               <button
                 onClick={() => handleDeleteOP(event.id)}
                 disabled={deletingOPId === event.id}
+                className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
+                title="Delete event"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Snake and Ladders events */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Snake and Ladders Events</h2>
+
+        {slDeleteError && <p className="text-sm text-red-400 text-center">{slDeleteError}</p>}
+
+        {snakeLaddersEvents.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No events recorded.</p>
+        )}
+
+        {snakeLaddersEvents.map(event => {
+          const firstPlace = event.firstPlaceIds?.map(id => byId.get(id)?.name.split(' ')[0] ?? '?').join(' & ')
+          const rosterNames = event.playerIds.map(id => byId.get(id)?.name.split(' ')[0] ?? '?').join(', ')
+
+          return (
+            <div key={event.id} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs font-bold">8 players</span>
+                  <span
+                    className={`text-[9px] rounded px-1 py-0.5 font-medium ${
+                      event.status === 'complete' ? 'bg-neon-green/15 text-neon-green' : 'bg-yellow-400/15 text-yellow-400'
+                    }`}
+                  >
+                    {event.status === 'complete' ? 'COMPLETE' : `Round ${event.currentRound}/${event.totalRounds}`}
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground truncate">{rosterNames}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {firstPlace ? `${firstPlace} won · ` : ''}
+                  {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleDeleteSL(event.id)}
+                disabled={deletingSLId === event.id}
                 className="p-2 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
                 title="Delete event"
               >

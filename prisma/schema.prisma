@@ -102,6 +102,8 @@ model PTRHistory {
   rrEvent     RoundRobinEvent? @relation(fields: [rrEventId], references: [id])
   opEventId   String?
   opEvent     OnePointEvent?   @relation(fields: [opEventId], references: [id])
+  slEventId   String?
+  slEvent     SnakeLaddersEvent? @relation(fields: [slEventId], references: [id])
 }
 
 model AmericanoEvent {
@@ -182,6 +184,37 @@ model OnePointMatch {
   winnerId  String?
   status    String        @default("pending") // pending | complete
   event     OnePointEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+model SnakeLaddersEvent {
+  id          String              @id @default(cuid())
+  createdAt   DateTime            @default(now())
+  status      String              @default("in_progress") // in_progress | complete
+  scoreMode   String // "points" | "games"
+  target      Int
+  totalRounds Int
+  isRanked    Boolean             @default(true)
+  playerIds   String[] // exactly 8, seeded by PTR desc at creation (ranks 1-8)
+  ptrDeltas   Json? // { [playerId]: delta } applied when the event completed
+  matches     SnakeLaddersMatch[]
+  ptrHistory  PTRHistory[]
+}
+
+model SnakeLaddersMatch {
+  id             String            @id @default(cuid())
+  eventId        String
+  round          Int
+  court          String // "top" | "bottom"
+  teamAPlayer1Id String
+  teamAPlayer2Id String
+  teamBPlayer1Id String
+  teamBPlayer2Id String
+  teamAScore     Int?
+  teamBScore     Int?
+  status         String            @default("pending") // pending | complete
+  event          SnakeLaddersEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
 }
