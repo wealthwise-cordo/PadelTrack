@@ -74,3 +74,8 @@ export function getReliabilityLabel(reliability: number): string {
   if (reliability < 0.85) return 'Established'
   return 'Veteran'
 }
+
+// "2026 - Cartagena, Spain" — season.name holds the year.
+export function seasonLabel(s: { name: string; location: string }): string {
+  return `${s.name} - ${s.location}`
+}

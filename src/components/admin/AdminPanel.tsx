@@ -53,6 +53,10 @@ export default function AdminPanel({
   const [reopeningId, setReopeningId] = useState<string | null>(null)
   const [reopenError, setReopenError] = useState('')
   const [seasonName, setSeasonName] = useState('')
+  const [seasonLocation, setSeasonLocation] = useState('')
+  const [confirmDeleteSeason, setConfirmDeleteSeason] = useState<string | null>(null)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletingSeasonId, setDeletingSeasonId] = useState<string | null>(null)
   const [carryOverIds, setCarryOverIds] = useState<Set<string>>(new Set(lastSeasonPlayerIds))
   const [newPlayerDrafts, setNewPlayerDrafts] = useState<{ name: string; nickname: string }[]>([])
   const [draftName, setDraftName] = useState('')
@@ -183,6 +187,26 @@ export default function AdminPanel({
     }
   }
 
+  const handleDeleteSeason = async (id: string) => {
+    setDeletingSeasonId(id)
+    setReopenError('')
+    try {
+      const res = await fetch(`/api/seasons/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json()
+        setReopenError(d.error || 'Failed to delete season')
+      } else {
+        setConfirmDeleteSeason(null)
+        setDeleteConfirmText('')
+        router.refresh()
+      }
+    } catch {
+      setReopenError('Network error')
+    } finally {
+      setDeletingSeasonId(null)
+    }
+  }
+
   const handleReopen = async (id: string) => {
     setReopeningId(id)
     setReopenError('')
@@ -230,6 +254,7 @@ export default function AdminPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: seasonName,
+          location: seasonLocation,
           carryOverPlayerIds: Array.from(carryOverIds),
           newPlayers: newPlayerDrafts.map(d => ({ name: d.name, nickname: d.nickname || undefined })),
         }),
@@ -239,6 +264,7 @@ export default function AdminPanel({
         setStartError(d.error || 'Failed to start season')
       } else {
         setSeasonName('')
+        setSeasonLocation('')
         setNewPlayerDrafts([])
         router.refresh()
       }
@@ -347,13 +373,23 @@ export default function AdminPanel({
               </div>
             </div>
 
-            <input
-              type="text"
-              placeholder="Season name (e.g. 2027)"
-              value={seasonName}
-              onChange={e => setSeasonName(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
-            />
+            <div className="grid grid-cols-[6rem_1fr] gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Year"
+                value={seasonName}
+                onChange={e => setSeasonName(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
+              />
+              <input
+                type="text"
+                placeholder="Location (e.g. Cartagena, Spain)"
+                value={seasonLocation}
+                onChange={e => setSeasonLocation(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
+              />
+            </div>
 
             <div className="space-y-2">
               <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -426,7 +462,7 @@ export default function AdminPanel({
 
             <button
               onClick={handleStartSeason}
-              disabled={startingSeason || !seasonName.trim() || (carryOverIds.size === 0 && newPlayerDrafts.length === 0)}
+              disabled={startingSeason || !seasonName.trim() || !seasonLocation.trim() || (carryOverIds.size === 0 && newPlayerDrafts.length === 0)}
               className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {startingSeason ? 'Starting...' : 'Start Season'}
@@ -438,10 +474,11 @@ export default function AdminPanel({
           <div className="space-y-2">
             {reopenError && <p className="text-xs text-red-400 text-center">{reopenError}</p>}
             {closedSeasons.map(s => (
-              <div key={s.id} className="glass rounded-xl p-3 flex items-center gap-3">
+              <div key={s.id} className="glass rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-3">
                 <History className="h-4 w-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold">{s.name}</div>
+                  <div className="text-xs font-semibold">{s.name} - {s.location}</div>
                   <div className="text-[10px] text-muted-foreground">
                     Closed {s.closedAt ? formatDistanceToNow(new Date(s.closedAt), { addSuffix: true }) : ''}
                   </div>
@@ -454,6 +491,45 @@ export default function AdminPanel({
                 >
                   {reopeningId === s.id ? 'Reopening...' : 'Reopen'}
                 </button>
+                <button
+                  onClick={() => { setConfirmDeleteSeason(confirmDeleteSeason === s.id ? null : s.id); setDeleteConfirmText('') }}
+                  title="Delete this season"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {confirmDeleteSeason === s.id && (
+                <div className="space-y-2 rounded-lg border border-red-400/20 p-3">
+                  <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" />
+                    Permanently deletes {s.name} - {s.location}: every match, event and PTR record in it.
+                    Players stay. This can&apos;t be undone — type <span className="font-bold text-foreground">{s.name}</span> to confirm.
+                  </div>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={e => setDeleteConfirmText(e.target.value)}
+                    placeholder={s.name}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-red-400/50 placeholder:text-muted-foreground/30"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => { setConfirmDeleteSeason(null); setDeleteConfirmText('') }}
+                      className="py-2 rounded-xl font-bold text-xs bg-white/5 text-muted-foreground hover:bg-white/10 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSeason(s.id)}
+                      disabled={deleteConfirmText.trim() !== s.name || deletingSeasonId === s.id}
+                      className="py-2 rounded-xl font-bold text-xs bg-red-500 text-background hover:bg-red-500/90 disabled:opacity-40 transition-all"
+                    >
+                      {deletingSeasonId === s.id ? 'Deleting...' : 'Delete Season'}
+                    </button>
+                  </div>
+                </div>
+              )}
               </div>
             ))}
           </div>

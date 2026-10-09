@@ -1,7 +1,11 @@
 import Link from 'next/link'
-import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown, Calendar } from 'lucide-react'
+import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown, Calendar, ChevronRight, Lock } from 'lucide-react'
+import { getViewedSeason } from '@/lib/view-season'
 
-export default function EventsPage() {
+export default async function EventsPage() {
+  const viewed = await getViewedSeason()
+  const viewingPast = !!viewed && viewed.status !== 'active'
+
   const formats = [
     {
       icon: <Shuffle className="h-6 w-6 text-neon-green" />,
@@ -43,6 +47,20 @@ export default function EventsPage() {
       <p className="text-sm text-muted-foreground">
         Alternative match formats — pick a format to create and track a new event.
       </p>
+
+      {viewingPast && (
+        <Link
+          href={`/seasons/${viewed!.id}`}
+          className="glass rounded-xl p-4 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
+        >
+          <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-sm">{viewed!.name} events</div>
+            <div className="text-xs text-muted-foreground">Every event from this closed season, read-only.</div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+        </Link>
+      )}
 
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Formats</h2>

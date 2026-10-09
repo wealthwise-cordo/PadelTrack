@@ -1,4 +1,5 @@
 import { getPlayers, getMatches, getEventWinCounts } from '@/lib/store'
+import { getViewedSeason } from '@/lib/view-season'
 import { Trophy, Zap, Target, TrendingUp, Heart, Crown } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
 import StatLeaderboard from '@/components/stats/StatLeaderboard'
@@ -42,10 +43,11 @@ function tiebreakConversion(p: PlayerWithStats): number {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default async function StatsPage() {
+  const sid = (await getViewedSeason())?.id
   const [players, matches, eventWinCounts] = await Promise.all([
-    getPlayers(),
-    getMatches(),
-    getEventWinCounts(),
+    getPlayers(sid),
+    getMatches(sid),
+    getEventWinCounts(sid),
   ])
   const eventWins = (p: PlayerWithStats) => eventWinCounts.get(p.id) ?? 0
 

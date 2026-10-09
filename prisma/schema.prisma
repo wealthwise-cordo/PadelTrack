@@ -20,7 +20,8 @@ model User {
 
 model Season {
   id        String    @id @default(cuid())
-  name      String
+  name      String    // the year, e.g. "2026"
+  location  String    @default("Cartagena, Spain")
   status    String    @default("active") // active | closed
   startedAt DateTime  @default(now())
   closedAt  DateTime?

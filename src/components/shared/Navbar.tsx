@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Trophy, Swords, History, BarChart3, LayoutGrid, Calendar } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, seasonLabel } from '@/lib/utils'
+import SeasonSwitcher, { type SeasonOption } from '@/components/shared/SeasonSwitcher'
 
 const sideNav = [
   { href: '/', label: 'Rankings', icon: Trophy },
@@ -24,8 +25,19 @@ const desktopNav = [
   { href: '/seasons', label: 'Seasons', icon: Calendar },
 ]
 
-export default function Navbar({ seasonName }: { seasonName: string | null }) {
+export default function Navbar({
+  seasons,
+  viewedSeason,
+  activeSeasonId,
+}: {
+  seasons: SeasonOption[]
+  viewedSeason: SeasonOption | null
+  activeSeasonId: string | null
+}) {
   const pathname = usePathname()
+  // New scores always go to the live season, so hide the shortcut while
+  // browsing a closed one to avoid recording into a season you're not viewing.
+  const viewingPast = !!viewedSeason && viewedSeason.status !== 'active'
 
   return (
     <>
@@ -37,13 +49,17 @@ export default function Navbar({ seasonName }: { seasonName: string | null }) {
             <span className="font-bold text-sm tracking-widest text-foreground/90">
               WORLD PADEL <span className="text-neon-green">TOUR</span>
             </span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">
-              Cartagena, Spain{seasonName ? ` ${seasonName}` : ''}
-            </span>
+            <SeasonSwitcher
+              seasons={seasons}
+              viewedSeasonId={viewedSeason?.id ?? null}
+              activeSeasonId={activeSeasonId}
+              label={viewedSeason ? seasonLabel(viewedSeason) : 'No active season'}
+              className="text-[10px] text-muted-foreground tracking-widest uppercase"
+            />
           </div>
         </div>
         <nav className="flex items-center gap-1">
-          {desktopNav.map(({ href, label, icon: Icon }) => (
+          {desktopNav.filter(({ href }) => !(viewingPast && href === '/matches/new')).map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -81,13 +97,15 @@ export default function Navbar({ seasonName }: { seasonName: string | null }) {
         ))}
 
         {/* Centre — New Match */}
-        <Link
-          href="/matches/new"
-          className="flex-1 flex flex-col items-center gap-1 py-2 text-[10px] font-bold transition-all text-neon-orange"
-        >
-          <Swords className="h-5 w-5" />
-          New Match
-        </Link>
+        {!viewingPast && (
+          <Link
+            href="/matches/new"
+            className="flex-1 flex flex-col items-center gap-1 py-2 text-[10px] font-bold transition-all text-neon-orange"
+          >
+            <Swords className="h-5 w-5" />
+            New Match
+          </Link>
+        )}
 
         {sideNavRight.map(({ href, label, icon: Icon }) => (
           <Link

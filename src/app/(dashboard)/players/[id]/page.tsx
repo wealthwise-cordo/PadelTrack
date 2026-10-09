@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { getPlayer, getPlayers, getMatches, getEventWinCounts } from '@/lib/store'
+import { getViewedSeason } from '@/lib/view-season'
 import PTRLineChart from '@/components/players/PTRLineChart'
 import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'
@@ -8,8 +9,8 @@ import { Trophy, Target, Zap, TrendingUp, Crown } from 'lucide-react'
 
 export const revalidate = 0
 
-async function getHeadToHead(playerId: string) {
-  const all = await getMatches()
+async function getHeadToHead(playerId: string, seasonId?: string) {
+  const all = await getMatches(seasonId)
   const matches = all.filter(m =>
     [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id].includes(playerId)
   )
@@ -39,11 +40,12 @@ async function getHeadToHead(playerId: string) {
 }
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
+  const sid = (await getViewedSeason())?.id
   const [player, allPlayers, h2h, eventWinCounts] = await Promise.all([
-    getPlayer(params.id),
-    getPlayers(),
-    getHeadToHead(params.id),
-    getEventWinCounts(),
+    getPlayer(params.id, sid),
+    getPlayers(sid),
+    getHeadToHead(params.id, sid),
+    getEventWinCounts(sid),
   ])
 
   if (!player) notFound()

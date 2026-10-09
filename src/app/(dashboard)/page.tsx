@@ -2,13 +2,17 @@ import { Flame, TrendingUp, TrendingDown, Trophy } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
 import LiveRefreshButton from '@/components/leaderboard/LiveRefreshButton'
 import NoActiveSeason from '@/components/shared/NoActiveSeason'
-import { getPlayers, getMatchCount, getEventCount, getActiveSeason } from '@/lib/store'
+import SeasonSwitcher from '@/components/shared/SeasonSwitcher'
+import { seasonLabel } from '@/lib/utils'
+import { getPlayers, getMatchCount, getEventCount, getActiveSeason, listSeasons } from '@/lib/store'
+import { getViewedSeason } from '@/lib/view-season'
 
 export const revalidate = 0
 
 export default async function LeaderboardPage() {
-  const season = await getActiveSeason()
+  const [season, active, seasons] = await Promise.all([getViewedSeason(), getActiveSeason(), listSeasons()])
   if (!season) return <NoActiveSeason />
+  const isLive = season.status === 'active'
 
   const [players, totalMatches, totalEvents] = await Promise.all([
     getPlayers(season.id),
@@ -34,12 +38,18 @@ export default async function LeaderboardPage() {
           <h1 className="text-2xl font-black tracking-tight">
             World Padel <span className="text-neon-green">Tour</span>
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Cartagena, Spain {season.name}</p>
+          <SeasonSwitcher
+            seasons={seasons.map(s => ({ id: s.id, name: s.name, location: s.location, status: s.status }))}
+            viewedSeasonId={season.id}
+            activeSeasonId={active?.id ?? null}
+            label={seasonLabel(season)}
+            className="text-xs text-muted-foreground mt-0.5"
+          />
           <p className="text-xs text-muted-foreground">
             {totalMatches} matches played · {totalEvents} events played
           </p>
         </div>
-        <LiveRefreshButton />
+        {isLive && <LiveRefreshButton />}
       </div>
 
       {/* Highlight cards */}

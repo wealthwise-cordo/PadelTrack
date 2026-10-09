@@ -188,16 +188,42 @@ export async function reopenSeason(id: string): Promise<{ ok: true } | { error: 
   return { ok: true }
 }
 
+// Permanently removes a closed season and everything scoped to it —
+// matches, events, PTR history and per-season player stats. Player
+// identities survive (they may belong to other seasons, and can be carried
+// into future ones). Active seasons must be closed first, so a live season
+// can never disappear mid-play.
+export async function deleteSeason(id: string): Promise<{ ok: true } | { error: string }> {
+  const season = await prisma.season.findUnique({ where: { id } })
+  if (!season) return { error: 'Season not found' }
+  if (season.status !== 'closed') return { error: 'Close the season before deleting it' }
+
+  await prisma.$transaction([
+    // PTR history references matches and events, so it goes first.
+    prisma.pTRHistory.deleteMany({ where: { seasonId: id } }),
+    prisma.match.deleteMany({ where: { seasonId: id } }), // sets cascade
+    prisma.americanoEvent.deleteMany({ where: { seasonId: id } }), // event matches cascade
+    prisma.roundRobinEvent.deleteMany({ where: { seasonId: id } }),
+    prisma.onePointEvent.deleteMany({ where: { seasonId: id } }),
+    prisma.snakeLaddersEvent.deleteMany({ where: { seasonId: id } }),
+    prisma.playerSeason.deleteMany({ where: { seasonId: id } }),
+    prisma.season.delete({ where: { id } }),
+  ])
+  return { ok: true }
+}
+
 // A season's roster is fixed for its whole lifetime — there's no
 // add/remove-player action against an active season, same as before
 // seasons existed. New player identities can only be introduced here,
 // alongside carrying over existing players, when the season is created.
 export async function startNewSeason(data: {
   name: string
+  location: string
   carryOverPlayerIds: string[]
   newPlayers: { name: string; nickname?: string; avatarColor?: string }[]
 }): Promise<{ id: string } | { error: string }> {
-  if (!data.name.trim()) return { error: 'Season name is required' }
+  if (!data.name.trim()) return { error: 'Season year is required' }
+  if (!data.location.trim()) return { error: 'Season location is required' }
   const activeCount = await prisma.season.count({ where: { status: 'active' } })
   if (activeCount > 0) return { error: 'Close the current season before starting a new one' }
   if (data.carryOverPlayerIds.length === 0 && data.newPlayers.length === 0) {
@@ -205,7 +231,7 @@ export async function startNewSeason(data: {
   }
 
   return prisma.$transaction(async tx => {
-    const season = await tx.season.create({ data: { name: data.name.trim(), status: 'active' } })
+    const season = await tx.season.create({ data: { name: data.name.trim(), location: data.location.trim(), status: 'active' } })
 
     const newPlayerRows = await Promise.all(
       data.newPlayers.map((np, i) => tx.player.create({
