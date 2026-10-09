@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Trophy, Swords, History, BarChart3, LayoutGrid } from 'lucide-react'
+import { Trophy, Swords, History, BarChart3, LayoutGrid, Calendar } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const sideNav = [
@@ -21,9 +21,10 @@ const desktopNav = [
   { href: '/matches/new', label: 'New Match', icon: Swords },
   { href: '/events', label: 'Events', icon: LayoutGrid },
   { href: '/matches', label: 'History', icon: History },
+  { href: '/seasons', label: 'Seasons', icon: Calendar },
 ]
 
-export default function Navbar() {
+export default function Navbar({ seasonName }: { seasonName: string | null }) {
   const pathname = usePathname()
 
   return (
@@ -36,7 +37,9 @@ export default function Navbar() {
             <span className="font-bold text-sm tracking-widest text-foreground/90">
               WORLD PADEL <span className="text-neon-green">TOUR</span>
             </span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Cartagena, Spain 2026</span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">
+              Cartagena, Spain{seasonName ? ` ${seasonName}` : ''}
+            </span>
           </div>
         </div>
         <nav className="flex items-center gap-1">

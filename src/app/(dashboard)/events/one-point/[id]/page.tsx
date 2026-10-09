@@ -9,7 +9,7 @@ export default async function OnePointEventPage({ params }: { params: { id: stri
   const event = await getOnePointEvent(params.id)
   if (!event) notFound()
 
-  const allPlayers = await getPlayers()
+  const allPlayers = await getPlayers(event.seasonId)
   const players = allPlayers.filter(p => event.playerIds.includes(p.id))
 
   return <OnePointEventView event={event} players={players} />

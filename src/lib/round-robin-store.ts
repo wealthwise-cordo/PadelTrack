@@ -27,6 +27,7 @@ export interface RoundRobinEventView {
   status: 'in_progress' | 'complete'
   target: number
   isRanked: boolean
+  seasonId: string
   teams: [string, string][]
   matches: RoundRobinMatchView[]
   ptrDeltas: Record<string, number> | null
@@ -38,6 +39,7 @@ export interface RoundRobinEventSummary {
   status: 'in_progress' | 'complete'
   target: number
   isRanked: boolean
+  seasonId: string
   teams: [string, string][]
   matchesComplete: number
   matchesTotal: number
@@ -64,6 +66,7 @@ function teamLeaderboard(
 export async function createRoundRobinEvent(
   teams: [string, string][],
   target: number,
+  seasonId: string,
   isRanked = true
 ): Promise<string> {
   const fixtures = generateRoundRobinSchedule(teams)
@@ -71,6 +74,7 @@ export async function createRoundRobinEvent(
     data: {
       target,
       isRanked,
+      seasonId,
       teamPlayerIds: teams.flat(),
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -91,6 +95,7 @@ export async function getRoundRobinEvent(id: string): Promise<RoundRobinEventVie
     status: event.status as 'in_progress' | 'complete',
     target: event.target,
     isRanked: event.isRanked,
+    seasonId: event.seasonId,
     teams: chunkTeams(event.teamPlayerIds),
     matches: event.matches.map(m => ({
       id: m.id,
@@ -107,8 +112,9 @@ export async function getRoundRobinEvent(id: string): Promise<RoundRobinEventVie
   }
 }
 
-export async function listRoundRobinEvents(): Promise<RoundRobinEventSummary[]> {
+export async function listRoundRobinEvents(seasonId: string): Promise<RoundRobinEventSummary[]> {
   const events = await prisma.roundRobinEvent.findMany({
+    where: { seasonId },
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -124,6 +130,7 @@ export async function listRoundRobinEvents(): Promise<RoundRobinEventSummary[]> 
       status: event.status as 'in_progress' | 'complete',
       target: event.target,
       isRanked: event.isRanked,
+      seasonId: event.seasonId,
       teams,
       matchesComplete,
       matchesTotal: event.matches.length,
@@ -140,6 +147,8 @@ export async function submitRoundRobinScore(
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.roundRobinEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
 
   const target = event.target
   if (!Number.isInteger(teamAScore) || !Number.isInteger(teamBScore) || teamAScore < 0 || teamBScore < 0) {
@@ -170,12 +179,15 @@ export async function submitRoundRobinScore(
 // In-progress events can be deleted freely (they've never touched PTR).
 // Completed events require allowComplete — used by the admin panel — and
 // reverse the PTR they applied before removing the event and its matches.
+// Either way the event's season must still be active.
 export async function deleteRoundRobinEvent(
   id: string,
   opts?: { allowComplete?: boolean }
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.roundRobinEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
   if (event.status === 'complete' && !opts?.allowComplete) {
     return { error: 'Completed events can only be deleted from the admin page' }
   }
@@ -184,8 +196,8 @@ export async function deleteRoundRobinEvent(
     if (event.status === 'complete') {
       const history = await tx.pTRHistory.findMany({ where: { rrEventId: id } })
       for (const h of history) {
-        await tx.player.update({
-          where: { id: h.playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
           data: { ptr: { decrement: h.delta } },
         })
       }
@@ -216,8 +228,10 @@ async function finalizeRoundRobinEvent(eventId: string): Promise<void> {
   })
   if (!event || event.status === 'complete') return
 
-  const players = await prisma.player.findMany({ where: { id: { in: event.teamPlayerIds } } })
-  const byId = new Map(players.map(p => [p.id, p]))
+  const playerSeasons = await prisma.playerSeason.findMany({
+    where: { seasonId: event.seasonId, playerId: { in: event.teamPlayerIds } },
+  })
+  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
   const points = computeLeaderboardPoints(event.matches, event.teamPlayerIds)
   const teams = chunkTeams(event.teamPlayerIds)
 
@@ -226,10 +240,10 @@ async function finalizeRoundRobinEvent(eventId: string): Promise<void> {
   const teamPoints = teams.map(([p1]) => points.get(p1) ?? 0)
   const totalPool = teamPoints.reduce((sum, v) => sum + v, 0)
 
-  const avgK = players.reduce(
-    (sum, p) => sum + calculateKFactor(calculateReliability(p.matchesPlayed)),
+  const avgK = playerSeasons.reduce(
+    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
     0
-  ) / players.length
+  ) / playerSeasons.length
 
   const teamPTR = teams.map(([p1, p2]) => {
     const a = byId.get(p1)
@@ -273,8 +287,8 @@ async function finalizeRoundRobinEvent(eventId: string): Promise<void> {
         if (!player) continue
         appliedDeltas[playerId] = finalDelta
 
-        await tx.player.update({
-          where: { id: playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
           data: { ptr: player.ptr + finalDelta },
         })
         await tx.pTRHistory.create({
@@ -282,6 +296,7 @@ async function finalizeRoundRobinEvent(eventId: string): Promise<void> {
             playerId,
             matchId: null,
             rrEventId: eventId,
+            seasonId: event.seasonId,
             ptrBefore: player.ptr,
             ptrAfter: player.ptr + finalDelta,
             delta: finalDelta,

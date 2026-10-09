@@ -38,6 +38,7 @@ export interface SnakeLaddersEventView {
   target: number
   totalRounds: number
   isRanked: boolean
+  seasonId: string
   playerIds: string[]
   matches: SnakeLaddersMatchView[]
   ptrDeltas: Record<string, number> | null
@@ -51,6 +52,7 @@ export interface SnakeLaddersEventSummary {
   target: number
   totalRounds: number
   isRanked: boolean
+  seasonId: string
   playerIds: string[]
   currentRound: number
   matchesComplete: number
@@ -82,6 +84,7 @@ export async function createSnakeLaddersEvent(
   scoreMode: 'points' | 'games',
   target: number,
   totalRounds: number,
+  seasonId: string,
   isRanked = true
 ): Promise<string> {
   const fixtures = seedRound1(playerIdsByPtrDesc)
@@ -91,6 +94,7 @@ export async function createSnakeLaddersEvent(
       target,
       totalRounds,
       isRanked,
+      seasonId,
       playerIds: playerIdsByPtrDesc,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -113,14 +117,16 @@ export async function getSnakeLaddersEvent(id: string): Promise<SnakeLaddersEven
     target: event.target,
     totalRounds: event.totalRounds,
     isRanked: event.isRanked,
+    seasonId: event.seasonId,
     playerIds: event.playerIds,
     matches: event.matches.map(toMatchView),
     ptrDeltas: (event.ptrDeltas as Record<string, number> | null) ?? null,
   }
 }
 
-export async function listSnakeLaddersEvents(): Promise<SnakeLaddersEventSummary[]> {
+export async function listSnakeLaddersEvents(seasonId: string): Promise<SnakeLaddersEventSummary[]> {
   const events = await prisma.snakeLaddersEvent.findMany({
+    where: { seasonId },
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -138,6 +144,7 @@ export async function listSnakeLaddersEvents(): Promise<SnakeLaddersEventSummary
       target: event.target,
       totalRounds: event.totalRounds,
       isRanked: event.isRanked,
+      seasonId: event.seasonId,
       playerIds: event.playerIds,
       currentRound,
       matchesComplete,
@@ -155,6 +162,8 @@ export async function submitSnakeLaddersScore(
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.snakeLaddersEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
 
   const target = event.target
   if (!Number.isInteger(teamAScore) || !Number.isInteger(teamBScore) || teamAScore < 0 || teamBScore < 0) {
@@ -202,12 +211,15 @@ export async function submitSnakeLaddersScore(
 // In-progress events can be deleted freely (they've never touched PTR).
 // Completed events require allowComplete — used by the admin panel — and
 // reverse the PTR they applied before removing the event and its matches.
+// Either way the event's season must still be active.
 export async function deleteSnakeLaddersEvent(
   id: string,
   opts?: { allowComplete?: boolean }
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.snakeLaddersEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
   if (event.status === 'complete' && !opts?.allowComplete) {
     return { error: 'Completed events can only be deleted from the admin page' }
   }
@@ -216,8 +228,8 @@ export async function deleteSnakeLaddersEvent(
     if (event.status === 'complete') {
       const history = await tx.pTRHistory.findMany({ where: { slEventId: id } })
       for (const h of history) {
-        await tx.player.update({
-          where: { id: h.playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
           data: { ptr: { decrement: h.delta } },
         })
       }
@@ -245,17 +257,19 @@ async function finalizeSnakeLaddersEvent(eventId: string): Promise<void> {
   const teams = finalPlacements(event.matches, event.totalRounds)
   if (!teams) return
 
-  const players = await prisma.player.findMany({ where: { id: { in: event.playerIds } } })
-  const byId = new Map(players.map(p => [p.id, p]))
+  const playerSeasons = await prisma.playerSeason.findMany({
+    where: { seasonId: event.seasonId, playerId: { in: event.playerIds } },
+  })
+  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
 
   const teamCount = teams.length
   const teamPoints = PLACEMENT_POINTS
   const totalPool = teamPoints.reduce((sum, v) => sum + v, 0)
 
-  const avgK = players.reduce(
-    (sum, p) => sum + calculateKFactor(calculateReliability(p.matchesPlayed)),
+  const avgK = playerSeasons.reduce(
+    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
     0
-  ) / players.length
+  ) / playerSeasons.length
 
   const teamPTR = teams.map(([p1, p2]) => {
     const a = byId.get(p1)
@@ -296,8 +310,8 @@ async function finalizeSnakeLaddersEvent(eventId: string): Promise<void> {
         if (!player) continue
         appliedDeltas[playerId] = finalDelta
 
-        await tx.player.update({
-          where: { id: playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
           data: { ptr: player.ptr + finalDelta },
         })
         await tx.pTRHistory.create({
@@ -305,6 +319,7 @@ async function finalizeSnakeLaddersEvent(eventId: string): Promise<void> {
             playerId,
             matchId: null,
             slEventId: eventId,
+            seasonId: event.seasonId,
             ptrBefore: player.ptr,
             ptrAfter: player.ptr + finalDelta,
             delta: finalDelta,

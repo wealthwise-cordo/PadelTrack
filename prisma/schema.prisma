@@ -18,33 +18,64 @@ model User {
   player    Player?
 }
 
+model Season {
+  id        String    @id @default(cuid())
+  name      String
+  status    String    @default("active") // active | closed
+  startedAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  playerSeasons      PlayerSeason[]
+  matches            Match[]
+  ptrHistory         PTRHistory[]
+  americanoEvents    AmericanoEvent[]
+  roundRobinEvents   RoundRobinEvent[]
+  onePointEvents     OnePointEvent[]
+  snakeLaddersEvents SnakeLaddersEvent[]
+}
+
+// Per-(player, season) stats. Player identity lives on `Player` forever;
+// everything that resets when a new season starts lives here instead.
+model PlayerSeason {
+  id              String @id @default(cuid())
+  playerId        String
+  seasonId        String
+  ptr             Float  @default(1000)
+  reliability     Float  @default(0)
+  matchesPlayed   Int    @default(0)
+  wins            Int    @default(0)
+  losses          Int    @default(0)
+  setsWon         Int    @default(0)
+  setsLost        Int    @default(0)
+  gamesWon        Int    @default(0)
+  gamesLost       Int    @default(0)
+  tiebreaksWon    Int    @default(0)
+  tiebreaksPlayed Int    @default(0)
+  currentStreak   Int    @default(0)
+  bestStreak      Int    @default(0)
+
+  player Player @relation(fields: [playerId], references: [id])
+  season Season @relation(fields: [seasonId], references: [id])
+
+  @@unique([playerId, seasonId])
+  @@index([seasonId])
+}
+
 model Player {
-  id              String       @id @default(cuid())
-  name            String
-  nickname        String?
-  avatarColor     String       @default("#00ff87")
-  ptr             Float        @default(1000)
-  reliability     Float        @default(0)
-  matchesPlayed   Int          @default(0)
-  wins            Int          @default(0)
-  losses          Int          @default(0)
-  setsWon         Int          @default(0)
-  setsLost        Int          @default(0)
-  gamesWon        Int          @default(0)
-  gamesLost       Int          @default(0)
-  tiebreaksWon    Int          @default(0)
-  tiebreaksPlayed Int          @default(0)
-  currentStreak   Int          @default(0)
-  bestStreak      Int          @default(0)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  userId          String?      @unique
-  user            User?        @relation(fields: [userId], references: [id])
-  ptrHistory      PTRHistory[]
-  teamA1          Match[]      @relation("TeamA1")
-  teamA2          Match[]      @relation("TeamA2")
-  teamB1          Match[]      @relation("TeamB1")
-  teamB2          Match[]      @relation("TeamB2")
+  id            String         @id @default(cuid())
+  name          String
+  nickname      String?
+  avatarColor   String         @default("#00ff87")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  userId        String?        @unique
+  user          User?          @relation(fields: [userId], references: [id])
+  ptrHistory    PTRHistory[]
+  playerSeasons PlayerSeason[]
+  teamA1        Match[]        @relation("TeamA1")
+  teamA2        Match[]        @relation("TeamA2")
+  teamB1        Match[]        @relation("TeamB1")
+  teamB2        Match[]        @relation("TeamB2")
 }
 
 model Match {
@@ -54,6 +85,8 @@ model Match {
   status          String       @default("complete")
   isRanked        Boolean      @default(true)
   winner          String?
+  seasonId        String
+  season          Season       @relation(fields: [seasonId], references: [id])
   teamAPlayer1Id  String
   teamAPlayer2Id  String
   teamBPlayer1Id  String
@@ -73,6 +106,8 @@ model Match {
   notes           String?
   sets            MatchSet[]
   ptrHistory      PTRHistory[]
+
+  @@index([seasonId])
 }
 
 model MatchSet {
@@ -86,24 +121,28 @@ model MatchSet {
 }
 
 model PTRHistory {
-  id          String           @id @default(cuid())
+  id          String             @id @default(cuid())
   playerId    String
   matchId     String?
   eventId     String?
+  seasonId    String
   ptrBefore   Float
   ptrAfter    Float
   delta       Float
   reliability Float
-  createdAt   DateTime         @default(now())
-  player      Player           @relation(fields: [playerId], references: [id])
-  match       Match?           @relation(fields: [matchId], references: [id])
-  event       AmericanoEvent?  @relation(fields: [eventId], references: [id])
+  createdAt   DateTime           @default(now())
+  player      Player             @relation(fields: [playerId], references: [id])
+  match       Match?             @relation(fields: [matchId], references: [id])
+  event       AmericanoEvent?    @relation(fields: [eventId], references: [id])
+  season      Season             @relation(fields: [seasonId], references: [id])
   rrEventId   String?
-  rrEvent     RoundRobinEvent? @relation(fields: [rrEventId], references: [id])
+  rrEvent     RoundRobinEvent?   @relation(fields: [rrEventId], references: [id])
   opEventId   String?
-  opEvent     OnePointEvent?   @relation(fields: [opEventId], references: [id])
+  opEvent     OnePointEvent?     @relation(fields: [opEventId], references: [id])
   slEventId   String?
   slEvent     SnakeLaddersEvent? @relation(fields: [slEventId], references: [id])
+
+  @@index([seasonId])
 }
 
 model AmericanoEvent {
@@ -113,10 +152,14 @@ model AmericanoEvent {
   scoreMode  String // "points" | "games"
   target     Int
   isRanked   Boolean          @default(true)
+  seasonId   String
+  season     Season           @relation(fields: [seasonId], references: [id])
   playerIds  String[]
   ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
   matches    AmericanoMatch[]
   ptrHistory PTRHistory[]
+
+  @@index([seasonId])
 }
 
 model AmericanoMatch {
@@ -141,10 +184,14 @@ model RoundRobinEvent {
   status        String            @default("in_progress") // in_progress | complete
   target        Int // games target, first-to (not best-of)
   isRanked      Boolean           @default(true)
+  seasonId      String
+  season        Season            @relation(fields: [seasonId], references: [id])
   teamPlayerIds String[] // flattened, consecutive pairs = teams: [t0p1,t0p2,t1p1,t1p2,...]
   ptrDeltas     Json? // { [playerId]: delta } applied when the event completed
   matches       RoundRobinMatch[]
   ptrHistory    PTRHistory[]
+
+  @@index([seasonId])
 }
 
 model RoundRobinMatch {
@@ -167,10 +214,14 @@ model OnePointEvent {
   id         String          @id @default(cuid())
   createdAt  DateTime        @default(now())
   status     String          @default("in_progress") // in_progress | complete
+  seasonId   String
+  season     Season          @relation(fields: [seasonId], references: [id])
   playerIds  String[] // exactly 8, in bracket slot order (position 1..8)
   ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
   matches    OnePointMatch[]
   ptrHistory PTRHistory[]
+
+  @@index([seasonId])
 }
 
 model OnePointMatch {
@@ -196,10 +247,14 @@ model SnakeLaddersEvent {
   target      Int
   totalRounds Int
   isRanked    Boolean             @default(true)
+  seasonId    String
+  season      Season              @relation(fields: [seasonId], references: [id])
   playerIds   String[] // exactly 8, seeded by PTR desc at creation (ranks 1-8)
   ptrDeltas   Json? // { [playerId]: delta } applied when the event completed
   matches     SnakeLaddersMatch[]
   ptrHistory  PTRHistory[]
+
+  @@index([seasonId])
 }
 
 model SnakeLaddersMatch {

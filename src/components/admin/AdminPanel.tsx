@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Trash2, RotateCcw, Lock, AlertTriangle } from 'lucide-react'
+import { Trash2, Lock, AlertTriangle, CheckCircle2, Plus, X, History, Calendar } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { getInitials, getFullScore } from '@/lib/utils'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
@@ -10,10 +10,15 @@ import type { AmericanoEventSummary } from '@/lib/americano-store'
 import type { RoundRobinEventSummary } from '@/lib/round-robin-store'
 import type { OnePointEventSummary } from '@/lib/one-point-store'
 import type { SnakeLaddersEventSummary } from '@/lib/snake-ladders-store'
+import type { Season, Player } from '@prisma/client'
 
 const PASSCODE = '5299'
 
 interface Props {
+  activeSeason: Season | null
+  seasons: Season[]
+  allPlayers: Player[]
+  lastSeasonPlayerIds: string[]
   matches: MatchWithPlayers[]
   americanoEvents: AmericanoEventSummary[]
   roundRobinEvents: RoundRobinEventSummary[]
@@ -22,14 +27,14 @@ interface Props {
   players: PlayerWithStats[]
 }
 
-export default function AdminPanel({ matches, americanoEvents, roundRobinEvents, onePointEvents, snakeLaddersEvents, players }: Props) {
+export default function AdminPanel({
+  activeSeason, seasons, allPlayers, lastSeasonPlayerIds,
+  matches, americanoEvents, roundRobinEvents, onePointEvents, snakeLaddersEvents, players,
+}: Props) {
   const router = useRouter()
   const [unlocked, setUnlocked] = useState(false)
   const [code, setCode] = useState('')
   const [codeError, setCodeError] = useState(false)
-  const [resetText, setResetText] = useState('')
-  const [resetting, setResetting] = useState(false)
-  const [resetDone, setResetDone] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
@@ -41,7 +46,22 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
   const [deletingSLId, setDeletingSLId] = useState<string | null>(null)
   const [slDeleteError, setSLDeleteError] = useState('')
 
+  // Season lifecycle state
+  const [confirmingClose, setConfirmingClose] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [closeError, setCloseError] = useState('')
+  const [reopeningId, setReopeningId] = useState<string | null>(null)
+  const [reopenError, setReopenError] = useState('')
+  const [seasonName, setSeasonName] = useState('')
+  const [carryOverIds, setCarryOverIds] = useState<Set<string>>(new Set(lastSeasonPlayerIds))
+  const [newPlayerDrafts, setNewPlayerDrafts] = useState<{ name: string; nickname: string }[]>([])
+  const [draftName, setDraftName] = useState('')
+  const [draftNickname, setDraftNickname] = useState('')
+  const [startingSeason, setStartingSeason] = useState(false)
+  const [startError, setStartError] = useState('')
+
   const byId = new Map(players.map(p => [p.id, p]))
+  const closedSeasons = seasons.filter(s => s.status === 'closed')
 
   const handleUnlock = () => {
     if (code === PASSCODE) {
@@ -143,18 +163,89 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
     }
   }
 
-  const handleReset = async () => {
-    if (resetText !== 'reset') return
-    setResetting(true)
+  const handleCloseSeason = async () => {
+    if (!activeSeason) return
+    setClosing(true)
+    setCloseError('')
     try {
-      await fetch('/api/admin/reset', { method: 'POST' })
-      setResetDone(true)
-      setResetText('')
-      router.refresh()
+      const res = await fetch(`/api/seasons/${activeSeason.id}/close`, { method: 'POST' })
+      if (!res.ok) {
+        const d = await res.json()
+        setCloseError(d.error || 'Failed to close season')
+      } else {
+        setConfirmingClose(false)
+        router.refresh()
+      }
     } catch {
-      // ignore
+      setCloseError('Network error')
     } finally {
-      setResetting(false)
+      setClosing(false)
+    }
+  }
+
+  const handleReopen = async (id: string) => {
+    setReopeningId(id)
+    setReopenError('')
+    try {
+      const res = await fetch(`/api/seasons/${id}/reopen`, { method: 'POST' })
+      if (!res.ok) {
+        const d = await res.json()
+        setReopenError(d.error || 'Failed to reopen season')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setReopenError('Network error')
+    } finally {
+      setReopeningId(null)
+    }
+  }
+
+  const toggleCarryOver = (id: string) => {
+    setCarryOverIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const addDraftPlayer = () => {
+    if (!draftName.trim()) return
+    setNewPlayerDrafts(prev => [...prev, { name: draftName.trim(), nickname: draftNickname.trim() }])
+    setDraftName('')
+    setDraftNickname('')
+  }
+
+  const removeDraftPlayer = (i: number) => {
+    setNewPlayerDrafts(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  const handleStartSeason = async () => {
+    setStartingSeason(true)
+    setStartError('')
+    try {
+      const res = await fetch('/api/seasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: seasonName,
+          carryOverPlayerIds: Array.from(carryOverIds),
+          newPlayers: newPlayerDrafts.map(d => ({ name: d.name, nickname: d.nickname || undefined })),
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setStartError(d.error || 'Failed to start season')
+      } else {
+        setSeasonName('')
+        setNewPlayerDrafts([])
+        router.refresh()
+      }
+    } catch {
+      setStartError('Network error')
+    } finally {
+      setStartingSeason(false)
     }
   }
 
@@ -192,6 +283,182 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
   return (
     <div className="py-6 space-y-6">
       <h1 className="text-2xl font-black tracking-tight">Admin Panel</h1>
+
+      {/* Season */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Season</h2>
+
+        {activeSeason ? (
+          <div className="glass rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-neon-green shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold">{activeSeason.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Active since {formatDistanceToNow(new Date(activeSeason.startedAt), { addSuffix: true })}
+                </div>
+              </div>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-neon-green/15 text-neon-green font-bold uppercase tracking-wide shrink-0">
+                Active
+              </span>
+            </div>
+
+            {closeError && <p className="text-xs text-red-400 text-center">{closeError}</p>}
+
+            {!confirmingClose ? (
+              <button
+                onClick={() => setConfirmingClose(true)}
+                className="w-full py-2.5 rounded-xl font-bold text-sm bg-red-500/10 text-red-400 border border-red-400/20 hover:bg-red-500/20 transition-all"
+              >
+                Close Season
+              </button>
+            ) : (
+              <div className="space-y-2 rounded-lg border border-red-400/20 p-3">
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" />
+                  Freezes every match and event in {activeSeason.name}. Nothing more can be recorded against it
+                  until an admin reopens it.
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setConfirmingClose(false)}
+                    className="py-2 rounded-xl font-bold text-xs bg-white/5 text-muted-foreground hover:bg-white/10 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCloseSeason}
+                    disabled={closing}
+                    className="py-2 rounded-xl font-bold text-xs bg-red-500 text-background hover:bg-red-500/90 disabled:opacity-40 transition-all"
+                  >
+                    {closing ? 'Closing...' : 'Confirm Close'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="glass rounded-2xl p-4 space-y-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 shrink-0" />
+              <div className="text-xs text-muted-foreground">
+                No active season. Start a new one to resume play — every carried-over player returns to 1000 PTR
+                with a clean slate.
+              </div>
+            </div>
+
+            <input
+              type="text"
+              placeholder="Season name (e.g. 2027)"
+              value={seasonName}
+              onChange={e => setSeasonName(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
+            />
+
+            <div className="space-y-2">
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Roster — {carryOverIds.size + newPlayerDrafts.length} selected
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {allPlayers.map(p => {
+                  const checked = carryOverIds.has(p.id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => toggleCarryOver(p.id)}
+                      className={`flex items-center gap-2 h-12 px-2.5 rounded-xl border transition-all ${
+                        checked ? 'border-neon-green/50 bg-neon-green/10' : 'border-white/10 bg-white/5 opacity-50'
+                      }`}
+                    >
+                      <div
+                        className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-background shrink-0"
+                        style={{ backgroundColor: p.avatarColor }}
+                      >
+                        {getInitials(p.name)}
+                      </div>
+                      <span className="text-xs font-semibold truncate flex-1 text-left">{p.name.split(' ')[0]}</span>
+                      {checked && <CheckCircle2 className="h-3.5 w-3.5 text-neon-green shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {newPlayerDrafts.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">New players</div>
+                {newPlayerDrafts.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
+                    <span className="text-xs font-semibold flex-1">{d.name}{d.nickname ? ` · "${d.nickname}"` : ''}</span>
+                    <button onClick={() => removeDraftPlayer(i)} className="text-muted-foreground hover:text-red-400 transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="New player name"
+                value={draftName}
+                onChange={e => setDraftName(e.target.value)}
+                className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
+              />
+              <input
+                type="text"
+                placeholder="Nickname"
+                value={draftNickname}
+                onChange={e => setDraftNickname(e.target.value)}
+                className="w-24 shrink-0 bg-white/5 border border-white/10 rounded-lg px-2.5 py-2 text-xs focus:outline-none focus:border-neon-green/50 placeholder:text-muted-foreground/50"
+              />
+              <button
+                onClick={addDraftPlayer}
+                disabled={!draftName.trim()}
+                className="shrink-0 h-9 w-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-all"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+
+            {startError && <p className="text-xs text-red-400 text-center">{startError}</p>}
+
+            <button
+              onClick={handleStartSeason}
+              disabled={startingSeason || !seasonName.trim() || (carryOverIds.size === 0 && newPlayerDrafts.length === 0)}
+              className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {startingSeason ? 'Starting...' : 'Start Season'}
+            </button>
+          </div>
+        )}
+
+        {closedSeasons.length > 0 && (
+          <div className="space-y-2">
+            {reopenError && <p className="text-xs text-red-400 text-center">{reopenError}</p>}
+            {closedSeasons.map(s => (
+              <div key={s.id} className="glass rounded-xl p-3 flex items-center gap-3">
+                <History className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold">{s.name}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Closed {s.closedAt ? formatDistanceToNow(new Date(s.closedAt), { addSuffix: true }) : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleReopen(s.id)}
+                  disabled={!!activeSeason || reopeningId === s.id}
+                  title={activeSeason ? 'Close the current active season first' : 'Reopen this season'}
+                  className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-white/5 text-muted-foreground hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  {reopeningId === s.id ? 'Reopening...' : 'Reopen'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Match list */}
       <div className="space-y-3">
@@ -460,42 +727,6 @@ export default function AdminPanel({ matches, americanoEvents, roundRobinEvents,
             </div>
           )
         })}
-      </div>
-
-      {/* Reset section */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Danger Zone</h2>
-        <div className="glass rounded-xl p-4 border border-red-400/20 space-y-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
-            <div>
-              <div className="text-sm font-semibold text-red-400">Reset Database</div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Wipes all matches and resets every player back to 1000 PTR. This cannot be undone.
-              </div>
-            </div>
-          </div>
-
-          {resetDone && (
-            <p className="text-xs text-neon-green text-center font-semibold">Database reset successfully.</p>
-          )}
-
-          <input
-            type="text"
-            placeholder='Type "reset" to confirm'
-            value={resetText}
-            onChange={e => { setResetText(e.target.value); setResetDone(false) }}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-red-400/50 placeholder:text-muted-foreground/50"
-          />
-          <button
-            onClick={handleReset}
-            disabled={resetText !== 'reset' || resetting}
-            className="w-full py-2.5 rounded-xl font-bold text-sm bg-red-500/20 text-red-400 border border-red-400/30 hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            <RotateCcw className="h-4 w-4 inline mr-2" />
-            {resetting ? 'Resetting...' : 'Reset Everything'}
-          </button>
-        </div>
       </div>
     </div>
   )

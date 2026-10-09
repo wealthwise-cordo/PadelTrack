@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getActiveSeason } from '@/lib/store'
 import { createAmericanoEvent } from '@/lib/americano-store'
 
 export async function POST(req: NextRequest) {
@@ -15,6 +16,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid target' }, { status: 400 })
   }
 
-  const id = await createAmericanoEvent(playerIds, scoreMode, target, typeof isRanked === 'boolean' ? isRanked : true)
+  const season = await getActiveSeason()
+  if (!season) return NextResponse.json({ error: 'No active season' }, { status: 400 })
+
+  const id = await createAmericanoEvent(playerIds, scoreMode, target, season.id, typeof isRanked === 'boolean' ? isRanked : true)
   return NextResponse.json({ id })
 }

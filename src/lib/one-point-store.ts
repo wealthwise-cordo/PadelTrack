@@ -26,6 +26,7 @@ export interface OnePointEventView {
   id: string
   createdAt: string
   status: 'in_progress' | 'complete'
+  seasonId: string
   playerIds: string[] // bracket slot order, 8 ids
   matches: OnePointMatchView[]
   ptrDeltas: Record<string, number> | null
@@ -35,17 +36,19 @@ export interface OnePointEventSummary {
   id: string
   createdAt: string
   status: 'in_progress' | 'complete'
+  seasonId: string
   playerIds: string[]
   matchesComplete: number
   matchesTotal: number
   championId: string | null
 }
 
-export async function createOnePointEvent(playerIdsByPtrDesc: string[]): Promise<string> {
+export async function createOnePointEvent(playerIdsByPtrDesc: string[], seasonId: string): Promise<string> {
   const bracket = seedBracket(playerIdsByPtrDesc)
   const fixtures = buildFixtures(bracket)
   const event = await prisma.onePointEvent.create({
     data: {
+      seasonId,
       playerIds: bracket,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -64,6 +67,7 @@ export async function getOnePointEvent(id: string): Promise<OnePointEventView | 
     id: event.id,
     createdAt: event.createdAt.toISOString(),
     status: event.status as 'in_progress' | 'complete',
+    seasonId: event.seasonId,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
@@ -79,8 +83,9 @@ export async function getOnePointEvent(id: string): Promise<OnePointEventView | 
   }
 }
 
-export async function listOnePointEvents(): Promise<OnePointEventSummary[]> {
+export async function listOnePointEvents(seasonId: string): Promise<OnePointEventSummary[]> {
   const events = await prisma.onePointEvent.findMany({
+    where: { seasonId },
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -91,6 +96,7 @@ export async function listOnePointEvents(): Promise<OnePointEventSummary[]> {
       id: event.id,
       createdAt: event.createdAt.toISOString(),
       status: event.status as 'in_progress' | 'complete',
+      seasonId: event.seasonId,
       playerIds: event.playerIds,
       matchesComplete: event.matches.filter(m => m.status === 'complete').length,
       matchesTotal: event.matches.length,
@@ -104,6 +110,11 @@ export async function submitOnePointWinner(
   matchId: string,
   winnerId: string
 ): Promise<{ ok: true } | { error: string }> {
+  const event = await prisma.onePointEvent.findUnique({ where: { id: eventId } })
+  if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
+
   const match = await prisma.onePointMatch.findUnique({ where: { id: matchId } })
   if (!match || match.eventId !== eventId) return { error: 'Match not found' }
   if (match.status === 'complete') return { error: 'Match already recorded' }
@@ -145,12 +156,15 @@ export async function submitOnePointWinner(
 // In-progress events can be deleted freely (they've never touched PTR).
 // Completed events require allowComplete — used by the admin panel — and
 // reverse the PTR they applied before removing the event and its matches.
+// Either way the event's season must still be active.
 export async function deleteOnePointEvent(
   id: string,
   opts?: { allowComplete?: boolean }
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.onePointEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
   if (event.status === 'complete' && !opts?.allowComplete) {
     return { error: 'Completed events can only be deleted from the admin page' }
   }
@@ -159,8 +173,8 @@ export async function deleteOnePointEvent(
     if (event.status === 'complete') {
       const history = await tx.pTRHistory.findMany({ where: { opEventId: id } })
       for (const h of history) {
-        await tx.player.update({
-          where: { id: h.playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
           data: { ptr: { decrement: h.delta } },
         })
       }
@@ -193,8 +207,10 @@ async function finalizeOnePointEvent(eventId: string): Promise<void> {
   })
   if (!event || event.status === 'complete') return
 
-  const players = await prisma.player.findMany({ where: { id: { in: event.playerIds } } })
-  const byId = new Map(players.map(p => [p.id, p]))
+  const playerSeasons = await prisma.playerSeason.findMany({
+    where: { seasonId: event.seasonId, playerId: { in: event.playerIds } },
+  })
+  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
 
   const final = event.matches.find(m => m.round === 3)!
   const semis = event.matches.filter(m => m.round === 2)
@@ -205,10 +221,10 @@ async function finalizeOnePointEvent(eventId: string): Promise<void> {
   const semiLoserIds = semis.map(m => (m.player1Id === m.winnerId ? m.player2Id! : m.player1Id!))
   const quarterLoserIds = quarters.map(m => (m.player1Id === m.winnerId ? m.player2Id! : m.player1Id!))
 
-  const avgK = players.reduce(
-    (sum, p) => sum + calculateKFactor(calculateReliability(p.matchesPlayed)),
+  const avgK = playerSeasons.reduce(
+    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
     0
-  ) / players.length
+  ) / playerSeasons.length
 
   const expectationRounds = (playerId: string): number => {
     const player = byId.get(playerId)!
@@ -251,8 +267,8 @@ async function finalizeOnePointEvent(eventId: string): Promise<void> {
       const finalDelta = Math.round(margin * avgK * ONE_POINT_PTR_WEIGHT * 10) / 10
       appliedDeltas[playerId] = finalDelta
 
-      await tx.player.update({
-        where: { id: playerId },
+      await tx.playerSeason.update({
+        where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
         data: { ptr: player.ptr + finalDelta },
       })
       await tx.pTRHistory.create({
@@ -260,6 +276,7 @@ async function finalizeOnePointEvent(eventId: string): Promise<void> {
           playerId,
           matchId: null,
           opEventId: eventId,
+          seasonId: event.seasonId,
           ptrBefore: player.ptr,
           ptrAfter: player.ptr + finalDelta,
           delta: finalDelta,

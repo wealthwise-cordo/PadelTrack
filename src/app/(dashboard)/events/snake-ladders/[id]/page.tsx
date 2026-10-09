@@ -9,7 +9,7 @@ export default async function SnakeLaddersEventPage({ params }: { params: { id: 
   const event = await getSnakeLaddersEvent(params.id)
   if (!event) notFound()
 
-  const allPlayers = await getPlayers()
+  const allPlayers = await getPlayers(event.seasonId)
   const players = allPlayers.filter(p => event.playerIds.includes(p.id))
 
   return <SnakeLaddersEventView event={event} players={players} />

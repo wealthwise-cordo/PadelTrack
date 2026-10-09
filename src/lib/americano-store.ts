@@ -28,6 +28,7 @@ export interface AmericanoEventView {
   scoreMode: 'points' | 'games'
   target: number
   isRanked: boolean
+  seasonId: string
   playerIds: string[]
   matches: AmericanoMatchView[]
   ptrDeltas: Record<string, number> | null
@@ -40,6 +41,7 @@ export interface AmericanoEventSummary {
   scoreMode: 'points' | 'games'
   target: number
   isRanked: boolean
+  seasonId: string
   playerIds: string[]
   matchesComplete: number
   matchesTotal: number
@@ -50,6 +52,7 @@ export async function createAmericanoEvent(
   playerIds: string[],
   scoreMode: 'points' | 'games',
   target: number,
+  seasonId: string,
   isRanked = true
 ): Promise<string> {
   const fixtures = generateAmericanoSchedule(playerIds)
@@ -58,6 +61,7 @@ export async function createAmericanoEvent(
       scoreMode,
       target,
       isRanked,
+      seasonId,
       playerIds,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -79,6 +83,7 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
     scoreMode: event.scoreMode as 'points' | 'games',
     target: event.target,
     isRanked: event.isRanked,
+    seasonId: event.seasonId,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
@@ -95,8 +100,9 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
   }
 }
 
-export async function listAmericanoEvents(): Promise<AmericanoEventSummary[]> {
+export async function listAmericanoEvents(seasonId: string): Promise<AmericanoEventSummary[]> {
   const events = await prisma.americanoEvent.findMany({
+    where: { seasonId },
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -112,6 +118,7 @@ export async function listAmericanoEvents(): Promise<AmericanoEventSummary[]> {
       scoreMode: event.scoreMode as 'points' | 'games',
       target: event.target,
       isRanked: event.isRanked,
+      seasonId: event.seasonId,
       playerIds: event.playerIds,
       matchesComplete,
       matchesTotal: event.matches.length,
@@ -132,6 +139,8 @@ export async function submitAmericanoScore(
 
   const event = await prisma.americanoEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
   if (teamAScore + teamBScore !== event.target) {
     return { error: `Scores must add up to ${event.target}` }
   }
@@ -154,12 +163,15 @@ export async function submitAmericanoScore(
 // In-progress events can be deleted freely (they've never touched PTR).
 // Completed events require allowComplete — used by the admin panel — and
 // reverse the PTR they applied before removing the event and its matches.
+// Either way the event's season must still be active.
 export async function deleteAmericanoEvent(
   id: string,
   opts?: { allowComplete?: boolean }
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.americanoEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
+  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
+  if (!season || season.status !== 'active') return { error: 'This season is closed' }
   if (event.status === 'complete' && !opts?.allowComplete) {
     return { error: 'Completed events can only be deleted from the admin page' }
   }
@@ -168,8 +180,8 @@ export async function deleteAmericanoEvent(
     if (event.status === 'complete') {
       const history = await tx.pTRHistory.findMany({ where: { eventId: id } })
       for (const h of history) {
-        await tx.player.update({
-          where: { id: h.playerId },
+        await tx.playerSeason.update({
+          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
           data: { ptr: { decrement: h.delta } },
         })
       }
@@ -212,8 +224,10 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
   })
   if (!event || event.status === 'complete') return
 
-  const players = await prisma.player.findMany({ where: { id: { in: event.playerIds } } })
-  const byId = new Map(players.map(p => [p.id, p]))
+  const playerSeasons = await prisma.playerSeason.findMany({
+    where: { seasonId: event.seasonId, playerId: { in: event.playerIds } },
+  })
+  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
   const points = computeLeaderboardPoints(event.matches, event.playerIds)
 
   const target = event.target
@@ -224,10 +238,10 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
   // own reliability-based K-factor — rather than each player using their
   // own. Keeps the event's total PTR movement zero-sum regardless of who's
   // new vs established.
-  const avgK = players.reduce(
-    (sum, p) => sum + calculateKFactor(calculateReliability(p.matchesPlayed)),
+  const avgK = playerSeasons.reduce(
+    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
     0
-  ) / players.length
+  ) / playerSeasons.length
 
   const appliedDeltas: Record<string, number> = {}
 
@@ -264,8 +278,8 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
       const finalDelta = event.isRanked ? rawDelta : 0
       appliedDeltas[playerId] = finalDelta
 
-      await tx.player.update({
-        where: { id: playerId },
+      await tx.playerSeason.update({
+        where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
         data: { ptr: player.ptr + finalDelta },
       })
       await tx.pTRHistory.create({
@@ -273,6 +287,7 @@ async function finalizeAmericanoEvent(eventId: string): Promise<void> {
           playerId,
           matchId: null,
           eventId,
+          seasonId: event.seasonId,
           ptrBefore: player.ptr,
           ptrAfter: player.ptr + finalDelta,
           delta: finalDelta,

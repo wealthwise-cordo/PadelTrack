@@ -9,7 +9,7 @@ export default async function AmericanoEventPage({ params }: { params: { id: str
   const event = await getAmericanoEvent(params.id)
   if (!event) notFound()
 
-  const allPlayers = await getPlayers()
+  const allPlayers = await getPlayers(event.seasonId)
   const players = allPlayers.filter(p => event.playerIds.includes(p.id))
 
   return <AmericanoEventView event={event} players={players} />

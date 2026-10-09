@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getActiveSeason } from '@/lib/store'
 import { createRoundRobinEvent } from '@/lib/round-robin-store'
 
 export async function POST(req: NextRequest) {
@@ -21,6 +22,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Games target must be 4, 6, or 8' }, { status: 400 })
   }
 
-  const id = await createRoundRobinEvent(teams as [string, string][], target, typeof isRanked === 'boolean' ? isRanked : true)
+  const season = await getActiveSeason()
+  if (!season) return NextResponse.json({ error: 'No active season' }, { status: 400 })
+
+  const id = await createRoundRobinEvent(teams as [string, string][], target, season.id, typeof isRanked === 'boolean' ? isRanked : true)
   return NextResponse.json({ id })
 }

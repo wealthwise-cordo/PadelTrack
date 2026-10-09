@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown } from 'lucide-react'
+import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown, Calendar } from 'lucide-react'
 
 export default function EventsPage() {
   const formats = [
@@ -84,6 +84,16 @@ export default function EventsPage() {
             </div>
           )
         })}
+      </div>
+
+      <div className="flex justify-center pt-2 pb-4">
+        <Link
+          href="/seasons"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+        >
+          <Calendar className="h-3 w-3" />
+          Browse past seasons
+        </Link>
       </div>
     </div>
   )

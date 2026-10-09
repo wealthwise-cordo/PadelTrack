@@ -9,7 +9,7 @@ export default async function RoundRobinEventPage({ params }: { params: { id: st
   const event = await getRoundRobinEvent(params.id)
   if (!event) notFound()
 
-  const allPlayers = await getPlayers()
+  const allPlayers = await getPlayers(event.seasonId)
   const playerIds = event.teams.flat()
   const players = allPlayers.filter(p => playerIds.includes(p.id))
 

@@ -53,17 +53,15 @@ export function seedBracket(playerIdsByPtrDesc: string[]): string[] {
 // Builds the 7 fixtures (4 quarterfinals + 2 semifinals + 1 final) for a
 // bracket-ordered roster of 8. Quarterfinal players are known immediately;
 // semifinal/final players start null and are filled in as earlier matches
-// complete. `sequence` reflects play order — the match at the top of the
-// draw, moving down, with each round slotting in as soon as it's ready
-// (e.g. the first semifinal is played right after the two quarterfinals
-// that feed it, not after the whole quarterfinal round).
+// complete. `sequence` reflects play order — all four quarterfinals top
+// to bottom, then both semifinals, then the final.
 export function buildFixtures(bracket: string[]): OnePointFixture[] {
   return [
     { round: 1, position: 1, sequence: 1, player1Id: bracket[0], player2Id: bracket[1] },
     { round: 1, position: 2, sequence: 2, player1Id: bracket[2], player2Id: bracket[3] },
-    { round: 2, position: 1, sequence: 3, player1Id: null, player2Id: null },
-    { round: 1, position: 3, sequence: 4, player1Id: bracket[4], player2Id: bracket[5] },
-    { round: 1, position: 4, sequence: 5, player1Id: bracket[6], player2Id: bracket[7] },
+    { round: 1, position: 3, sequence: 3, player1Id: bracket[4], player2Id: bracket[5] },
+    { round: 1, position: 4, sequence: 4, player1Id: bracket[6], player2Id: bracket[7] },
+    { round: 2, position: 1, sequence: 5, player1Id: null, player2Id: null },
     { round: 2, position: 2, sequence: 6, player1Id: null, player2Id: null },
     { round: 3, position: 1, sequence: 7, player1Id: null, player2Id: null },
   ]
