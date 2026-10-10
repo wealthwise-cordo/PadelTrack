@@ -1,8 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
-  darkMode: ['class'],
-  content: [
+    content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
@@ -23,10 +22,12 @@ const config: Config = {
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         neon: {
-          green: '#00ff87',
-          blue: '#00d4ff',
-          purple: '#a855f7',
-          orange: '#ff6b35',
+          // Legacy names kept so existing classes map onto the PadelTrack
+          // palette: green = primary orange, blue = dark grey core.
+          green: '#f97316',
+          blue: '#3f3f46',
+          purple: '#71717a',
+          orange: '#ea580c',
         },
       },
       borderRadius: {

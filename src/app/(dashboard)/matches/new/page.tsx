@@ -1,14 +1,11 @@
 import MatchEntryForm from '@/components/matches/MatchEntryForm'
-import NoActiveSeason from '@/components/shared/NoActiveSeason'
-import { getPlayers, getActiveSeason } from '@/lib/store'
+import { getPickablePlayers, getPlayer } from '@/lib/store'
+import { requireSession } from '@/lib/session'
 
 export const revalidate = 0
 
 export default async function NewMatchPage() {
-  const season = await getActiveSeason()
-  if (!season) return <NoActiveSeason />
-
-  const players = await getPlayers(season.id)
-
-  return <MatchEntryForm players={players as any} />
+  const session = await requireSession()
+  const [me, players] = await Promise.all([getPlayer(session.player.id), getPickablePlayers(session.userId)])
+  return <MatchEntryForm me={me!} players={players} />
 }

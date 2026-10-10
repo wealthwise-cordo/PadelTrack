@@ -5,9 +5,10 @@ import type { PlayerWithStats } from '@/types'
 
 interface Props {
   players: PlayerWithStats[]
+  meId?: string
 }
 
-export default function LeaderboardTable({ players }: Props) {
+export default function LeaderboardTable({ players, meId }: Props) {
   // Most in-form = highest currentStreak winner
   const mostInFormId = players.reduce((best, p) =>
     p.currentStreak > (best?.currentStreak ?? -Infinity) ? p : best
@@ -20,6 +21,7 @@ export default function LeaderboardTable({ players }: Props) {
           key={player.id}
           player={player}
           index={i}
+          isMe={player.id === meId}
           isMostInForm={player.id === mostInFormId && (player.currentStreak ?? 0) >= 2}
         />
       ))}

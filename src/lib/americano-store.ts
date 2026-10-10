@@ -1,13 +1,6 @@
 import { prisma } from './prisma'
 import { generateAmericanoSchedule, computeLeaderboardPoints } from './americano'
-import { calculateExpectedWin, calculateKFactor, calculateReliability } from './ptr-algorithm'
-
-// Overall weight applied to the event's PTR effect relative to a normal
-// ranked match.
-const AMERICANO_PTR_WEIGHT = 0.6
-// How much beating/missing your pre-event expectation can amplify or
-// dampen the placement-driven delta (clamped to a 0.5x-1.5x multiplier).
-const AMERICANO_EXPECTATION_SENSITIVITY = 0.5
+import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
 
 export interface AmericanoMatchView {
   id: string
@@ -27,11 +20,9 @@ export interface AmericanoEventView {
   status: 'in_progress' | 'complete'
   scoreMode: 'points' | 'games'
   target: number
-  isRanked: boolean
-  seasonId: string
+  ownerId: string
   playerIds: string[]
   matches: AmericanoMatchView[]
-  ptrDeltas: Record<string, number> | null
 }
 
 export interface AmericanoEventSummary {
@@ -40,8 +31,7 @@ export interface AmericanoEventSummary {
   status: 'in_progress' | 'complete'
   scoreMode: 'points' | 'games'
   target: number
-  isRanked: boolean
-  seasonId: string
+  ownerId: string
   playerIds: string[]
   matchesComplete: number
   matchesTotal: number
@@ -52,16 +42,14 @@ export async function createAmericanoEvent(
   playerIds: string[],
   scoreMode: 'points' | 'games',
   target: number,
-  seasonId: string,
-  isRanked = true
+  ownerId: string
 ): Promise<string> {
   const fixtures = generateAmericanoSchedule(playerIds)
   const event = await prisma.americanoEvent.create({
     data: {
       scoreMode,
       target,
-      isRanked,
-      seasonId,
+      ownerId,
       playerIds,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -82,8 +70,7 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
     status: event.status as 'in_progress' | 'complete',
     scoreMode: event.scoreMode as 'points' | 'games',
     target: event.target,
-    isRanked: event.isRanked,
-    seasonId: event.seasonId,
+    ownerId: event.ownerId,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
@@ -96,13 +83,12 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
       teamBScore: m.teamBScore,
       status: m.status as 'pending' | 'complete',
     })),
-    ptrDeltas: (event.ptrDeltas as Record<string, number> | null) ?? null,
   }
 }
 
-export async function listAmericanoEvents(seasonId: string): Promise<AmericanoEventSummary[]> {
+export async function listAmericanoEvents(actor: Actor): Promise<AmericanoEventSummary[]> {
   const events = await prisma.americanoEvent.findMany({
-    where: { seasonId },
+    where: eventsVisibleTo(actor),
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -117,8 +103,7 @@ export async function listAmericanoEvents(seasonId: string): Promise<AmericanoEv
       status: event.status as 'in_progress' | 'complete',
       scoreMode: event.scoreMode as 'points' | 'games',
       target: event.target,
-      isRanked: event.isRanked,
-      seasonId: event.seasonId,
+        ownerId: event.ownerId,
       playerIds: event.playerIds,
       matchesComplete,
       matchesTotal: event.matches.length,
@@ -130,6 +115,7 @@ export async function listAmericanoEvents(seasonId: string): Promise<AmericanoEv
 }
 
 export async function submitAmericanoScore(
+  actor: Actor,
   eventId: string,
   matchId: string,
   teamAScore: number,
@@ -139,8 +125,7 @@ export async function submitAmericanoScore(
 
   const event = await prisma.americanoEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
-  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
-  if (!season || season.status !== 'active') return { error: 'This season is closed' }
+  if (!canManageEvent(event, actor)) return { error: 'Only the organiser or players in this event can enter scores' }
   if (teamAScore + teamBScore !== event.target) {
     return { error: `Scores must add up to ${event.target}` }
   }
@@ -149,10 +134,13 @@ export async function submitAmericanoScore(
   if (!match || match.eventId !== eventId) return { error: 'Match not found' }
   if (match.status === 'complete') return { error: 'Match already recorded' }
 
-  await prisma.americanoMatch.update({
-    where: { id: matchId },
+  // Conditional on still being pending, so if two people save the same
+  // match at once only the first one counts.
+  const saved = await prisma.americanoMatch.updateMany({
+    where: { id: matchId, status: 'pending' },
     data: { teamAScore, teamBScore, status: 'complete' },
   })
+  if (saved.count === 0) return { error: 'Someone else already entered this score' }
 
   const remaining = await prisma.americanoMatch.count({ where: { eventId, status: 'pending' } })
   if (remaining === 0) await finalizeAmericanoEvent(eventId)
@@ -160,144 +148,18 @@ export async function submitAmericanoScore(
   return { ok: true }
 }
 
-// In-progress events can be deleted freely (they've never touched PTR).
-// Completed events require allowComplete — used by the admin panel — and
-// reverse the PTR they applied before removing the event and its matches.
-// Either way the event's season must still be active.
-export async function deleteAmericanoEvent(
-  id: string,
-  opts?: { allowComplete?: boolean }
-): Promise<{ ok: true } | { error: string }> {
+// Only the organiser can delete an event. Events never affect ratings, so
+// there's nothing to reverse.
+export async function deleteAmericanoEvent(id: string, actor: Actor): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.americanoEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
-  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
-  if (!season || season.status !== 'active') return { error: 'This season is closed' }
-  if (event.status === 'complete' && !opts?.allowComplete) {
-    return { error: 'Completed events can only be deleted from the admin page' }
-  }
-
-  await prisma.$transaction(async tx => {
-    if (event.status === 'complete') {
-      const history = await tx.pTRHistory.findMany({ where: { eventId: id } })
-      for (const h of history) {
-        await tx.playerSeason.update({
-          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
-          data: { ptr: { decrement: h.delta } },
-        })
-      }
-      await tx.pTRHistory.deleteMany({ where: { eventId: id } })
-    }
-    await tx.americanoEvent.delete({ where: { id } })
-  })
-
+  if (event.ownerId !== actor.userId) return { error: 'Only the organiser can delete this event' }
+  await prisma.americanoEvent.delete({ where: { id } })
   return { ok: true }
 }
 
-// Translates a completed event into PTR movement using final standings
-// rather than per-match results:
-//
-// - "marginRounds" is the placement signal: each player's average, capped
-//   (tanh) point margin against every other participant, in units of the
-//   round target. This is what actually drives the sign of the delta — 1st
-//   place is always positive, last place always negative, and a close
-//   finish among the tail is punished far more gently than a blowout,
-//   since saturating margins against nearby opponents stay small.
-// - "expectationRounds" is how many rounds' worth of points a player
-//   scored above/below what their pre-event PTR predicted, via the same
-//   Elo expected-win formula used for ranked matches.
-// - Expectation can only scale marginRounds's magnitude up or down
-//   (0.5x-1.5x) — it can never flip its sign, so finishing 1st always
-//   raises PTR and finishing last always lowers it, regardless of whether
-//   the result matched expectations.
-// - A single shared K for the whole event — the average of every
-//   participant's own reliability-based K-factor — plus AMERICANO_PTR_WEIGHT
-//   bring it down to an appropriately sized swing. Using one shared K
-//   (rather than each player's own) keeps the event's total PTR movement
-//   zero-sum regardless of the mix of new vs established players.
-//
-// Win/loss records, streaks, and matchesPlayed are left untouched — this
-// is a lightweight signal, not a ranked result.
+// Marks the event finished once its last match is in. Final standings are
+// derived from the match results whenever the event is viewed.
 async function finalizeAmericanoEvent(eventId: string): Promise<void> {
-  const event = await prisma.americanoEvent.findUnique({
-    where: { id: eventId },
-    include: { matches: true },
-  })
-  if (!event || event.status === 'complete') return
-
-  const playerSeasons = await prisma.playerSeason.findMany({
-    where: { seasonId: event.seasonId, playerId: { in: event.playerIds } },
-  })
-  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
-  const points = computeLeaderboardPoints(event.matches, event.playerIds)
-
-  const target = event.target
-  const N = event.playerIds.length
-  const totalPool = Array.from(points.values()).reduce((sum, v) => sum + v, 0)
-
-  // One shared K for the whole event — the average of every participant's
-  // own reliability-based K-factor — rather than each player using their
-  // own. Keeps the event's total PTR movement zero-sum regardless of who's
-  // new vs established.
-  const avgK = playerSeasons.reduce(
-    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
-    0
-  ) / playerSeasons.length
-
-  const appliedDeltas: Record<string, number> = {}
-
-  await prisma.$transaction(async tx => {
-    for (const playerId of event.playerIds) {
-      const player = byId.get(playerId)
-      if (!player) continue
-
-      const others = event.playerIds.filter(id => id !== playerId)
-      const myPoints = points.get(playerId) ?? 0
-
-      const avgExpectedWin = others.reduce((sum, otherId) => {
-        const other = byId.get(otherId)
-        return other ? sum + calculateExpectedWin(player.ptr, other.ptr) : sum
-      }, 0) / others.length
-      const expectedPoints = (avgExpectedWin / (N / 2)) * totalPool
-      const expectationRounds = (myPoints - expectedPoints) / target
-
-      const marginRounds = others.reduce((sum, otherId) => {
-        const otherPoints = points.get(otherId) ?? 0
-        return sum + Math.tanh((myPoints - otherPoints) / target)
-      }, 0) / others.length
-
-      const sign = marginRounds >= 0 ? 1 : -1
-      const multiplier = 1 + Math.max(
-        -0.5,
-        Math.min(0.5, sign * expectationRounds * AMERICANO_EXPECTATION_SENSITIVITY)
-      )
-
-      // Unranked events still play out and save normally — the PTR effect
-      // is just zeroed out here (a quick multiply-by-0), same as an
-      // unranked regular match.
-      const rawDelta = Math.round(marginRounds * avgK * AMERICANO_PTR_WEIGHT * multiplier * 10) / 10
-      const finalDelta = event.isRanked ? rawDelta : 0
-      appliedDeltas[playerId] = finalDelta
-
-      await tx.playerSeason.update({
-        where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
-        data: { ptr: player.ptr + finalDelta },
-      })
-      await tx.pTRHistory.create({
-        data: {
-          playerId,
-          matchId: null,
-          eventId,
-          seasonId: event.seasonId,
-          ptrBefore: player.ptr,
-          ptrAfter: player.ptr + finalDelta,
-          delta: finalDelta,
-          reliability: calculateReliability(player.matchesPlayed),
-        },
-      })
-    }
-    await tx.americanoEvent.update({
-      where: { id: eventId },
-      data: { status: 'complete', ptrDeltas: appliedDeltas },
-    })
-  })
+  await prisma.americanoEvent.updateMany({ where: { id: eventId, status: 'in_progress' }, data: { status: 'complete' } })
 }

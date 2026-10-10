@@ -3,6 +3,7 @@ export interface PlayerWithStats {
   name: string
   nickname: string | null
   avatarColor: string
+  isGuest: boolean
   ptr: number
   reliability: number
   matchesPlayed: number
@@ -40,8 +41,16 @@ export interface MatchSet {
 export interface MatchWithPlayers {
   id: string
   playedAt: string
-  status: 'complete' | 'incomplete'
-  isRanked: boolean
+  status: 'pending' | 'complete'
+  recordedById: string
+  submittedAt: string
+  // When a pending match will confirm itself if no opponent acts.
+  autoConfirmAt: string
+  autoConfirmed: boolean
+  // The viewing player's rating change from this match, when known.
+  viewerDelta?: number
+  // For pending matches: first names of the opponents who can confirm.
+  awaitingConfirmationFrom?: string[]
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
@@ -50,7 +59,7 @@ export interface MatchWithPlayers {
   teamAPlayer2: PlayerWithStats
   teamBPlayer1: PlayerWithStats
   teamBPlayer2: PlayerWithStats
-  winner: 'A' | 'B' | null
+  winner: 'A' | 'B'
   teamAPTRBefore: number
   teamBPTRBefore: number
   teamAPTRAfter: number

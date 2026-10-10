@@ -1,118 +1,116 @@
 import Link from 'next/link'
-import { LayoutGrid, Shuffle, RotateCcw, Zap, ArrowUpDown, Calendar, ChevronRight, Lock } from 'lucide-react'
-import { getViewedSeason } from '@/lib/view-season'
+import { formatDistanceToNow } from 'date-fns'
+import { Shuffle, RotateCcw, Zap, ArrowUpDown, ChevronRight, Info } from 'lucide-react'
+import { requireSession } from '@/lib/session'
+import { listAmericanoEvents } from '@/lib/americano-store'
+import { listRoundRobinEvents } from '@/lib/round-robin-store'
+import { listOnePointEvents } from '@/lib/one-point-store'
+import { listSnakeLaddersEvents } from '@/lib/snake-ladders-store'
+
+export const revalidate = 0
+
+const formats = [
+  {
+    icon: Shuffle,
+    name: 'Americano',
+    description: 'Rotating partners each round. Points add up individually — everyone plays with and against everyone.',
+    tag: '4–8 players',
+    href: '/events/americano',
+  },
+  {
+    icon: RotateCcw,
+    name: 'Round Robin',
+    description: 'Fixed pairs, every team plays every other team once. First to 4, 6 or 8 games.',
+    tag: '3–4 teams',
+    href: '/events/round-robin',
+  },
+  {
+    icon: ArrowUpDown,
+    name: 'Snake and Ladders',
+    description: 'Two courts. Win and climb to the top court, lose and slide down — the final round decides 1st to 4th.',
+    tag: '8 players',
+    href: '/events/snake-ladders',
+  },
+  {
+    icon: Zap,
+    name: 'One Point',
+    description: 'Seeded knockout where every match is sudden death — one point decides it.',
+    tag: '8 players',
+    href: '/events/one-point',
+  },
+]
 
 export default async function EventsPage() {
-  const viewed = await getViewedSeason()
-  const viewingPast = !!viewed && viewed.status !== 'active'
-
-  const formats = [
-    {
-      icon: <Shuffle className="h-6 w-6 text-neon-green" />,
-      name: 'Americano',
-      description: 'Rotating partners each round. Points accumulate individually — every player competes with and against everyone.',
-      tag: 'Team rotation',
-      href: '/events/americano',
-    },
-    {
-      icon: <RotateCcw className="h-6 w-6 text-neon-blue" />,
-      name: 'Round Robin',
-      description: 'Fixed partners, every team plays every team once. First to 4/6/8 games per match.',
-      tag: 'Full schedule',
-      href: '/events/round-robin',
-    },
-    {
-      icon: <ArrowUpDown className="h-6 w-6 text-purple-400" />,
-      name: 'Snake and Ladders',
-      description: '8 players, 2 courts. Win and climb to the top court, lose and slide to the bottom — final round decides 1st through 4th.',
-      tag: 'Ladder',
-      href: '/events/snake-ladders',
-    },
-    {
-      icon: <Zap className="h-6 w-6 text-yellow-400" />,
-      name: 'One Point',
-      description: 'Seeded 8-player knockout. Every match is sudden death — one point decides it.',
-      tag: 'Knockout',
-      href: '/events/one-point',
-    },
+  const session = await requireSession()
+  const actor = { userId: session.userId, playerId: session.player.id }
+  const [am, rr, op, sl] = await Promise.all([
+    listAmericanoEvents(actor),
+    listRoundRobinEvents(actor),
+    listOnePointEvents(actor),
+    listSnakeLaddersEvents(actor),
+  ])
+  const recent = [
+    ...am.map(e => ({ ...e, format: 'Americano', href: `/events/americano/${e.id}` })),
+    ...rr.map(e => ({ ...e, format: 'Round Robin', href: `/events/round-robin/${e.id}` })),
+    ...op.map(e => ({ ...e, format: 'One Point', href: `/events/one-point/${e.id}` })),
+    ...sl.map(e => ({ ...e, format: 'Snake and Ladders', href: `/events/snake-ladders/${e.id}` })),
   ]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 8)
 
   return (
     <div className="py-6 space-y-6">
-      <div className="flex items-center gap-2">
-        <LayoutGrid className="h-6 w-6 text-neon-green" />
+      <div>
         <h1 className="text-2xl font-black tracking-tight">Events</h1>
+        <p className="text-sm text-zinc-500 mt-0.5">Run a social event with anyone — users or guests.</p>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Alternative match formats — pick a format to create and track a new event.
-      </p>
+      <div className="flex items-start gap-2.5 rounded-xl bg-zinc-100 px-3.5 py-3 text-xs text-zinc-600">
+        <Info className="h-4 w-4 shrink-0 text-zinc-500 mt-px" />
+        <span>Events are separate from rankings — results here never change anyone&apos;s rating. Use <Link href="/matches/new" className="font-semibold text-orange-600 hover:underline">New Match</Link> for ranked games.</span>
+      </div>
 
-      {viewingPast && (
-        <Link
-          href={`/seasons/${viewed!.id}`}
-          className="glass rounded-xl p-4 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
-        >
-          <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-sm">{viewed!.name} events</div>
-            <div className="text-xs text-muted-foreground">Every event from this closed season, read-only.</div>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
-        </Link>
-      )}
+      <section className="space-y-3">
+        <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Start an event</h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {formats.map(({ icon: Icon, name, description, tag, href }) => (
+            <Link key={name} href={href} className="ptr-card flex items-start gap-3 group">
+              <span className="h-10 w-10 rounded-xl bg-zinc-900 flex items-center justify-center shrink-0">
+                <Icon className="h-5 w-5 text-orange-500" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center gap-2 mb-1">
+                  <span className="font-bold text-sm group-hover:text-orange-600 transition-colors">{name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-medium">{tag}</span>
+                </span>
+                <span className="block text-xs text-zinc-500 leading-relaxed">{description}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
-      <div className="space-y-3">
-        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Formats</h2>
-
-        {formats.map(({ icon, name, description, tag, href }) => {
-          const content = (
-            <>
-              <div className="shrink-0 mt-0.5">{icon}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-sm">{name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-muted-foreground font-medium">
-                    {tag}
-                  </span>
+      {recent.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Your events</h2>
+          <div className="glass rounded-xl divide-y divide-zinc-100">
+            {recent.map(e => (
+              <Link key={e.id} href={e.href} className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors first:rounded-t-xl last:rounded-b-xl">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold">{e.format}</div>
+                  <div className="text-xs text-zinc-500">
+                    {formatDistanceToNow(new Date(e.createdAt), { addSuffix: true })} · {e.matchesComplete}/{e.matchesTotal} matches
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
-              </div>
-              {!href && (
-                <div className="shrink-0 text-[10px] text-muted-foreground/50 font-medium mt-0.5">Soon</div>
-              )}
-            </>
-          )
-
-          if (href) {
-            return (
-              <Link
-                key={name}
-                href={href}
-                className="glass rounded-xl p-4 flex items-start gap-4 hover:bg-white/10 hover:border-white/20 transition-all"
-              >
-                {content}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${e.status === 'complete' ? 'bg-zinc-900 text-white' : 'bg-orange-100 text-orange-700'}`}>
+                  {e.status === 'complete' ? 'Done' : 'Live'}
+                </span>
+                <ChevronRight className="h-4 w-4 text-zinc-300" />
               </Link>
-            )
-          }
-
-          return (
-            <div key={name} className="glass rounded-xl p-4 flex items-start gap-4 opacity-80">
-              {content}
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="flex justify-center pt-2 pb-4">
-        <Link
-          href="/seasons"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-        >
-          <Calendar className="h-3 w-3" />
-          Browse past seasons
-        </Link>
-      </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

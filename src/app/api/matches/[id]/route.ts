@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { updateMatch } from '@/lib/store'
+import { deleteMatch } from '@/lib/store'
+import { getSession } from '@/lib/session'
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    const { sets, winner, status } = await req.json()
-    const result = await updateMatch(params.id, sets, winner ?? null, status ?? 'incomplete')
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error(error)
-    return NextResponse.json({ error: 'Failed to update match' }, { status: 500 })
-  }
+// Deletes a match you played in. For a pending match this is a reject; for a
+// confirmed one it reverses the rating changes.
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
+  const result = await deleteMatch(params.id, session.userId)
+  if ('error' in result) return NextResponse.json(result, { status: 400 })
+  return NextResponse.json(result)
 }

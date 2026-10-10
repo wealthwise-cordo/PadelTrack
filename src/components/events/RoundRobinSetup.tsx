@@ -4,51 +4,42 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, RotateCcw, MapPin, History, ChevronRight } from 'lucide-react'
-import { getInitials, formatPTR } from '@/lib/utils'
 import SwipeToDeleteRow from '@/components/shared/SwipeToDeleteRow'
+import RosterBuilder from '@/components/events/RosterBuilder'
 import type { PlayerWithStats } from '@/types'
 import type { RoundRobinEventSummary } from '@/lib/round-robin-store'
 
 interface Props {
   players: PlayerWithStats[]
+  knownPlayers: PlayerWithStats[]
   pastEvents: RoundRobinEventSummary[]
+  meId: string
 }
 
 type TeamCount = 3 | 4
 const TARGET_OPTIONS = [4, 6, 8] as const
 
-export default function RoundRobinSetup({ players, pastEvents }: Props) {
+export default function RoundRobinSetup({ players, knownPlayers, pastEvents, meId }: Props) {
   const router = useRouter()
   const [teamCount, setTeamCount] = useState<TeamCount>(4)
   const [target, setTarget] = useState<(typeof TARGET_OPTIONS)[number]>(6)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [isRanked, setIsRanked] = useState(true)
+  const [roster, setRoster] = useState<PlayerWithStats[]>(() => players.filter(p => p.id === meId))
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const byId = new Map(players.map(p => [p.id, p]))
+  const byId = new Map([...knownPlayers, ...players].map(p => [p.id, p]))
   const needed = teamCount * 2
 
   const changeTeamCount = (n: TeamCount) => {
     setTeamCount(n)
-    setSelectedIds([])
+    setRoster(r => r.slice(0, n * 2))
   }
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id)
-      if (prev.length >= needed) return prev
-      return [...prev, id]
-    })
-  }
-
+  // Players are paired in the order they're added: 1st & 2nd form team 1,
+  // 3rd & 4th team 2, and so on.
   const teams: [string, string][] = []
-  for (let i = 0; i < selectedIds.length; i += 2) {
-    if (selectedIds[i + 1]) teams.push([selectedIds[i], selectedIds[i + 1]])
-  }
-  const teamIndexForPlayer = new Map<string, number>()
-  selectedIds.forEach((id, i) => teamIndexForPlayer.set(id, Math.floor(i / 2)))
+  for (let i = 0; i + 1 < roster.length; i += 2) teams.push([roster[i].id, roster[i + 1].id])
 
   const deleteEvent = async (id: string) => {
     setDeletingId(id)
@@ -67,7 +58,7 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
       const res = await fetch('/api/events/round-robin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teams, target, isRanked }),
+        body: JSON.stringify({ teams, target }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -87,7 +78,7 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
       <div className="flex items-center gap-3">
         <Link
           href="/events"
-          className="h-8 w-8 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors shrink-0"
+          className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-900/5 hover:bg-zinc-900/10 transition-colors shrink-0"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -118,8 +109,8 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
               onClick={() => setTarget(t)}
               className={`py-2 rounded-xl text-sm font-bold transition-all ${
                 target === t
-                  ? 'bg-neon-blue text-background'
-                  : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+                  ? 'bg-neon-blue text-white'
+                  : 'bg-zinc-900/5 text-muted-foreground hover:bg-zinc-900/10'
               }`}
             >
               {t} games
@@ -141,8 +132,8 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
               onClick={() => changeTeamCount(n)}
               className={`py-2 rounded-xl text-sm font-bold transition-all ${
                 teamCount === n
-                  ? 'bg-neon-blue text-background'
-                  : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+                  ? 'bg-neon-blue text-white'
+                  : 'bg-zinc-900/5 text-muted-foreground hover:bg-zinc-900/10'
               }`}
             >
               {n} teams
@@ -151,101 +142,28 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
         </div>
       </div>
 
-      {/* Players -> teams */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Tap players in pairs to build teams
-          </span>
-          <span className="text-xs text-muted-foreground font-mono">
-            {selectedIds.length}/{needed}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {players.map(p => {
-            const selected = selectedIds.includes(p.id)
-            const teamIdx = teamIndexForPlayer.get(p.id)
-            const disabled = !selected && selectedIds.length >= needed
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggleSelect(p.id)}
-                disabled={disabled}
-                className={`relative flex items-center gap-2 h-14 px-3 rounded-xl border transition-all ${
-                  selected
-                    ? 'border-neon-blue/50 bg-neon-blue/10'
-                    : 'border-white/15 bg-white/5'
-                } ${disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/10'}`}
-              >
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
-                  style={{ backgroundColor: p.avatarColor, boxShadow: selected ? `0 0 12px ${p.avatarColor}44` : 'none' }}
-                >
-                  {getInitials(p.name)}
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="text-xs font-semibold truncate">{p.name.split(' ')[0]}</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">{formatPTR(p.ptr)}</div>
-                </div>
-                {teamIdx !== undefined && (
-                  <span className="absolute top-1.5 right-1.5 text-[8px] px-1.5 py-0.5 rounded-full bg-neon-blue text-background font-bold">
-                    T{teamIdx + 1}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Team preview */}
-      {teams.length > 0 && (
-        <div className="glass rounded-2xl p-4 space-y-2">
-          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Teams</div>
-          {teams.map((team, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs">
-              <span className="w-6 shrink-0 font-mono text-muted-foreground">T{i + 1}</span>
-              <span className="font-semibold">
-                {byId.get(team[0])?.name.split(' ')[0]} &amp; {byId.get(team[1])?.name.split(' ')[0]}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Ranked / unranked */}
-      <div className="glass rounded-2xl p-4 space-y-3">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Match Type</div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setIsRanked(true)}
-            className={`py-2 rounded-xl text-sm font-bold transition-all ${
-              isRanked ? 'bg-neon-blue text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
-            }`}
-          >
-            Ranked
-          </button>
-          <button
-            onClick={() => setIsRanked(false)}
-            className={`py-2 rounded-xl text-sm font-bold transition-all ${
-              !isRanked ? 'bg-neon-blue text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
-            }`}
-          >
-            Unranked
-          </button>
-        </div>
-        {!isRanked && (
-          <div className="text-[10px] text-muted-foreground text-center">
-            Event still plays out and saves normally — PTR won&apos;t change
+      <div className="space-y-2">
+        <RosterBuilder players={players} roster={roster} onChange={setRoster} max={needed} hint={`${needed} — each row is a team`} valid={roster.length === needed} />
+        {teams.length > 0 && (
+          <div className="glass rounded-2xl p-4 space-y-2">
+            <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Teams</div>
+            {teams.map((team, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="w-6 shrink-0 font-mono text-zinc-500">T{i + 1}</span>
+                <span className="font-semibold">
+                  {byId.get(team[0])?.name.split(' ')[0]} &amp; {byId.get(team[1])?.name.split(' ')[0]}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+      {error && <div className="text-sm text-red-600 text-center">{error}</div>}
       <button
         onClick={startEvent}
-        disabled={starting || selectedIds.length !== needed}
-        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-blue text-background hover:bg-neon-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        disabled={starting || roster.length !== needed}
+        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-blue text-white hover:bg-neon-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
         {starting ? 'Generating schedule...' : 'Start Event'}
       </button>
@@ -263,32 +181,27 @@ export default function RoundRobinSetup({ players, pastEvents }: Props) {
               const card = (
                 <Link
                   href={`/events/round-robin/${e.id}`}
-                  className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
+                  className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-zinc-900/10 hover:border-zinc-900/20 transition-all"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs font-semibold">
-                        {new Date(e.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' })}
                       </span>
                       <span
                         className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${
                           e.status === 'complete'
                             ? 'bg-neon-blue/15 text-neon-blue'
-                            : 'bg-yellow-400/15 text-yellow-400'
+                            : 'bg-amber-600/15 text-amber-600'
                         }`}
                       >
                         {e.status === 'complete' ? 'Complete' : `Match ${e.matchesComplete}/${e.matchesTotal}`}
                       </span>
-                      {!e.isRanked && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide bg-white/10 text-muted-foreground">
-                          Unranked
-                        </span>
-                      )}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {leader ? (
                         <>
-                          <span className="text-white/70 font-medium">
+                          <span className="text-zinc-900/70 font-medium">
                             {byId.get(leader.playerIds[0])?.name.split(' ')[0]} &amp;{' '}
                             {byId.get(leader.playerIds[1])?.name.split(' ')[0]}
                           </span>{' '}

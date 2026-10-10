@@ -1,30 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getMatches, createMatch } from '@/lib/store'
+import { getMatchesForPlayer, createMatch } from '@/lib/store'
+import { getSession } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  return NextResponse.json(await getMatches())
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
+  return NextResponse.json(await getMatchesForPlayer(session.player.id))
 }
 
 export async function POST(req: NextRequest) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
   try {
-    const body = await req.json()
-    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status, isRanked } = body
-
-    const result = await createMatch({
-      teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner,
-      status: status ?? 'complete',
-      isRanked: typeof isRanked === 'boolean' ? isRanked : true,
-    })
-
-    if ('error' in result) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
-    }
-
+    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = await req.json()
+    const result = await createMatch(session.userId, { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner })
+    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
     return NextResponse.json({ success: true, ...result })
   } catch (error) {
     console.error(error)
-    return NextResponse.json({ error: 'Failed to create match' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to record match' }, { status: 500 })
   }
 }

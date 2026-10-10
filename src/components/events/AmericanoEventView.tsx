@@ -107,7 +107,7 @@ export default function AmericanoEventView({ event, players }: Props) {
           return (
             <div
               key={id}
-              className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-background ring-2 ring-[hsl(222,47%,8%)]"
+              className="h-7 w-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white"
               style={{ backgroundColor: p.avatarColor }}
             >
               {getInitials(p.name)}
@@ -124,16 +124,11 @@ export default function AmericanoEventView({ event, players }: Props) {
       <div className="flex items-center gap-3">
         <Link
           href="/events"
-          className="h-8 w-8 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors shrink-0"
+          className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-900/5 hover:bg-zinc-900/10 transition-colors shrink-0"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <h1 className="text-2xl font-black tracking-tight flex-1">Americano</h1>
-        {!event.isRanked && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-muted-foreground font-bold uppercase tracking-wide">
-            Unranked
-          </span>
-        )}
         {event.status === 'complete' && (
           <span className="text-[10px] px-2 py-0.5 rounded-full bg-neon-green/15 text-neon-green font-bold uppercase tracking-wide">
             Complete
@@ -151,28 +146,17 @@ export default function AmericanoEventView({ event, players }: Props) {
           {leaderboard.map((row, i) => {
             const p = player(row.id)
             if (!p) return null
-            const delta = event.ptrDeltas?.[row.id]
             return (
               <div key={row.id} className="flex items-center gap-2.5">
                 <span className="w-4 text-[11px] font-mono text-muted-foreground text-right shrink-0">{i + 1}</span>
                 <div
-                  className="h-6 w-6 rounded-full flex items-center justify-center text-[9px] font-bold text-background shrink-0"
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
                   style={{ backgroundColor: p.avatarColor }}
                 >
                   {getInitials(p.name)}
                 </div>
                 <span className="flex-1 text-xs font-medium truncate">{p.name.split(' ')[0]}</span>
                 <span className="text-sm font-mono font-bold tabular-nums">{row.pts}</span>
-                {delta !== undefined && (
-                  <span
-                    className={`text-[10px] font-mono font-bold tabular-nums w-11 text-right shrink-0 ${
-                      delta >= 0 ? 'text-neon-green' : 'text-red-400'
-                    }`}
-                  >
-                    {delta >= 0 ? '+' : ''}
-                    {delta} PTR
-                  </span>
-                )}
               </div>
             )
           })}
@@ -198,7 +182,7 @@ export default function AmericanoEventView({ event, players }: Props) {
               onChange={e => onChangeA(e.target.value)}
               onFocus={e => e.target.select()}
               placeholder="0"
-              className="w-14 shrink-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
+              className="w-14 shrink-0 bg-zinc-900/5 border border-zinc-900/10 rounded-xl px-2 py-2 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
             />
           </div>
           <div className="flex items-center gap-3">
@@ -210,20 +194,20 @@ export default function AmericanoEventView({ event, players }: Props) {
               onChange={e => onChangeB(e.target.value)}
               onFocus={e => e.target.select()}
               placeholder="0"
-              className="w-14 shrink-0 bg-white/5 border border-white/10 rounded-xl px-2 py-2 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
+              className="w-14 shrink-0 bg-zinc-900/5 border border-zinc-900/10 rounded-xl px-2 py-2 font-mono text-center text-lg font-bold focus:outline-none focus:border-neon-green/60"
             />
           </div>
           <div className="text-[10px] text-muted-foreground text-center">Scores must add up to {target}</div>
           {excludedNote(current) && (
-            <div className="text-[10px] text-yellow-400/80 text-center">{excludedNote(current)}</div>
+            <div className="text-[10px] text-amber-600/80 text-center">{excludedNote(current)}</div>
           )}
 
-          {error && <div className="text-xs text-red-400 text-center">{error}</div>}
+          {error && <div className="text-xs text-red-600 text-center">{error}</div>}
 
           <button
             onClick={submitScore}
             disabled={submitting}
-            className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 transition-all"
+            className="w-full py-3 rounded-xl font-bold text-sm bg-neon-green text-white hover:bg-neon-green/90 disabled:opacity-40 transition-all"
           >
             {submitting ? 'Saving...' : 'Save Score'}
           </button>
@@ -241,7 +225,7 @@ export default function AmericanoEventView({ event, players }: Props) {
           </div>
           <div className="flex items-center justify-between gap-2">
             <TeamPill p1={next.teamAPlayer1Id} p2={next.teamAPlayer2Id} />
-            <span className="text-[10px] font-black text-white/25 shrink-0">VS</span>
+            <span className="text-[10px] font-black text-zinc-900/25 shrink-0">VS</span>
             <TeamPill p1={next.teamBPlayer1Id} p2={next.teamBPlayer2Id} />
           </div>
         </div>
@@ -249,7 +233,7 @@ export default function AmericanoEventView({ event, players }: Props) {
 
       {event.status === 'complete' && (
         <div className="text-center text-sm font-bold text-neon-green py-2">
-          {event.isRanked ? '🏆 Event complete — PTR updated for all players' : '🏆 Event complete — unranked, PTR unaffected'}
+          🏆 Event complete
         </div>
       )}
 
@@ -261,7 +245,7 @@ export default function AmericanoEventView({ event, players }: Props) {
             {completed.length}/{event.matches.length}
           </span>
         </div>
-        <div className="divide-y divide-white/5">
+        <div className="divide-y divide-zinc-900/5">
           {[...event.matches]
             .sort((a, b) => a.round - b.round)
             .map(m => (
@@ -283,7 +267,7 @@ export default function AmericanoEventView({ event, players }: Props) {
                   </span>
                 </div>
                 {excludedNote(m) && (
-                  <div className="text-[9px] text-yellow-400/70 text-center mt-1">{excludedNote(m)}</div>
+                  <div className="text-[9px] text-amber-600/70 text-center mt-1">{excludedNote(m)}</div>
                 )}
               </div>
             ))}

@@ -1,20 +1,15 @@
+import { randomBytes } from 'crypto'
+import bcrypt from 'bcryptjs'
 import { prisma } from './prisma'
-import {
-  calculatePTRChanges,
-  calculateReliability,
-} from './ptr-algorithm'
-import { listAmericanoEvents } from './americano-store'
-import { listRoundRobinEvents } from './round-robin-store'
-import { listOnePointEvents } from './one-point-store'
-import { listSnakeLaddersEvents } from './snake-ladders-store'
+import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
-import type { Player, PlayerSeason, PTRHistory, Season, Prisma } from '@prisma/client'
+import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
 // ---------------------------------------------------------------------------
 // Shape helpers
 // ---------------------------------------------------------------------------
 
-type PlayerWithHistory = Player & { ptrHistory: PTRHistory[] }
+type PlayerWithHistory = Player & { ptrHistory?: PTRHistory[] }
 type MatchFull = Prisma.MatchGetPayload<{
   include: {
     teamAPlayer1: true; teamAPlayer2: true
@@ -23,8 +18,14 @@ type MatchFull = Prisma.MatchGetPayload<{
   }
 }>
 
-function toPlayerWithStats(p: PlayerWithHistory, ps: PlayerSeason, rank: number): PlayerWithStats {
-  const history = [...p.ptrHistory].sort(
+// Pending matches confirm themselves if no opponent acts within this window.
+export const AUTO_CONFIRM_HOURS = 48
+const AUTO_CONFIRM_MS = AUTO_CONFIRM_HOURS * 60 * 60 * 1000
+
+export const AVATAR_COLORS = ['#f97316', '#3f3f46', '#0ea5e9', '#8b5cf6', '#10b981', '#e11d48', '#f59e0b', '#64748b']
+
+function toPlayerWithStats(p: PlayerWithHistory, rank = 0): PlayerWithStats {
+  const history = [...(p.ptrHistory ?? [])].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   )
   return {
@@ -32,19 +33,20 @@ function toPlayerWithStats(p: PlayerWithHistory, ps: PlayerSeason, rank: number)
     name: p.name,
     nickname: p.nickname,
     avatarColor: p.avatarColor,
-    ptr: ps.ptr,
-    reliability: ps.reliability,
-    matchesPlayed: ps.matchesPlayed,
-    wins: ps.wins,
-    losses: ps.losses,
-    setsWon: ps.setsWon,
-    setsLost: ps.setsLost,
-    gamesWon: ps.gamesWon,
-    gamesLost: ps.gamesLost,
-    tiebreaksWon: ps.tiebreaksWon,
-    tiebreaksPlayed: ps.tiebreaksPlayed,
-    currentStreak: ps.currentStreak,
-    bestStreak: ps.bestStreak,
+    isGuest: !p.userId,
+    ptr: p.ptr,
+    reliability: p.reliability,
+    matchesPlayed: p.matchesPlayed,
+    wins: p.wins,
+    losses: p.losses,
+    setsWon: p.setsWon,
+    setsLost: p.setsLost,
+    gamesWon: p.gamesWon,
+    gamesLost: p.gamesLost,
+    tiebreaksWon: p.tiebreaksWon,
+    tiebreaksPlayed: p.tiebreaksPlayed,
+    currentStreak: p.currentStreak,
+    bestStreak: p.bestStreak,
     ptrHistory: history.map(h => ({
       id: h.id,
       ptrBefore: h.ptrBefore,
@@ -59,50 +61,25 @@ function toPlayerWithStats(p: PlayerWithHistory, ps: PlayerSeason, rank: number)
   }
 }
 
-// Used to hydrate players embedded in a match/event for a specific season
-// (e.g. the four players on a Match). `ps` is undefined only defensively —
-// every player on a season's match/event always has a PlayerSeason row for
-// that season, since you can only play while on that season's roster.
-function toPlayerStub(p: Player, ps: PlayerSeason | undefined): PlayerWithStats {
-  return {
-    id: p.id,
-    name: p.name,
-    nickname: p.nickname,
-    avatarColor: p.avatarColor,
-    ptr: ps?.ptr ?? 1000,
-    reliability: ps?.reliability ?? 0,
-    matchesPlayed: ps?.matchesPlayed ?? 0,
-    wins: ps?.wins ?? 0,
-    losses: ps?.losses ?? 0,
-    setsWon: ps?.setsWon ?? 0,
-    setsLost: ps?.setsLost ?? 0,
-    gamesWon: ps?.gamesWon ?? 0,
-    gamesLost: ps?.gamesLost ?? 0,
-    tiebreaksWon: ps?.tiebreaksWon ?? 0,
-    tiebreaksPlayed: ps?.tiebreaksPlayed ?? 0,
-    currentStreak: ps?.currentStreak ?? 0,
-    bestStreak: ps?.bestStreak ?? 0,
-    ptrHistory: [],
-    rank: 0,
-    ptrDelta: 0,
-  }
-}
-
-function hydrateMatch(m: MatchFull, psById: Map<string, PlayerSeason>): MatchWithPlayers {
+function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
   return {
     id: m.id,
     playedAt: m.playedAt.toISOString(),
-    status: m.status as 'complete' | 'incomplete',
-    isRanked: m.isRanked,
-    winner: m.winner as 'A' | 'B' | null,
+    status: m.status as 'pending' | 'complete',
+    winner: m.winner as 'A' | 'B',
+    recordedById: m.recordedById,
+    submittedAt: m.submittedAt.toISOString(),
+    autoConfirmAt: new Date(m.submittedAt.getTime() + AUTO_CONFIRM_MS).toISOString(),
+    autoConfirmed: m.autoConfirmed,
+    viewerDelta,
     teamAPlayer1Id: m.teamAPlayer1Id,
     teamAPlayer2Id: m.teamAPlayer2Id,
     teamBPlayer1Id: m.teamBPlayer1Id,
     teamBPlayer2Id: m.teamBPlayer2Id,
-    teamAPlayer1: toPlayerStub(m.teamAPlayer1, psById.get(m.teamAPlayer1Id)),
-    teamAPlayer2: toPlayerStub(m.teamAPlayer2, psById.get(m.teamAPlayer2Id)),
-    teamBPlayer1: toPlayerStub(m.teamBPlayer1, psById.get(m.teamBPlayer1Id)),
-    teamBPlayer2: toPlayerStub(m.teamBPlayer2, psById.get(m.teamBPlayer2Id)),
+    teamAPlayer1: toPlayerWithStats(m.teamAPlayer1),
+    teamAPlayer2: toPlayerWithStats(m.teamAPlayer2),
+    teamBPlayer1: toPlayerWithStats(m.teamBPlayer1),
+    teamBPlayer2: toPlayerWithStats(m.teamBPlayer2),
     teamAPTRBefore: m.teamAPTRBefore,
     teamBPTRBefore: m.teamBPTRBefore,
     teamAPTRAfter: m.teamAPTRAfter,
@@ -125,566 +102,533 @@ const MATCH_INCLUDE = {
   sets: { orderBy: { setNumber: 'asc' as const } },
 } satisfies Prisma.MatchInclude
 
-async function playerSeasonMap(seasonId: string, playerIds: string[]): Promise<Map<string, PlayerSeason>> {
-  const rows = await prisma.playerSeason.findMany({
-    where: { seasonId, playerId: { in: Array.from(new Set(playerIds)) } },
-  })
-  return new Map(rows.map(ps => [ps.playerId, ps]))
-}
-
-// ---------------------------------------------------------------------------
-// Seasons
-// ---------------------------------------------------------------------------
-
-const NEW_PLAYER_COLORS = ['#00ff87', '#00d4ff', '#a855f7', '#ff6b35', '#fbbf24', '#f472b6', '#34d399', '#60a5fa']
-
-export async function getActiveSeason(): Promise<Season | null> {
-  return prisma.season.findFirst({ where: { status: 'active' } })
-}
-
-export async function listSeasons(): Promise<Season[]> {
-  return prisma.season.findMany({ orderBy: { startedAt: 'desc' } })
-}
-
-export async function getSeason(id: string): Promise<Season | null> {
-  return prisma.season.findUnique({ where: { id } })
-}
-
-// Every player identity ever created, regardless of which seasons they've
-// played in — used to build the roster checklist when starting a new
-// season (a player can be carried over even if they sat out the most
-// recent season).
-export async function listAllPlayers(): Promise<Player[]> {
-  return prisma.player.findMany({ orderBy: { createdAt: 'asc' } })
-}
-
-// Every write path against season-scoped data (matches, event scores,
-// deletes) calls this first — the single place that makes "closed = fully
-// locked" airtight, rather than scattering status checks everywhere.
-export async function assertSeasonActive(seasonId: string): Promise<{ ok: true } | { error: string }> {
-  const season = await prisma.season.findUnique({ where: { id: seasonId } })
-  if (!season) return { error: 'Season not found' }
-  if (season.status !== 'active') return { error: 'This season is closed' }
-  return { ok: true }
-}
-
-export async function closeSeason(id: string): Promise<{ ok: true } | { error: string }> {
-  const season = await prisma.season.findUnique({ where: { id } })
-  if (!season) return { error: 'Season not found' }
-  if (season.status !== 'active') return { error: 'Season is not active' }
-  await prisma.season.update({ where: { id }, data: { status: 'closed', closedAt: new Date() } })
-  return { ok: true }
-}
-
-// Admin-only, and only when no other season is currently active — keeps
-// "at most one active season" true at all times.
-export async function reopenSeason(id: string): Promise<{ ok: true } | { error: string }> {
-  const season = await prisma.season.findUnique({ where: { id } })
-  if (!season) return { error: 'Season not found' }
-  if (season.status !== 'closed') return { error: 'Season is not closed' }
-  const activeCount = await prisma.season.count({ where: { status: 'active' } })
-  if (activeCount > 0) return { error: 'Close the current active season first' }
-  await prisma.season.update({ where: { id }, data: { status: 'active', closedAt: null } })
-  return { ok: true }
-}
-
-// Permanently removes a closed season and everything scoped to it —
-// matches, events, PTR history and per-season player stats. Player
-// identities survive (they may belong to other seasons, and can be carried
-// into future ones). Active seasons must be closed first, so a live season
-// can never disappear mid-play.
-export async function deleteSeason(id: string): Promise<{ ok: true } | { error: string }> {
-  const season = await prisma.season.findUnique({ where: { id } })
-  if (!season) return { error: 'Season not found' }
-  if (season.status !== 'closed') return { error: 'Close the season before deleting it' }
-
-  await prisma.$transaction([
-    // PTR history references matches and events, so it goes first.
-    prisma.pTRHistory.deleteMany({ where: { seasonId: id } }),
-    prisma.match.deleteMany({ where: { seasonId: id } }), // sets cascade
-    prisma.americanoEvent.deleteMany({ where: { seasonId: id } }), // event matches cascade
-    prisma.roundRobinEvent.deleteMany({ where: { seasonId: id } }),
-    prisma.onePointEvent.deleteMany({ where: { seasonId: id } }),
-    prisma.snakeLaddersEvent.deleteMany({ where: { seasonId: id } }),
-    prisma.playerSeason.deleteMany({ where: { seasonId: id } }),
-    prisma.season.delete({ where: { id } }),
-  ])
-  return { ok: true }
-}
-
-// A season's roster is fixed for its whole lifetime — there's no
-// add/remove-player action against an active season, same as before
-// seasons existed. New player identities can only be introduced here,
-// alongside carrying over existing players, when the season is created.
-export async function startNewSeason(data: {
-  name: string
-  location: string
-  carryOverPlayerIds: string[]
-  newPlayers: { name: string; nickname?: string; avatarColor?: string }[]
-}): Promise<{ id: string } | { error: string }> {
-  if (!data.name.trim()) return { error: 'Season year is required' }
-  if (!data.location.trim()) return { error: 'Season location is required' }
-  const activeCount = await prisma.season.count({ where: { status: 'active' } })
-  if (activeCount > 0) return { error: 'Close the current season before starting a new one' }
-  if (data.carryOverPlayerIds.length === 0 && data.newPlayers.length === 0) {
-    return { error: 'Select at least one player' }
+function involving(playerId: string): Prisma.MatchWhereInput {
+  return {
+    OR: [
+      { teamAPlayer1Id: playerId }, { teamAPlayer2Id: playerId },
+      { teamBPlayer1Id: playerId }, { teamBPlayer2Id: playerId },
+    ],
   }
+}
 
+function newClaimToken(): string {
+  return randomBytes(16).toString('base64url')
+}
+
+// ---------------------------------------------------------------------------
+// Users & auth
+// ---------------------------------------------------------------------------
+
+export async function findUserByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } })
+}
+
+export async function getPlayerForUser(userId: string): Promise<Player | null> {
+  return prisma.player.findUnique({ where: { userId } })
+}
+
+// Creates an account and its player profile. With a claimToken, the new
+// account takes over that guest profile (rating and match history included)
+// instead of starting fresh at 1000.
+export async function signUp(data: {
+  name: string
+  email: string
+  password: string
+  claimToken?: string
+}): Promise<{ userId: string } | { error: string }> {
+  const name = data.name.trim()
+  const email = data.email.trim().toLowerCase()
+  if (!name) return { error: 'Name is required' }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Enter a valid email' }
+  if (data.password.length < 8) return { error: 'Password must be at least 8 characters' }
+  if (await findUserByEmail(email)) return { error: 'An account with that email already exists' }
+
+  const guest = data.claimToken
+    ? await prisma.player.findUnique({ where: { claimToken: data.claimToken } })
+    : null
+  if (data.claimToken && (!guest || guest.userId)) return { error: 'This invite link is no longer valid' }
+
+  const password = await bcrypt.hash(data.password, 10)
   return prisma.$transaction(async tx => {
-    const season = await tx.season.create({ data: { name: data.name.trim(), location: data.location.trim(), status: 'active' } })
+    const user = await tx.user.create({ data: { email, password, name } })
+    if (guest) {
+      await tx.player.update({
+        where: { id: guest.id },
+        data: { userId: user.id, name, claimToken: null },
+      })
+    } else {
+      const count = await tx.player.count()
+      await tx.player.create({
+        data: { name, userId: user.id, avatarColor: AVATAR_COLORS[count % AVATAR_COLORS.length] },
+      })
+    }
+    return { userId: user.id }
+  })
+}
 
-    const newPlayerRows = await Promise.all(
-      data.newPlayers.map((np, i) => tx.player.create({
-        data: {
-          name: np.name,
-          nickname: np.nickname || null,
-          avatarColor: np.avatarColor ?? NEW_PLAYER_COLORS[i % NEW_PLAYER_COLORS.length],
-        },
-      }))
-    )
+// An already-signed-in user claiming a guest profile. Only allowed while
+// their own profile has no matches — merging two histories isn't supported.
+export async function claimGuestForUser(token: string, userId: string): Promise<{ ok: true } | { error: string }> {
+  const guest = await prisma.player.findUnique({ where: { claimToken: token } })
+  if (!guest || guest.userId) return { error: 'This invite link is no longer valid' }
+  const own = await prisma.player.findUnique({ where: { userId } })
+  if (own) {
+    const played = await prisma.match.count({ where: involving(own.id) })
+    if (played > 0) return { error: 'Your profile already has matches, so it can’t take over another profile' }
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  await prisma.$transaction(async tx => {
+    if (own) await tx.player.delete({ where: { id: own.id } })
+    await tx.player.update({
+      where: { id: guest.id },
+      data: { userId, claimToken: null, name: user?.name ?? guest.name },
+    })
+  })
+  return { ok: true }
+}
 
-    const rosterIds = [...data.carryOverPlayerIds, ...newPlayerRows.map(p => p.id)]
-    await tx.playerSeason.createMany({ data: rosterIds.map(playerId => ({ playerId, seasonId: season.id })) })
-
-    return { id: season.id }
+export async function getGuestByClaimToken(token: string) {
+  return prisma.player.findFirst({
+    where: { claimToken: token, userId: null },
+    include: { createdBy: { select: { name: true } } },
   })
 }
 
 // ---------------------------------------------------------------------------
-// Player queries (season-scoped; defaults to the active season)
+// Players & circles
 // ---------------------------------------------------------------------------
 
-// Resolves a season id, falling back to the active season. Returns null
-// only when no seasonId was given AND there's currently no active season
-// (the brief window between closing one season and starting the next) —
-// every caller below treats that as "nothing to show" rather than erroring.
-async function resolveSeasonId(seasonId?: string): Promise<string | null> {
-  if (seasonId) return seasonId
-  const active = await getActiveSeason()
-  return active?.id ?? null
+export async function getPlayer(id: string): Promise<PlayerWithStats | null> {
+  const p = await prisma.player.findUnique({ where: { id }, include: { ptrHistory: true } })
+  return p ? toPlayerWithStats(p) : null
 }
 
-export async function getPlayers(seasonId?: string): Promise<PlayerWithStats[]> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return []
-  const rows = await prisma.playerSeason.findMany({
-    where: { seasonId: sid },
-    include: { player: { include: { ptrHistory: { where: { seasonId: sid } } } } },
+export async function getPlayerRaw(id: string): Promise<Player | null> {
+  return prisma.player.findUnique({ where: { id } })
+}
+
+// Everyone this player has shared a confirmed ranked match with — as partner
+// or opponent.
+export async function getCircleIds(playerId: string): Promise<string[]> {
+  const matches = await prisma.match.findMany({
+    where: { status: 'complete', ...involving(playerId) },
+    select: { teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
+  })
+  const ids = new Set<string>()
+  for (const m of matches) {
+    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) ids.add(id)
+  }
+  ids.delete(playerId)
+  return Array.from(ids)
+}
+
+// The rankings view: you plus your circle, ordered by rating.
+export async function getCircleRankings(playerId: string): Promise<PlayerWithStats[]> {
+  const ids = [playerId, ...(await getCircleIds(playerId))]
+  const rows = await prisma.player.findMany({
+    where: { id: { in: ids } },
+    include: { ptrHistory: true },
     orderBy: { ptr: 'desc' },
   })
-  return rows.map((row, i) => toPlayerWithStats(row.player, row, i + 1))
+  return rows.map((p, i) => toPlayerWithStats(p, i + 1))
 }
 
-export async function getPlayer(id: string, seasonId?: string): Promise<PlayerWithStats | null> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return null
-  const row = await prisma.playerSeason.findUnique({
-    where: { playerId_seasonId: { playerId: id, seasonId: sid } },
-    include: { player: { include: { ptrHistory: { where: { seasonId: sid } } } } },
+// Players a user can quickly pick when recording a match or setting up an
+// event: themselves, their circle, and the guests they've added.
+export async function getPickablePlayers(userId: string): Promise<PlayerWithStats[]> {
+  const me = await getPlayerForUser(userId)
+  const circleIds = me ? await getCircleIds(me.id) : []
+  const rows = await prisma.player.findMany({
+    where: {
+      OR: [
+        { userId },
+        { id: { in: circleIds } },
+        { createdById: userId, userId: null },
+      ],
+    },
+    orderBy: { name: 'asc' },
   })
-  if (!row) return null
-  return toPlayerWithStats(row.player, row, 0)
+  const players = rows.map(p => toPlayerWithStats(p))
+  // Keep "you" first.
+  return [...players.filter(p => p.id === me?.id), ...players.filter(p => p.id !== me?.id)]
 }
 
-// Raw (unshaped) current-season stats for a player — used by the PTR
-// preview endpoint, which only needs `.ptr`/`.matchesPlayed`.
-export async function getPlayerRaw(id: string, seasonId?: string): Promise<PlayerSeason | null> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return null
-  return prisma.playerSeason.findUnique({ where: { playerId_seasonId: { playerId: id, seasonId: sid } } })
+// Finds registered players by name or exact email, plus the caller's own
+// guests by name. Used by the player picker to add someone not yet in your
+// circle.
+export async function searchPlayers(query: string, userId: string): Promise<PlayerWithStats[]> {
+  const q = query.trim()
+  if (q.length < 2) return []
+  const rows = await prisma.player.findMany({
+    where: {
+      OR: [
+        { userId: { not: null }, name: { contains: q, mode: 'insensitive' } },
+        { user: { email: q.toLowerCase() } },
+        { createdById: userId, userId: null, name: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { name: 'asc' },
+    take: 10,
+  })
+  return rows.map(p => toPlayerWithStats(p))
+}
+
+export async function createGuest(userId: string, name: string): Promise<PlayerWithStats | { error: string }> {
+  const trimmed = name.trim()
+  if (!trimmed) return { error: 'Name is required' }
+  if (trimmed.length > 40) return { error: 'Name is too long' }
+  const count = await prisma.player.count()
+  const p = await prisma.player.create({
+    data: {
+      name: trimmed,
+      createdById: userId,
+      claimToken: newClaimToken(),
+      avatarColor: AVATAR_COLORS[count % AVATAR_COLORS.length],
+    },
+  })
+  return toPlayerWithStats(p)
+}
+
+// Identity edits only (nickname/colour) — on your own profile or a guest
+// you created.
+export async function updatePlayer(
+  id: string,
+  userId: string,
+  data: { nickname?: string; avatarColor?: string }
+): Promise<{ ok: true } | { error: string }> {
+  const p = await prisma.player.findUnique({ where: { id } })
+  if (!p) return { error: 'Player not found' }
+  if (!canEditPlayer(p, userId)) return { error: 'You can only edit your own profile or guests you added' }
+  await prisma.player.update({ where: { id }, data })
+  return { ok: true }
+}
+
+export function canEditPlayer(p: Player, userId: string): boolean {
+  return p.userId === userId || (!p.userId && p.createdById === userId)
+}
+
+export async function getEventPlayers(ids: string[]): Promise<PlayerWithStats[]> {
+  const rows = await prisma.player.findMany({ where: { id: { in: ids } } })
+  const byId = new Map(rows.map(p => [p.id, toPlayerWithStats(p)]))
+  return ids.map(id => byId.get(id)).filter((p): p is PlayerWithStats => !!p)
 }
 
 // ---------------------------------------------------------------------------
-// Match queries (season-scoped; defaults to the active season)
+// Matches
 // ---------------------------------------------------------------------------
 
-export async function getMatches(seasonId?: string): Promise<MatchWithPlayers[]> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return []
+export async function getMatchesForPlayer(playerId: string): Promise<MatchWithPlayers[]> {
   const matches = await prisma.match.findMany({
-    where: { seasonId: sid },
-    include: MATCH_INCLUDE,
+    where: involving(playerId),
+    include: {
+      ...MATCH_INCLUDE,
+      ptrHistory: { where: { playerId }, select: { delta: true } },
+      recordedBy: { select: { player: { select: { id: true } } } },
+    },
     orderBy: { playedAt: 'desc' },
   })
-  const playerIds = matches.flatMap(m => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])
-  const psById = await playerSeasonMap(sid, playerIds)
-  return matches.map(m => hydrateMatch(m, psById))
+  return matches.map(m => {
+    const hydrated = hydrateMatch(m, m.ptrHistory[0]?.delta)
+    if (m.status === 'pending') hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
+    return hydrated
+  })
+}
+
+// Registered players on the team that didn't record the match.
+function confirmerNames(m: MatchFull, recorderPlayerId: string | undefined): string[] {
+  const recorderSide = recorderPlayerId ? sideOf(m, recorderPlayerId) : null
+  const other = recorderSide === 'A' ? [m.teamBPlayer1, m.teamBPlayer2] : recorderSide === 'B' ? [m.teamAPlayer1, m.teamAPlayer2] : []
+  return other.filter(p => p.userId).map(p => p.name.split(' ')[0])
 }
 
 export async function getMatchById(id: string): Promise<MatchWithPlayers | null> {
   const m = await prisma.match.findUnique({ where: { id }, include: MATCH_INCLUDE })
-  if (!m) return null
-  const psById = await playerSeasonMap(m.seasonId, [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])
-  return hydrateMatch(m, psById)
+  return m ? hydrateMatch(m) : null
 }
 
-export async function getMatchCount(seasonId?: string): Promise<number> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return 0
-  return prisma.match.count({ where: { seasonId: sid } })
+type Side = 'A' | 'B'
+
+function sideOf(m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }, playerId: string): Side | null {
+  if (m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId) return 'A'
+  if (m.teamBPlayer1Id === playerId || m.teamBPlayer2Id === playerId) return 'B'
+  return null
 }
 
-export async function getEventCount(seasonId?: string): Promise<number> {
-  const sid = await resolveSeasonId(seasonId)
-  if (!sid) return 0
-  const [americanoCount, roundRobinCount, onePointCount, snakeLaddersCount] = await Promise.all([
-    prisma.americanoEvent.count({ where: { seasonId: sid } }),
-    prisma.roundRobinEvent.count({ where: { seasonId: sid } }),
-    prisma.onePointEvent.count({ where: { seasonId: sid } }),
-    prisma.snakeLaddersEvent.count({ where: { seasonId: sid } }),
-  ])
-  return americanoCount + roundRobinCount + onePointCount + snakeLaddersCount
+// What a given user may do with a match: confirm it (registered player on
+// the team opposite the recorder, while pending) and/or delete it (any
+// registered player in the match; for pending ones that doubles as reject).
+export async function matchPermissions(matchId: string, userId: string) {
+  const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
+  const me = await getPlayerForUser(userId)
+  if (!m || !me) return { canConfirm: false, canDelete: false }
+  const mySide = sideOf(m, me.id)
+  if (!mySide) return { canConfirm: false, canDelete: false }
+  const recorder = await getPlayerForUser(m.recordedById)
+  const recorderSide = recorder ? sideOf(m, recorder.id) : null
+  return {
+    canConfirm: m.status === 'pending' && recorderSide !== null && mySide !== recorderSide,
+    canDelete: true,
+  }
 }
 
-// Event wins across every format: for Americano and Round Robin, whoever
-// tops that event's points leaderboard gets credit (ties all count, since
-// neither format has a tiebreaker — Round Robin credits both players on a
-// tied winning team); for One Point, only the tournament champion counts,
-// since single elimination has no ties; for Snake and Ladders, both
-// players of the final round's top-court winning pair count. Used for the
-// "Eventist" award and player profile stat. Season-scoped like everything
-// else, defaulting to the active season.
-export async function getEventWinCounts(seasonId?: string): Promise<Map<string, number>> {
-  const sid = await resolveSeasonId(seasonId)
-  const wins = new Map<string, number>()
-  if (!sid) return wins
-  const credit = (playerId: string) => wins.set(playerId, (wins.get(playerId) ?? 0) + 1)
+// Matches waiting for this user to confirm.
+export async function getPendingForUser(userId: string): Promise<MatchWithPlayers[]> {
+  const me = await getPlayerForUser(userId)
+  if (!me) return []
+  const pending = await prisma.match.findMany({
+    where: { status: 'pending', ...involving(me.id) },
+    include: { ...MATCH_INCLUDE, recordedBy: { include: { player: true } } },
+    orderBy: { playedAt: 'desc' },
+  })
+  return pending
+    .filter(m => {
+      const recorderPlayer = m.recordedBy.player
+      if (!recorderPlayer) return false
+      const recorderSide = sideOf(m, recorderPlayer.id)
+      return recorderSide !== null && sideOf(m, me.id) !== recorderSide
+    })
+    .map(m => hydrateMatch(m))
+}
 
-  const [americanoEvents, roundRobinEvents, onePointEvents, snakeLaddersEvents] = await Promise.all([
-    listAmericanoEvents(sid),
-    listRoundRobinEvents(sid),
-    listOnePointEvents(sid),
-    listSnakeLaddersEvents(sid),
-  ])
-
-  for (const event of americanoEvents) {
-    if (event.status !== 'complete' || event.leaderboard.length === 0) continue
-    const topScore = event.leaderboard[0].points
-    if (topScore <= 0) continue
-    for (const row of event.leaderboard) {
-      if (row.points === topScore) credit(row.playerId)
+function validateSets(sets: { teamAGames: number; teamBGames: number }[]): string | null {
+  if (!Array.isArray(sets) || sets.length === 0 || sets.length > 5) return 'Enter between 1 and 5 sets'
+  for (const s of sets) {
+    if (!Number.isInteger(s.teamAGames) || !Number.isInteger(s.teamBGames) || s.teamAGames < 0 || s.teamBGames < 0 || s.teamAGames > 7 || s.teamBGames > 7) {
+      return 'Invalid set score'
     }
   }
-
-  for (const event of roundRobinEvents) {
-    if (event.status !== 'complete' || event.leaderboard.length === 0) continue
-    const topScore = event.leaderboard[0].points
-    if (topScore <= 0) continue
-    for (const row of event.leaderboard) {
-      if (row.points === topScore) row.playerIds.forEach(credit)
-    }
-  }
-
-  for (const event of onePointEvents) {
-    if (event.status === 'complete' && event.championId) credit(event.championId)
-  }
-
-  for (const event of snakeLaddersEvents) {
-    if (event.status === 'complete' && event.firstPlaceIds) event.firstPlaceIds.forEach(credit)
-  }
-
-  return wins
+  return null
 }
 
-// ---------------------------------------------------------------------------
-// Match creation
-// ---------------------------------------------------------------------------
-
-export async function createMatch(data: {
+export async function createMatch(userId: string, data: {
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
   teamBPlayer2Id: string
   sets: { teamAGames: number; teamBGames: number }[]
-  winner: 'A' | 'B' | null
-  status: 'complete' | 'incomplete'
-  isRanked?: boolean
-}): Promise<{ matchId: string; ptrDelta: number; isUpset: boolean; status: string } | { error: string }> {
-  const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, status } = data
-  const isRanked = data.isRanked ?? true
-
+  winner: Side
+}): Promise<{ matchId: string; status: 'pending' | 'complete'; ptrDelta: number; isUpset: boolean } | { error: string }> {
+  const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
   const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
   if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
+  if (winner !== 'A' && winner !== 'B') return { error: 'Pick a winner' }
+  const setError = validateSets(sets)
+  if (setError) return { error: setError }
 
-  const season = await getActiveSeason()
-  if (!season) return { error: 'No active season' }
-  const psById = await playerSeasonMap(season.id, ids)
-  const [ps1, ps2, ps3, ps4] = ids.map(id => psById.get(id))
-  if (!ps1 || !ps2 || !ps3 || !ps4) return { error: 'One or more players are not in the current season' }
+  const me = await getPlayerForUser(userId)
+  if (!me) return { error: 'Your profile was not found' }
+  const mySide = sideOf(data, me.id)
+  if (!mySide) return { error: 'You must be one of the four players' }
 
-  const teamAPTRBefore = (ps1.ptr + ps2.ptr) / 2
-  const teamBPTRBefore = (ps3.ptr + ps4.ptr) / 2
+  const players = await prisma.player.findMany({ where: { id: { in: ids } } })
+  if (players.length !== 4) return { error: 'One or more players were not found' }
 
-  if (status === 'complete' && winner) {
-    return prisma.$transaction(async tx => {
-      const match = await tx.match.create({
-        data: {
-          status,
-          isRanked,
-          seasonId: season.id,
-          teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
-          teamAPTRBefore, teamBPTRBefore,
-          teamAPTRAfter: teamAPTRBefore,
-          teamBPTRAfter: teamBPTRBefore,
-          sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
-        },
-      })
-      const result = await applyPTR(tx, match.id, season.id, { ps1, ps2, ps3, ps4 }, sets, winner, teamAPTRBefore, teamBPTRBefore, isRanked)
-      return { matchId: match.id, ptrDelta: result.ptrDelta, isUpset: result.isUpset, status }
-    })
-  }
+  // Opponents who are on the app must confirm before ratings move. If the
+  // other team is all guests there's nobody to ask, so it counts right away.
+  const otherIds = mySide === 'A' ? [teamBPlayer1Id, teamBPlayer2Id] : [teamAPlayer1Id, teamAPlayer2Id]
+  const needsConfirmation = players.some(p => otherIds.includes(p.id) && p.userId)
 
-  const match = await prisma.match.create({
-    data: {
-      status: 'incomplete',
-      isRanked,
-      seasonId: season.id,
-      winner: null,
-      teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
-      teamAPTRBefore, teamBPTRBefore,
-      teamAPTRAfter: teamAPTRBefore,
-      teamBPTRAfter: teamBPTRBefore,
-      sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
-    },
-  })
-  return { matchId: match.id, ptrDelta: 0, isUpset: false, status: 'incomplete' }
-}
-
-// ---------------------------------------------------------------------------
-// Match update (complete an incomplete match)
-// ---------------------------------------------------------------------------
-
-export async function updateMatch(
-  id: string,
-  sets: { teamAGames: number; teamBGames: number }[],
-  winner: 'A' | 'B' | null,
-  status: 'complete' | 'incomplete'
-): Promise<{ ok: true } | { error: string }> {
-  const match = await prisma.match.findUnique({ where: { id } })
-  if (!match) return { error: 'Match not found' }
-  if (match.status === 'complete') return { error: 'Cannot edit a completed match' }
-  const seasonCheck = await assertSeasonActive(match.seasonId)
-  if ('error' in seasonCheck) return seasonCheck
-
-  if (status === 'complete' && winner) {
-    const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
-    const psById = await playerSeasonMap(match.seasonId, ids)
-    const [ps1, ps2, ps3, ps4] = ids.map(id => psById.get(id))
-    if (!ps1 || !ps2 || !ps3 || !ps4) return { error: 'Player not found' }
-
-    await prisma.$transaction(async tx => {
-      // Replace sets
-      await tx.matchSet.deleteMany({ where: { matchId: id } })
-      await tx.matchSet.createMany({
-        data: sets.map((s, i) => ({ matchId: id, setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
-      })
-      await applyPTR(tx, id, match.seasonId, { ps1, ps2, ps3, ps4 }, sets, winner, match.teamAPTRBefore, match.teamBPTRBefore, match.isRanked)
-    })
-  } else {
-    await prisma.$transaction([
-      prisma.matchSet.deleteMany({ where: { matchId: id } }),
-      prisma.matchSet.createMany({
-        data: sets.map((s, i) => ({ matchId: id, setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })),
-      }),
-      prisma.match.update({ where: { id }, data: { status: 'incomplete', winner: null } }),
-    ])
-  }
-
-  return { ok: true }
-}
-
-// ---------------------------------------------------------------------------
-// Player update (identity only — nickname/avatar; never stats)
-// ---------------------------------------------------------------------------
-
-export async function updatePlayer(
-  id: string,
-  data: { nickname?: string; avatarColor?: string }
-): Promise<{ ok: true } | { error: string }> {
-  const p = await prisma.player.findUnique({ where: { id } })
-  if (!p) return { error: 'Player not found' }
-  await prisma.player.update({ where: { id }, data })
-  return { ok: true }
-}
-
-// ---------------------------------------------------------------------------
-// Admin: delete a single match and reverse its PTR impact
-// ---------------------------------------------------------------------------
-
-export async function deleteMatch(id: string): Promise<{ ok: true } | { error: string }> {
   return prisma.$transaction(async tx => {
-    const match = await tx.match.findUnique({
-      where: { id },
-      include: { sets: true, ptrHistory: true },
+    const match = await tx.match.create({
+      data: {
+        status: 'pending',
+        winner,
+        recordedById: userId,
+        teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+        sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
+      },
     })
+    if (needsConfirmation) return { matchId: match.id, status: 'pending' as const, ptrDelta: 0, isUpset: false }
+    const result = await applyPTR(tx, match.id)
+    return { matchId: match.id, status: 'complete' as const, ...result }
+  })
+}
+
+export async function confirmMatch(matchId: string, userId: string): Promise<{ ok: true; ptrDelta: number } | { error: string }> {
+  const perms = await matchPermissions(matchId, userId)
+  if (!perms.canConfirm) return { error: 'You can’t confirm this match' }
+  const result = await claimAndApply(matchId, false)
+  if (!result) return { error: 'This match has already been confirmed' }
+  return { ok: true, ptrDelta: result.ptrDelta }
+}
+
+// Confirms every pending match whose 48-hour window has run out, oldest
+// first so ratings apply in the order matches were submitted. There's no
+// background job: this runs at the start of each signed-in request (see
+// getSession), which keeps it working on any host with no extra setup.
+export async function autoConfirmExpired(): Promise<number> {
+  const expired = await prisma.match.findMany({
+    where: { status: 'pending', submittedAt: { lte: new Date(Date.now() - AUTO_CONFIRM_MS) } },
+    orderBy: { submittedAt: 'asc' },
+    select: { id: true },
+  })
+  let confirmed = 0
+  for (const { id } of expired) {
+    if (await claimAndApply(id, true)) confirmed++
+  }
+  return confirmed
+}
+
+// Atomically flips a match from pending to complete and applies ratings in
+// the same transaction. The conditional update means that if two people
+// confirm at once, or a confirm races the auto-confirm, only one applies;
+// the others get null.
+async function claimAndApply(matchId: string, auto: boolean): Promise<{ ptrDelta: number } | null> {
+  return prisma.$transaction(async tx => {
+    const claimed = await tx.match.updateMany({
+      where: { id: matchId, status: 'pending' },
+      data: { status: 'complete', autoConfirmed: auto },
+    })
+    if (claimed.count === 0) return null
+    return applyPTR(tx, matchId)
+  })
+}
+
+// Deletes a match. Pending matches have no rating effect, so this is just a
+// reject. Confirmed ones reverse each player's recorded delta and stats.
+export async function deleteMatch(matchId: string, userId: string): Promise<{ ok: true } | { error: string }> {
+  const perms = await matchPermissions(matchId, userId)
+  if (!perms.canDelete) return { error: 'Only players in this match can delete it' }
+
+  return prisma.$transaction(async tx => {
+    const match = await tx.match.findUnique({ where: { id: matchId }, include: { sets: true, ptrHistory: true } })
     if (!match) return { error: 'Match not found' }
-    const season = await tx.season.findUnique({ where: { id: match.seasonId } })
-    if (!season || season.status !== 'active') return { error: 'This season is closed' }
 
-    if (match.status === 'complete' && match.winner) {
+    if (match.status === 'complete') {
       const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
-      const psRows = await tx.playerSeason.findMany({ where: { seasonId: match.seasonId, playerId: { in: ids } } })
-      const psById = new Map(psRows.map(ps => [ps.playerId, ps]))
-      const [ps1, ps2, ps3, ps4] = ids.map(id => psById.get(id))
-      if (!ps1 || !ps2 || !ps3 || !ps4) return { error: 'Player not found' }
-
-      const winner = match.winner as 'A' | 'B'
-      const played = match.sets.filter(s => s.teamAGames + s.teamBGames > 0)
-      const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
-      const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
-      const gamesA = played.reduce((a, s) => a + s.teamAGames, 0)
-      const gamesB = played.reduce((a, s) => a + s.teamBGames, 0)
-      const tbWonA = match.sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
-      const tbWonB = match.sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
-      const tbTotal = tbWonA + tbWonB
+      const players = await tx.player.findMany({ where: { id: { in: ids } } })
+      const byId = new Map(players.map(p => [p.id, p]))
+      const winner = match.winner as Side
+      const t = tallySets(match.sets)
       const getDelta = (pid: string) => match.ptrHistory.find(h => h.playerId === pid)?.delta ?? 0
 
-      const reversePlayerSeason = (ps: PlayerSeason, isWinner: boolean, sw: number, sl: number, gw: number, gl: number, tbWon: number) => {
-        const newMatches = Math.max(0, ps.matchesPlayed - 1)
-        return tx.playerSeason.update({
-          where: { playerId_seasonId: { playerId: ps.playerId, seasonId: match.seasonId } },
+      await Promise.all(ids.map((pid, i) => {
+        const p = byId.get(pid)
+        if (!p) return null
+        const onA = i < 2
+        const isWinner = (winner === 'A') === onA
+        const newMatches = Math.max(0, p.matchesPlayed - 1)
+        return tx.player.update({
+          where: { id: pid },
           data: {
-            ptr: ps.ptr - getDelta(ps.playerId),
+            ptr: p.ptr - getDelta(pid),
             matchesPlayed: newMatches,
             reliability: calculateReliability(newMatches),
-            wins: isWinner ? Math.max(0, ps.wins - 1) : ps.wins,
-            losses: isWinner ? ps.losses : Math.max(0, ps.losses - 1),
-            setsWon: Math.max(0, ps.setsWon - sw),
-            setsLost: Math.max(0, ps.setsLost - sl),
-            gamesWon: Math.max(0, ps.gamesWon - gw),
-            gamesLost: Math.max(0, ps.gamesLost - gl),
-            tiebreaksWon: Math.max(0, ps.tiebreaksWon - tbWon),
-            tiebreaksPlayed: Math.max(0, ps.tiebreaksPlayed - tbTotal),
+            wins: isWinner ? Math.max(0, p.wins - 1) : p.wins,
+            losses: isWinner ? p.losses : Math.max(0, p.losses - 1),
+            setsWon: Math.max(0, p.setsWon - (onA ? t.setsA : t.setsB)),
+            setsLost: Math.max(0, p.setsLost - (onA ? t.setsB : t.setsA)),
+            gamesWon: Math.max(0, p.gamesWon - (onA ? t.gamesA : t.gamesB)),
+            gamesLost: Math.max(0, p.gamesLost - (onA ? t.gamesB : t.gamesA)),
+            tiebreaksWon: Math.max(0, p.tiebreaksWon - (onA ? t.tbWonA : t.tbWonB)),
+            tiebreaksPlayed: Math.max(0, p.tiebreaksPlayed - t.tbTotal),
             currentStreak: 0,
           },
         })
-      }
-
-      await Promise.all([
-        reversePlayerSeason(ps1, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
-        reversePlayerSeason(ps2, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
-        reversePlayerSeason(ps3, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
-        reversePlayerSeason(ps4, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
-      ])
+      }))
     }
 
-    await tx.pTRHistory.deleteMany({ where: { matchId: id } })
-    await tx.matchSet.deleteMany({ where: { matchId: id } })
-    await tx.match.delete({ where: { id } })
+    await tx.match.delete({ where: { id: matchId } }) // sets + history cascade
     return { ok: true as const }
   })
 }
 
 // ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-export async function findUserByEmail(email: string) {
-  return prisma.user.findUnique({ where: { email } })
-}
-
-// ---------------------------------------------------------------------------
-// Internal PTR application (runs inside a transaction)
+// Internal rating application (runs inside a transaction)
 // ---------------------------------------------------------------------------
 
 type TxClient = Prisma.TransactionClient
 
-async function applyPTR(
-  tx: TxClient,
-  matchId: string,
-  seasonId: string,
-  players: { ps1: PlayerSeason; ps2: PlayerSeason; ps3: PlayerSeason; ps4: PlayerSeason },
-  sets: { teamAGames: number; teamBGames: number }[],
-  winner: 'A' | 'B',
-  teamAPTRBefore: number,
-  teamBPTRBefore: number,
-  isRanked: boolean,
-): Promise<{ ptrDelta: number; isUpset: boolean }> {
-  const { ps1, ps2, ps3, ps4 } = players
+function tallySets(sets: { teamAGames: number; teamBGames: number }[]) {
+  const played = sets.filter(s => s.teamAGames + s.teamBGames > 0)
+  const tbWonA = sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
+  const tbWonB = sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
+  return {
+    setsA: played.filter(s => s.teamAGames > s.teamBGames).length,
+    setsB: played.filter(s => s.teamBGames > s.teamAGames).length,
+    gamesA: played.reduce((acc, s) => acc + s.teamAGames, 0),
+    gamesB: played.reduce((acc, s) => acc + s.teamBGames, 0),
+    tbWonA,
+    tbWonB,
+    tbTotal: tbWonA + tbWonB,
+  }
+}
+
+// Applies a match's result to all four players using their ratings at the
+// moment of confirmation, and marks the match complete.
+async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: number; isUpset: boolean }> {
+  const match = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { sets: { orderBy: { setNumber: 'asc' } } } })
+  const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
+  const rows = await tx.player.findMany({ where: { id: { in: ids } } })
+  const byId = new Map(rows.map(p => [p.id, p]))
+  const [p1, p2, p3, p4] = ids.map(id => byId.get(id)!)
+  const winner = match.winner as Side
+  const sets = match.sets.map(s => ({ teamAGames: s.teamAGames, teamBGames: s.teamBGames }))
+
+  const teamAPTRBefore = (p1.ptr + p2.ptr) / 2
+  const teamBPTRBefore = (p3.ptr + p4.ptr) / 2
 
   const result = calculatePTRChanges(
-    [ps1.ptr, ps2.ptr],
-    [ps3.ptr, ps4.ptr],
-    [calculateReliability(ps1.matchesPlayed), calculateReliability(ps2.matchesPlayed)],
-    [calculateReliability(ps3.matchesPlayed), calculateReliability(ps4.matchesPlayed)],
+    [p1.ptr, p2.ptr],
+    [p3.ptr, p4.ptr],
+    [calculateReliability(p1.matchesPlayed), calculateReliability(p2.matchesPlayed)],
+    [calculateReliability(p3.matchesPlayed), calculateReliability(p4.matchesPlayed)],
     sets.map((s, i) => ({ setNumber: i + 1, ...s })),
     winner,
   )
-
-  // Unranked matches still update stats/streaks/tiebreaks normally — only
-  // the actual PTR movement is suppressed, by zeroing every delta below.
-  const rankMultiplier = isRanked ? 1 : 0
-
-  const playedSets = sets.filter(s => s.teamAGames + s.teamBGames > 0)
-  const setsA = playedSets.filter(s => s.teamAGames > s.teamBGames).length
-  const setsB = playedSets.filter(s => s.teamBGames > s.teamAGames).length
-  const gamesA = playedSets.reduce((acc, s) => acc + s.teamAGames, 0)
-  const gamesB = playedSets.reduce((acc, s) => acc + s.teamBGames, 0)
-
-  const tbWonA = sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
-  const tbWonB = sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
-  const tbTotal = tbWonA + tbWonB
-
-  const dA1 = result.playerADeltas[0] * rankMultiplier
-  const dA2 = result.playerADeltas[1] * rankMultiplier
-  const dB1 = result.playerBDeltas[0] * rankMultiplier
-  const dB2 = result.playerBDeltas[1] * rankMultiplier
-  const teamADelta = result.teamADelta * rankMultiplier
-  const teamBDelta = result.teamBDelta * rankMultiplier
-
-  const updatePlayerSeason = (ps: PlayerSeason, delta: number, isWinner: boolean, sw: number, sl: number, gw: number, gl: number, tbWon: number) => {
-    const newMatches = ps.matchesPlayed + 1
-    const newStreak = isWinner
-      ? (ps.currentStreak > 0 ? ps.currentStreak + 1 : 1)
-      : (ps.currentStreak < 0 ? ps.currentStreak - 1 : -1)
-    return tx.playerSeason.update({
-      where: { playerId_seasonId: { playerId: ps.playerId, seasonId } },
-      data: {
-        ptr: ps.ptr + delta,
-        matchesPlayed: newMatches,
-        reliability: calculateReliability(newMatches),
-        wins: isWinner ? ps.wins + 1 : ps.wins,
-        losses: isWinner ? ps.losses : ps.losses + 1,
-        setsWon: ps.setsWon + sw,
-        setsLost: ps.setsLost + sl,
-        gamesWon: ps.gamesWon + gw,
-        gamesLost: ps.gamesLost + gl,
-        tiebreaksWon: ps.tiebreaksWon + tbWon,
-        tiebreaksPlayed: ps.tiebreaksPlayed + tbTotal,
-        currentStreak: newStreak,
-        bestStreak: isWinner ? Math.max(ps.bestStreak, newStreak) : ps.bestStreak,
-      },
-    })
-  }
-
-  const ptrHistory = (ps: PlayerSeason, delta: number) =>
-    tx.pTRHistory.create({
-      data: {
-        playerId: ps.playerId,
-        matchId,
-        seasonId,
-        ptrBefore: ps.ptr,
-        ptrAfter: ps.ptr + delta,
-        delta,
-        reliability: calculateReliability(ps.matchesPlayed + 1),
-      },
-    })
+  const t = tallySets(sets)
+  const deltas = [result.playerADeltas[0], result.playerADeltas[1], result.playerBDeltas[0], result.playerBDeltas[1]]
 
   await Promise.all([
-    updatePlayerSeason(ps1, dA1, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
-    updatePlayerSeason(ps2, dA2, winner === 'A', setsA, setsB, gamesA, gamesB, tbWonA),
-    updatePlayerSeason(ps3, dB1, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
-    updatePlayerSeason(ps4, dB2, winner === 'B', setsB, setsA, gamesB, gamesA, tbWonB),
-    ptrHistory(ps1, dA1), ptrHistory(ps2, dA2),
-    ptrHistory(ps3, dB1), ptrHistory(ps4, dB2),
+    ...[p1, p2, p3, p4].map((p, i) => {
+      const onA = i < 2
+      const delta = deltas[i]
+      const isWinner = (winner === 'A') === onA
+      const newMatches = p.matchesPlayed + 1
+      const newStreak = isWinner
+        ? (p.currentStreak > 0 ? p.currentStreak + 1 : 1)
+        : (p.currentStreak < 0 ? p.currentStreak - 1 : -1)
+      return Promise.all([
+        tx.player.update({
+          where: { id: p.id },
+          data: {
+            ptr: p.ptr + delta,
+            matchesPlayed: newMatches,
+            reliability: calculateReliability(newMatches),
+            wins: isWinner ? p.wins + 1 : p.wins,
+            losses: isWinner ? p.losses : p.losses + 1,
+            setsWon: p.setsWon + (onA ? t.setsA : t.setsB),
+            setsLost: p.setsLost + (onA ? t.setsB : t.setsA),
+            gamesWon: p.gamesWon + (onA ? t.gamesA : t.gamesB),
+            gamesLost: p.gamesLost + (onA ? t.gamesB : t.gamesA),
+            tiebreaksWon: p.tiebreaksWon + (onA ? t.tbWonA : t.tbWonB),
+            tiebreaksPlayed: p.tiebreaksPlayed + t.tbTotal,
+            currentStreak: newStreak,
+            bestStreak: isWinner ? Math.max(p.bestStreak, newStreak) : p.bestStreak,
+          },
+        }),
+        tx.pTRHistory.create({
+          data: {
+            playerId: p.id,
+            matchId,
+            ptrBefore: p.ptr,
+            ptrAfter: p.ptr + delta,
+            delta,
+            reliability: calculateReliability(newMatches),
+          },
+        }),
+      ])
+    }),
     tx.match.update({
       where: { id: matchId },
       data: {
         status: 'complete',
-        winner,
-        teamAPTRAfter: teamAPTRBefore + teamADelta,
-        teamBPTRAfter: teamBPTRBefore + teamBDelta,
-        ptrDelta: Math.abs(teamADelta),
+        confirmedAt: new Date(),
+        teamAPTRBefore,
+        teamBPTRBefore,
+        teamAPTRAfter: teamAPTRBefore + result.teamADelta,
+        teamBPTRAfter: teamBPTRBefore + result.teamBDelta,
+        ptrDelta: Math.abs(result.teamADelta),
         scoreMultiplier: result.scoreMultiplier,
         isUpset: result.isUpset,
         matchQuality: result.matchQuality,
@@ -692,5 +636,28 @@ async function applyPTR(
     }),
   ])
 
-  return { ptrDelta: Math.abs(teamADelta), isUpset: result.isUpset }
+  return { ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
+}
+
+export async function getUserName(userId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } })
+  return u?.name ?? null
+}
+
+// A cheap fingerprint of everything the signed-in pages show. It changes
+// whenever a match is recorded, confirmed or deleted, or any player's rating
+// or profile changes (Player.updatedAt moves on every rating update). Clients
+// poll it and only re-render when it differs.
+export async function getSyncFingerprint(): Promise<string> {
+  const [matches, players] = await Promise.all([
+    prisma.match.aggregate({ _count: true, _max: { submittedAt: true, confirmedAt: true } }),
+    prisma.player.aggregate({ _count: true, _max: { updatedAt: true } }),
+  ])
+  return [
+    matches._count,
+    matches._max.submittedAt?.getTime() ?? 0,
+    matches._max.confirmedAt?.getTime() ?? 0,
+    players._count,
+    players._max.updatedAt?.getTime() ?? 0,
+  ].join('.')
 }

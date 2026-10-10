@@ -1,15 +1,6 @@
 import { prisma } from './prisma'
 import { seedBracket, buildFixtures } from './one-point'
-import { calculateExpectedWin, calculateKFactor, calculateReliability } from './ptr-algorithm'
-
-// Overall weight applied to the tournament's PTR effect — much lighter
-// than a ranked match or the other events, since a single point per round
-// is a noisy, low-information result.
-const ONE_POINT_PTR_WEIGHT = 0.25
-// How much beating/missing pre-tournament expectation can amplify or
-// dampen the fixed-tier placement delta (clamped to a 0.5x-1.5x
-// multiplier) for the champion, runner-up, and quarterfinal-loser tiers.
-const ONE_POINT_EXPECTATION_SENSITIVITY = 1
+import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
 
 export interface OnePointMatchView {
   id: string
@@ -26,29 +17,28 @@ export interface OnePointEventView {
   id: string
   createdAt: string
   status: 'in_progress' | 'complete'
-  seasonId: string
+  ownerId: string
   playerIds: string[] // bracket slot order, 8 ids
   matches: OnePointMatchView[]
-  ptrDeltas: Record<string, number> | null
 }
 
 export interface OnePointEventSummary {
   id: string
   createdAt: string
   status: 'in_progress' | 'complete'
-  seasonId: string
+  ownerId: string
   playerIds: string[]
   matchesComplete: number
   matchesTotal: number
   championId: string | null
 }
 
-export async function createOnePointEvent(playerIdsByPtrDesc: string[], seasonId: string): Promise<string> {
+export async function createOnePointEvent(playerIdsByPtrDesc: string[], ownerId: string): Promise<string> {
   const bracket = seedBracket(playerIdsByPtrDesc)
   const fixtures = buildFixtures(bracket)
   const event = await prisma.onePointEvent.create({
     data: {
-      seasonId,
+      ownerId,
       playerIds: bracket,
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -67,7 +57,7 @@ export async function getOnePointEvent(id: string): Promise<OnePointEventView | 
     id: event.id,
     createdAt: event.createdAt.toISOString(),
     status: event.status as 'in_progress' | 'complete',
-    seasonId: event.seasonId,
+    ownerId: event.ownerId,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
@@ -79,13 +69,12 @@ export async function getOnePointEvent(id: string): Promise<OnePointEventView | 
       winnerId: m.winnerId,
       status: m.status as 'pending' | 'complete',
     })),
-    ptrDeltas: (event.ptrDeltas as Record<string, number> | null) ?? null,
   }
 }
 
-export async function listOnePointEvents(seasonId: string): Promise<OnePointEventSummary[]> {
+export async function listOnePointEvents(actor: Actor): Promise<OnePointEventSummary[]> {
   const events = await prisma.onePointEvent.findMany({
-    where: { seasonId },
+    where: eventsVisibleTo(actor),
     include: { matches: true },
     orderBy: { createdAt: 'desc' },
   })
@@ -96,7 +85,7 @@ export async function listOnePointEvents(seasonId: string): Promise<OnePointEven
       id: event.id,
       createdAt: event.createdAt.toISOString(),
       status: event.status as 'in_progress' | 'complete',
-      seasonId: event.seasonId,
+      ownerId: event.ownerId,
       playerIds: event.playerIds,
       matchesComplete: event.matches.filter(m => m.status === 'complete').length,
       matchesTotal: event.matches.length,
@@ -106,14 +95,14 @@ export async function listOnePointEvents(seasonId: string): Promise<OnePointEven
 }
 
 export async function submitOnePointWinner(
+  actor: Actor,
   eventId: string,
   matchId: string,
   winnerId: string
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.onePointEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
-  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
-  if (!season || season.status !== 'active') return { error: 'This season is closed' }
+  if (!canManageEvent(event, actor)) return { error: 'Only the organiser or players in this event can enter scores' }
 
   const match = await prisma.onePointMatch.findUnique({ where: { id: matchId } })
   if (!match || match.eventId !== eventId) return { error: 'Match not found' }
@@ -123,10 +112,13 @@ export async function submitOnePointWinner(
     return { error: 'Winner must be one of the two players in this match' }
   }
 
-  await prisma.onePointMatch.update({
-    where: { id: matchId },
+  // Conditional on still being pending, so if two people save the same
+  // match at once only the first one counts.
+  const saved = await prisma.onePointMatch.updateMany({
+    where: { id: matchId, status: 'pending' },
     data: { winnerId, status: 'complete' },
   })
+  if (saved.count === 0) return { error: 'Someone else already entered this score' }
 
   if (match.round < 3) {
     const nextRound = match.round + 1
@@ -153,140 +145,18 @@ export async function submitOnePointWinner(
   return { ok: true }
 }
 
-// In-progress events can be deleted freely (they've never touched PTR).
-// Completed events require allowComplete — used by the admin panel — and
-// reverse the PTR they applied before removing the event and its matches.
-// Either way the event's season must still be active.
-export async function deleteOnePointEvent(
-  id: string,
-  opts?: { allowComplete?: boolean }
-): Promise<{ ok: true } | { error: string }> {
+// Only the organiser can delete an event. Events never affect ratings, so
+// there's nothing to reverse.
+export async function deleteOnePointEvent(id: string, actor: Actor): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.onePointEvent.findUnique({ where: { id } })
   if (!event) return { error: 'Event not found' }
-  const season = await prisma.season.findUnique({ where: { id: event.seasonId } })
-  if (!season || season.status !== 'active') return { error: 'This season is closed' }
-  if (event.status === 'complete' && !opts?.allowComplete) {
-    return { error: 'Completed events can only be deleted from the admin page' }
-  }
-
-  await prisma.$transaction(async tx => {
-    if (event.status === 'complete') {
-      const history = await tx.pTRHistory.findMany({ where: { opEventId: id } })
-      for (const h of history) {
-        await tx.playerSeason.update({
-          where: { playerId_seasonId: { playerId: h.playerId, seasonId: event.seasonId } },
-          data: { ptr: { decrement: h.delta } },
-        })
-      }
-      await tx.pTRHistory.deleteMany({ where: { opEventId: id } })
-    }
-    await tx.onePointEvent.delete({ where: { id } })
-  })
-
+  if (event.ownerId !== actor.userId) return { error: 'Only the organiser can delete this event' }
+  await prisma.onePointEvent.delete({ where: { id } })
   return { ok: true }
 }
 
-// Translates a completed bracket into PTR movement based on final
-// placement tier, using a much lighter weight (0.25) than a ranked match
-// or the other events, and a single shared K — the average of every
-// participant's own reliability-based K-factor — so the tournament stays
-// roughly zero-sum regardless of the mix of new vs established players.
-//
-// Each tier gets a fixed base placement margin; expectation (this
-// player's average Elo win-probability against the other 7, centred on
-// 0) can only scale that margin's magnitude 0.5x-1.5x — never flip its
-// sign — so the champion and runner-up always gain PTR and quarterfinal
-// losers always lose it. The two semifinal losers are the exception: their
-// base margin is 0, so their delta is driven entirely by expectation and
-// can land on either side depending on whether they over- or
-// under-performed their pre-tournament strength.
+// Marks the event finished once its last match is in. Final standings are
+// derived from the match results whenever the event is viewed.
 async function finalizeOnePointEvent(eventId: string): Promise<void> {
-  const event = await prisma.onePointEvent.findUnique({
-    where: { id: eventId },
-    include: { matches: true },
-  })
-  if (!event || event.status === 'complete') return
-
-  const playerSeasons = await prisma.playerSeason.findMany({
-    where: { seasonId: event.seasonId, playerId: { in: event.playerIds } },
-  })
-  const byId = new Map(playerSeasons.map(ps => [ps.playerId, ps]))
-
-  const final = event.matches.find(m => m.round === 3)!
-  const semis = event.matches.filter(m => m.round === 2)
-  const quarters = event.matches.filter(m => m.round === 1)
-
-  const championId = final.winnerId!
-  const runnerUpId = (final.player1Id === championId ? final.player2Id : final.player1Id)!
-  const semiLoserIds = semis.map(m => (m.player1Id === m.winnerId ? m.player2Id! : m.player1Id!))
-  const quarterLoserIds = quarters.map(m => (m.player1Id === m.winnerId ? m.player2Id! : m.player1Id!))
-
-  const avgK = playerSeasons.reduce(
-    (sum, ps) => sum + calculateKFactor(calculateReliability(ps.matchesPlayed)),
-    0
-  ) / playerSeasons.length
-
-  const expectationRounds = (playerId: string): number => {
-    const player = byId.get(playerId)!
-    const others = event.playerIds.filter(id => id !== playerId)
-    const avgExpectedWin = others.reduce((sum, otherId) => {
-      const other = byId.get(otherId)
-      return other ? sum + calculateExpectedWin(player.ptr, other.ptr) : sum
-    }, 0) / others.length
-    return avgExpectedWin - 0.5
-  }
-
-  // base === 0 (semifinal losers) means the margin comes entirely from
-  // expectation, sign included. Otherwise expectation only scales the
-  // fixed-sign base by 0.5x-1.5x.
-  const marginFor = (playerId: string, base: number): number => {
-    if (base === 0) return expectationRounds(playerId)
-    const sign = base >= 0 ? 1 : -1
-    const multiplier = 1 + Math.max(
-      -0.5,
-      Math.min(0.5, sign * expectationRounds(playerId) * ONE_POINT_EXPECTATION_SENSITIVITY)
-    )
-    return base * multiplier
-  }
-
-  const tiers: [string, number][] = [
-    [championId, 1.0],
-    [runnerUpId, 0.5],
-    ...semiLoserIds.map((id): [string, number] => [id, 0]),
-    ...quarterLoserIds.map((id): [string, number] => [id, -0.5]),
-  ]
-
-  const appliedDeltas: Record<string, number> = {}
-
-  await prisma.$transaction(async tx => {
-    for (const [playerId, base] of tiers) {
-      const player = byId.get(playerId)
-      if (!player) continue
-
-      const margin = marginFor(playerId, base)
-      const finalDelta = Math.round(margin * avgK * ONE_POINT_PTR_WEIGHT * 10) / 10
-      appliedDeltas[playerId] = finalDelta
-
-      await tx.playerSeason.update({
-        where: { playerId_seasonId: { playerId, seasonId: event.seasonId } },
-        data: { ptr: player.ptr + finalDelta },
-      })
-      await tx.pTRHistory.create({
-        data: {
-          playerId,
-          matchId: null,
-          opEventId: eventId,
-          seasonId: event.seasonId,
-          ptrBefore: player.ptr,
-          ptrAfter: player.ptr + finalDelta,
-          delta: finalDelta,
-          reliability: calculateReliability(player.matchesPlayed),
-        },
-      })
-    }
-    await tx.onePointEvent.update({
-      where: { id: eventId },
-      data: { status: 'complete', ptrDeltas: appliedDeltas },
-    })
-  })
+  await prisma.onePointEvent.updateMany({ where: { id: eventId, status: 'in_progress' }, data: { status: 'complete' } })
 }

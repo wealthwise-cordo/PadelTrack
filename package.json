@@ -1,5 +1,5 @@
 {
-  "name": "ptr-padel",
+  "name": "padeltrack",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed": "node --env-file=.env node_modules/.bin/tsx prisma/seed.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

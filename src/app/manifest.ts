@@ -2,14 +2,14 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'World Padel Tour — Cartagena, Spain 2026',
-    short_name: 'World Padel Tour',
-    description: 'The official ranking system for the private padel tour.',
+    name: 'PadelTrack',
+    short_name: 'PadelTrack',
+    description: 'Rankings for you and the people you play padel with.',
     start_url: '/',
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#0a0a0f',
-    theme_color: '#0a0a0f',
+    background_color: '#ffffff',
+    theme_color: '#18181b',
     icons: [
       {
         src: '/favicon.ico',

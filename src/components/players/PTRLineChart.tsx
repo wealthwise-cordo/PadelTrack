@@ -26,16 +26,16 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
   return (
     <ResponsiveContainer width="100%" height={200}>
       <LineChart data={data} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
         <XAxis
           dataKey="match"
-          tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+          tick={{ fill: '#71717a', fontSize: 10 }}
           tickLine={false}
           axisLine={false}
-          label={{ value: 'Matches', position: 'insideBottom', fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+          label={{ value: 'Matches', position: 'insideBottom', fill: '#a1a1aa', fontSize: 10 }}
         />
         <YAxis
-          tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+          tick={{ fill: '#71717a', fontSize: 10 }}
           tickLine={false}
           axisLine={false}
           domain={['auto', 'auto']}
@@ -43,20 +43,20 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
         />
         <Tooltip
           contentStyle={{
-            background: 'rgba(10,15,30,0.95)',
-            border: '1px solid rgba(255,255,255,0.1)',
+            background: '#ffffff',
+            border: '1px solid #e4e4e7',
             borderRadius: '8px',
             fontSize: '12px',
           }}
-          labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+          labelStyle={{ color: '#52525b' }}
           itemStyle={{ color }}
           formatter={(value: number, _: string, item: { payload?: { delta?: number } }) => [
-            `${value} PTR ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(1)})` : ''}`,
-            'PTR',
+            `${value} ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(1)})` : ''}`,
+            'Rating',
           ]}
           labelFormatter={(v, payload) => payload?.[0]?.payload?.label ?? (v === 0 ? 'Start' : `Match ${v}`)}
         />
-        <ReferenceLine y={startingPTR} stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" />
+        <ReferenceLine y={startingPTR} stroke="#d4d4d8" strokeDasharray="4 4" />
         <Line
           type="monotone"
           dataKey="ptr"
@@ -72,7 +72,7 @@ export default function PTRLineChart({ history, color, startingPTR = 1000 }: Pro
                   y={cy - 3.5}
                   width={7}
                   height={7}
-                  fill="rgba(10,15,30,1)"
+                  fill="#ffffff"
                   stroke={color}
                   strokeWidth={2}
                   transform={`rotate(45 ${cx} ${cy})`}

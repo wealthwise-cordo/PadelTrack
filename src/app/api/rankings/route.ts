@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPlayerRaw } from '@/lib/store'
+import { getSession } from '@/lib/session'
 import { previewPTRChanges } from '@/lib/ptr-algorithm'
 
 export async function POST(req: NextRequest) {
+  if (!(await getSession())) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
   try {
     const body = await req.json()
     const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets } = body

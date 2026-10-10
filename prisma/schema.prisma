@@ -11,83 +11,77 @@ datasource db {
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
-  password  String?
-  name      String?
+  password  String
+  name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  player    Player?
+  player    Player?  @relation("UserPlayer")
+
+  guestsCreated      Player[]            @relation("GuestCreator")
+  matchesRecorded    Match[]             @relation("MatchRecorder")
+  americanoEvents    AmericanoEvent[]    @relation("AmericanoEventOwner")
+  roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
+  onePointEvents     OnePointEvent[]     @relation("OnePointEventOwner")
+  snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
 }
 
-model Season {
-  id        String    @id @default(cuid())
-  name      String    // the year, e.g. "2026"
-  location  String    @default("Cartagena, Spain")
-  status    String    @default("active") // active | closed
-  startedAt DateTime  @default(now())
-  closedAt  DateTime?
-
-  playerSeasons      PlayerSeason[]
-  matches            Match[]
-  ptrHistory         PTRHistory[]
-  americanoEvents    AmericanoEvent[]
-  roundRobinEvents   RoundRobinEvent[]
-  onePointEvents     OnePointEvent[]
-  snakeLaddersEvents SnakeLaddersEvent[]
-}
-
-// Per-(player, season) stats. Player identity lives on `Player` forever;
-// everything that resets when a new season starts lives here instead.
-model PlayerSeason {
-  id              String @id @default(cuid())
-  playerId        String
-  seasonId        String
-  ptr             Float  @default(1000)
-  reliability     Float  @default(0)
-  matchesPlayed   Int    @default(0)
-  wins            Int    @default(0)
-  losses          Int    @default(0)
-  setsWon         Int    @default(0)
-  setsLost        Int    @default(0)
-  gamesWon        Int    @default(0)
-  gamesLost       Int    @default(0)
-  tiebreaksWon    Int    @default(0)
-  tiebreaksPlayed Int    @default(0)
-  currentStreak   Int    @default(0)
-  bestStreak      Int    @default(0)
-
-  player Player @relation(fields: [playerId], references: [id])
-  season Season @relation(fields: [seasonId], references: [id])
-
-  @@unique([playerId, seasonId])
-  @@index([seasonId])
-}
-
+// A person who plays. Registered users have exactly one Player (userId set).
+// Guests are Players with no userId, created by a user (createdById) when
+// adding someone who isn't on the app yet. A guest can later be claimed via
+// their claimToken invite link, which attaches it to the new user's account
+// along with its rating and match history.
 model Player {
-  id            String         @id @default(cuid())
-  name          String
-  nickname      String?
-  avatarColor   String         @default("#00ff87")
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  userId        String?        @unique
-  user          User?          @relation(fields: [userId], references: [id])
-  ptrHistory    PTRHistory[]
-  playerSeasons PlayerSeason[]
-  teamA1        Match[]        @relation("TeamA1")
-  teamA2        Match[]        @relation("TeamA2")
-  teamB1        Match[]        @relation("TeamB1")
-  teamB2        Match[]        @relation("TeamB2")
+  id          String   @id @default(cuid())
+  name        String
+  nickname    String?
+  avatarColor String   @default("#f97316")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String?  @unique
+  user        User?    @relation("UserPlayer", fields: [userId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?    @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  claimToken  String?  @unique
+
+  // Rating and career stats — only confirmed ranked matches move these.
+  ptr             Float @default(1000)
+  reliability     Float @default(0)
+  matchesPlayed   Int   @default(0)
+  wins            Int   @default(0)
+  losses          Int   @default(0)
+  setsWon         Int   @default(0)
+  setsLost        Int   @default(0)
+  gamesWon        Int   @default(0)
+  gamesLost       Int   @default(0)
+  tiebreaksWon    Int   @default(0)
+  tiebreaksPlayed Int   @default(0)
+  currentStreak   Int   @default(0)
+  bestStreak      Int   @default(0)
+
+  ptrHistory PTRHistory[]
+  teamA1     Match[]      @relation("TeamA1")
+  teamA2     Match[]      @relation("TeamA2")
+  teamB1     Match[]      @relation("TeamB1")
+  teamB2     Match[]      @relation("TeamB2")
+
+  @@index([createdById])
 }
 
+// A ranked match. Recorded as "pending" when the other team includes a
+// registered user — one of them must confirm before ratings move, and it
+// confirms itself after 48 hours if nobody does — or "complete" straight
+// away when the other team is all guests.
 model Match {
   id              String       @id @default(cuid())
   playedAt        DateTime     @default(now())
   submittedAt     DateTime     @default(now())
-  status          String       @default("complete")
-  isRanked        Boolean      @default(true)
-  winner          String?
-  seasonId        String
-  season          Season       @relation(fields: [seasonId], references: [id])
+  confirmedAt     DateTime?
+  // True when nobody confirmed within the 48-hour window and it confirmed itself.
+  autoConfirmed   Boolean      @default(false)
+  status          String       @default("pending") // pending | complete
+  winner          String // "A" | "B"
+  recordedById    String
+  recordedBy      User         @relation("MatchRecorder", fields: [recordedById], references: [id], onDelete: Cascade)
   teamAPlayer1Id  String
   teamAPlayer2Id  String
   teamBPlayer1Id  String
@@ -96,10 +90,11 @@ model Match {
   teamAPlayer2    Player       @relation("TeamA2", fields: [teamAPlayer2Id], references: [id])
   teamBPlayer1    Player       @relation("TeamB1", fields: [teamBPlayer1Id], references: [id])
   teamBPlayer2    Player       @relation("TeamB2", fields: [teamBPlayer2Id], references: [id])
-  teamAPTRBefore  Float
-  teamBPTRBefore  Float
-  teamAPTRAfter   Float
-  teamBPTRAfter   Float
+  // Filled in when the match is confirmed and ratings are applied.
+  teamAPTRBefore  Float        @default(0)
+  teamBPTRBefore  Float        @default(0)
+  teamAPTRAfter   Float        @default(0)
+  teamBPTRAfter   Float        @default(0)
   ptrDelta        Float        @default(0)
   scoreMultiplier Float        @default(1)
   isUpset         Boolean      @default(false)
@@ -108,7 +103,11 @@ model Match {
   sets            MatchSet[]
   ptrHistory      PTRHistory[]
 
-  @@index([seasonId])
+  @@index([teamAPlayer1Id])
+  @@index([teamAPlayer2Id])
+  @@index([teamBPlayer1Id])
+  @@index([teamBPlayer2Id])
+  @@index([status, submittedAt])
 }
 
 model MatchSet {
@@ -122,45 +121,37 @@ model MatchSet {
 }
 
 model PTRHistory {
-  id          String             @id @default(cuid())
+  id          String   @id @default(cuid())
   playerId    String
-  matchId     String?
-  eventId     String?
-  seasonId    String
+  matchId     String
   ptrBefore   Float
   ptrAfter    Float
   delta       Float
   reliability Float
-  createdAt   DateTime           @default(now())
-  player      Player             @relation(fields: [playerId], references: [id])
-  match       Match?             @relation(fields: [matchId], references: [id])
-  event       AmericanoEvent?    @relation(fields: [eventId], references: [id])
-  season      Season             @relation(fields: [seasonId], references: [id])
-  rrEventId   String?
-  rrEvent     RoundRobinEvent?   @relation(fields: [rrEventId], references: [id])
-  opEventId   String?
-  opEvent     OnePointEvent?     @relation(fields: [opEventId], references: [id])
-  slEventId   String?
-  slEvent     SnakeLaddersEvent? @relation(fields: [slEventId], references: [id])
+  createdAt   DateTime @default(now())
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
-  @@index([seasonId])
+  @@index([playerId])
 }
 
-model AmericanoEvent {
-  id         String           @id @default(cuid())
-  createdAt  DateTime         @default(now())
-  status     String           @default("in_progress") // in_progress | complete
-  scoreMode  String // "points" | "games"
-  target     Int
-  isRanked   Boolean          @default(true)
-  seasonId   String
-  season     Season           @relation(fields: [seasonId], references: [id])
-  playerIds  String[]
-  ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
-  matches    AmericanoMatch[]
-  ptrHistory PTRHistory[]
+// ---------------------------------------------------------------------------
+// Events — standalone formats run by a user. They never touch ratings.
+// playerIds reference Player rows (registered users or guests).
+// ---------------------------------------------------------------------------
 
-  @@index([seasonId])
+model AmericanoEvent {
+  id        String           @id @default(cuid())
+  createdAt DateTime         @default(now())
+  ownerId   String
+  owner     User             @relation("AmericanoEventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  status    String           @default("in_progress") // in_progress | complete
+  scoreMode String // "points" | "games"
+  target    Int
+  playerIds String[]
+  matches   AmericanoMatch[]
+
+  @@index([ownerId])
 }
 
 model AmericanoMatch {
@@ -182,17 +173,14 @@ model AmericanoMatch {
 model RoundRobinEvent {
   id            String            @id @default(cuid())
   createdAt     DateTime          @default(now())
+  ownerId       String
+  owner         User              @relation("RoundRobinEventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   status        String            @default("in_progress") // in_progress | complete
   target        Int // games target, first-to (not best-of)
-  isRanked      Boolean           @default(true)
-  seasonId      String
-  season        Season            @relation(fields: [seasonId], references: [id])
   teamPlayerIds String[] // flattened, consecutive pairs = teams: [t0p1,t0p2,t1p1,t1p2,...]
-  ptrDeltas     Json? // { [playerId]: delta } applied when the event completed
   matches       RoundRobinMatch[]
-  ptrHistory    PTRHistory[]
 
-  @@index([seasonId])
+  @@index([ownerId])
 }
 
 model RoundRobinMatch {
@@ -212,17 +200,15 @@ model RoundRobinMatch {
 }
 
 model OnePointEvent {
-  id         String          @id @default(cuid())
-  createdAt  DateTime        @default(now())
-  status     String          @default("in_progress") // in_progress | complete
-  seasonId   String
-  season     Season          @relation(fields: [seasonId], references: [id])
-  playerIds  String[] // exactly 8, in bracket slot order (position 1..8)
-  ptrDeltas  Json? // { [playerId]: delta } applied when the event completed
-  matches    OnePointMatch[]
-  ptrHistory PTRHistory[]
+  id        String          @id @default(cuid())
+  createdAt DateTime        @default(now())
+  ownerId   String
+  owner     User            @relation("OnePointEventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  status    String          @default("in_progress") // in_progress | complete
+  playerIds String[] // exactly 8, in bracket slot order (position 1..8)
+  matches   OnePointMatch[]
 
-  @@index([seasonId])
+  @@index([ownerId])
 }
 
 model OnePointMatch {
@@ -243,19 +229,16 @@ model OnePointMatch {
 model SnakeLaddersEvent {
   id          String              @id @default(cuid())
   createdAt   DateTime            @default(now())
+  ownerId     String
+  owner       User                @relation("SnakeLaddersEventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   status      String              @default("in_progress") // in_progress | complete
   scoreMode   String // "points" | "games"
   target      Int
   totalRounds Int
-  isRanked    Boolean             @default(true)
-  seasonId    String
-  season      Season              @relation(fields: [seasonId], references: [id])
-  playerIds   String[] // exactly 8, seeded by PTR desc at creation (ranks 1-8)
-  ptrDeltas   Json? // { [playerId]: delta } applied when the event completed
+  playerIds   String[] // exactly 8, seeded by rating desc at creation (ranks 1-8)
   matches     SnakeLaddersMatch[]
-  ptrHistory  PTRHistory[]
 
-  @@index([seasonId])
+  @@index([ownerId])
 }
 
 model SnakeLaddersMatch {
@@ -272,5 +255,6 @@ model SnakeLaddersMatch {
   status         String            @default("pending") // pending | complete
   event          SnakeLaddersEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
+  @@unique([eventId, round, court])
   @@index([eventId])
 }

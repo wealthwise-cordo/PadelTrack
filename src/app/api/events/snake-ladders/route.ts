@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getPlayers, getActiveSeason } from '@/lib/store'
+import { getSession } from '@/lib/session'
+import { validateRoster } from '@/lib/event-access'
 import { createSnakeLaddersEvent } from '@/lib/snake-ladders-store'
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { scoreMode, target, totalRounds, isRanked } = body
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
+  const { playerIds, scoreMode, target, totalRounds } = await req.json()
 
-  const season = await getActiveSeason()
-  if (!season) return NextResponse.json({ error: 'No active season' }, { status: 400 })
-
-  const players = await getPlayers(season.id)
-  if (players.length !== 8) {
-    return NextResponse.json({ error: 'Snake and Ladders requires exactly 8 registered players' }, { status: 400 })
-  }
+  const roster = await validateRoster(playerIds, [8], 'Snake and Ladders')
+  if ('error' in roster) return NextResponse.json(roster, { status: 400 })
   if (scoreMode !== 'points' && scoreMode !== 'games') {
     return NextResponse.json({ error: 'Invalid score mode' }, { status: 400 })
   }
@@ -23,13 +20,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid number of rounds' }, { status: 400 })
   }
 
-  const id = await createSnakeLaddersEvent(
-    players.map(p => p.id),
-    scoreMode,
-    target,
-    totalRounds,
-    season.id,
-    typeof isRanked === 'boolean' ? isRanked : true
-  )
+  // Seeded by rating, highest first.
+  const id = await createSnakeLaddersEvent(roster.players.map(p => p.id), scoreMode, target, totalRounds, session.userId)
   return NextResponse.json({ id })
 }

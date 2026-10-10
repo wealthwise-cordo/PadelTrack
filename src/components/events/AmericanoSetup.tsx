@@ -4,38 +4,31 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Shuffle, Minus, Plus, MapPin, History, ChevronRight } from 'lucide-react'
-import { getInitials, formatPTR } from '@/lib/utils'
 import SwipeToDeleteRow from '@/components/shared/SwipeToDeleteRow'
+import RosterBuilder from '@/components/events/RosterBuilder'
 import type { PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
 
 interface Props {
   players: PlayerWithStats[]
+  knownPlayers: PlayerWithStats[]
   pastEvents: AmericanoEventSummary[]
+  meId: string
 }
 
 type ScoreMode = 'points' | 'games'
-type RosterMode = 'full' | 'seven' | 'five' | 'half'
-
 const MODE_CONFIG: Record<ScoreMode, { label: string; default: number; min: number; max: number; step: number }> = {
   points: { label: 'Points', default: 21, min: 4, max: 40, step: 1 },
   games: { label: 'Games', default: 6, min: 1, max: 12, step: 1 },
 }
 
-const ROSTER_CONFIG: Record<RosterMode, { label: string; count: number }> = {
-  full: { label: '8', count: 8 },
-  seven: { label: '7', count: 7 },
-  five: { label: '5', count: 5 },
-  half: { label: '4', count: 4 },
-}
+const ROSTER_SIZES = [4, 5, 7, 8]
 
-export default function AmericanoSetup({ players, pastEvents }: Props) {
+export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId }: Props) {
   const router = useRouter()
   const [mode, setMode] = useState<ScoreMode>('points')
   const [target, setTarget] = useState(MODE_CONFIG.points.default)
-  const [rosterMode, setRosterMode] = useState<RosterMode>('full')
-  const [excludedIds, setExcludedIds] = useState<string[]>([])
-  const [isRanked, setIsRanked] = useState(true)
+  const [roster, setRoster] = useState<PlayerWithStats[]>(() => players.filter(p => p.id === meId))
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -45,27 +38,11 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
     setTarget(MODE_CONFIG[next].default)
   }
 
-  const changeRosterMode = (next: RosterMode) => {
-    setRosterMode(next)
-    setExcludedIds([])
-  }
-
   const { min, max, step } = MODE_CONFIG[mode]
   const adjust = (delta: number) => setTarget(t => Math.min(max, Math.max(min, t + delta)))
-  const byId = new Map(players.map(p => [p.id, p]))
+  const byId = new Map([...knownPlayers, ...players].map(p => [p.id, p]))
 
-  const targetCount = ROSTER_CONFIG[rosterMode].count
-  const maxExclusions = players.length - targetCount
-  const included = players.filter(p => !excludedIds.includes(p.id))
-
-  const toggleExclude = (id: string) => {
-    if (rosterMode === 'full') return
-    setExcludedIds(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id)
-      if (prev.length >= maxExclusions) return prev
-      return [...prev, id]
-    })
-  }
+  const rosterValid = ROSTER_SIZES.includes(roster.length)
 
   const deleteEvent = async (id: string) => {
     setDeletingId(id)
@@ -84,7 +61,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
       const res = await fetch('/api/events/americano', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerIds: included.map(p => p.id), scoreMode: mode, target, isRanked }),
+        body: JSON.stringify({ playerIds: roster.map(p => p.id), scoreMode: mode, target }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -104,7 +81,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
       <div className="flex items-center gap-3">
         <Link
           href="/events"
-          className="h-8 w-8 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 transition-colors shrink-0"
+          className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-900/5 hover:bg-zinc-900/10 transition-colors shrink-0"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -136,8 +113,8 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
               onClick={() => changeMode(m)}
               className={`py-2 rounded-xl text-sm font-bold transition-all ${
                 mode === m
-                  ? 'bg-neon-green text-background'
-                  : 'bg-white/5 text-muted-foreground hover:bg-white/10'
+                  ? 'bg-neon-green text-white'
+                  : 'bg-zinc-900/5 text-muted-foreground hover:bg-zinc-900/10'
               }`}
             >
               {MODE_CONFIG[m].label}
@@ -149,7 +126,7 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
           <button
             onClick={() => adjust(-step)}
             disabled={target <= min}
-            className="h-11 w-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="h-11 w-11 rounded-xl bg-zinc-900/5 border border-zinc-900/10 flex items-center justify-center hover:bg-zinc-900/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -162,113 +139,20 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
           <button
             onClick={() => adjust(step)}
             disabled={target >= max}
-            className="h-11 w-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="h-11 w-11 rounded-xl bg-zinc-900/5 border border-zinc-900/10 flex items-center justify-center hover:bg-zinc-900/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             <Plus className="h-4 w-4" />
           </button>
         </div>
       </div>
 
-      {/* Roster size */}
-      <div className="glass rounded-2xl p-4 space-y-3">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Roster</div>
-        <div className="grid grid-cols-4 gap-2">
-          {(Object.keys(ROSTER_CONFIG) as RosterMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => changeRosterMode(m)}
-              className={`py-2 rounded-xl text-sm font-bold transition-all ${
-                rosterMode === m
-                  ? 'bg-neon-green text-background'
-                  : 'bg-white/5 text-muted-foreground hover:bg-white/10'
-              }`}
-            >
-              {ROSTER_CONFIG[m].label}
-            </button>
-          ))}
-        </div>
-        {rosterMode !== 'full' && (
-          <div className="text-[11px] text-muted-foreground text-center">
-            Tap {maxExclusions} player{maxExclusions === 1 ? '' : 's'} to sit out — {excludedIds.length}/{maxExclusions} selected
-          </div>
-        )}
-      </div>
+      <RosterBuilder players={players} roster={roster} onChange={setRoster} max={8} hint="4, 5, 7 or 8" valid={rosterValid} />
 
-      {/* Players */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Players</span>
-          <span className="text-xs text-muted-foreground font-mono">
-            {included.length}/{targetCount}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {players.map(p => {
-            const excluded = excludedIds.includes(p.id)
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggleExclude(p.id)}
-                disabled={rosterMode === 'full'}
-                className={`flex items-center gap-2 h-14 px-3 rounded-xl border transition-all ${
-                  excluded
-                    ? 'border-white/5 bg-white/[0.02] opacity-40'
-                    : 'border-white/15 bg-white/5'
-                } ${rosterMode === 'full' ? 'cursor-default' : 'hover:bg-white/10'}`}
-              >
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
-                  style={{ backgroundColor: p.avatarColor, boxShadow: excluded ? 'none' : `0 0 12px ${p.avatarColor}44` }}
-                >
-                  {getInitials(p.name)}
-                </div>
-                <div className="flex-1 min-w-0 text-left">
-                  <div className={`text-xs font-semibold truncate ${excluded ? 'line-through' : ''}`}>
-                    {p.name.split(' ')[0]}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground font-mono">
-                    {excluded ? 'Sitting out' : formatPTR(p.ptr)}
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Ranked / unranked */}
-      <div className="glass rounded-2xl p-4 space-y-3">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Match Type</div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => setIsRanked(true)}
-            className={`py-2 rounded-xl text-sm font-bold transition-all ${
-              isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
-            }`}
-          >
-            Ranked
-          </button>
-          <button
-            onClick={() => setIsRanked(false)}
-            className={`py-2 rounded-xl text-sm font-bold transition-all ${
-              !isRanked ? 'bg-neon-green text-background' : 'bg-white/5 text-muted-foreground hover:bg-white/10'
-            }`}
-          >
-            Unranked
-          </button>
-        </div>
-        {!isRanked && (
-          <div className="text-[10px] text-muted-foreground text-center">
-            Event still plays out and saves normally — PTR won&apos;t change
-          </div>
-        )}
-      </div>
-
-      {error && <div className="text-sm text-red-400 text-center">{error}</div>}
+      {error && <div className="text-sm text-red-600 text-center">{error}</div>}
       <button
         onClick={startEvent}
-        disabled={starting || players.length !== 8 || included.length !== targetCount}
-        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-green text-background hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+        disabled={starting || !rosterValid}
+        className="w-full py-3.5 rounded-xl font-bold text-sm bg-neon-green text-white hover:bg-neon-green/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >
         {starting ? 'Generating schedule...' : 'Start Event'}
       </button>
@@ -287,32 +171,27 @@ export default function AmericanoSetup({ players, pastEvents }: Props) {
               const card = (
                 <Link
                   href={`/events/americano/${e.id}`}
-                  className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-white/10 hover:border-white/20 transition-all"
+                  className="glass rounded-xl p-3 flex items-center gap-3 hover:bg-zinc-900/10 hover:border-zinc-900/20 transition-all"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs font-semibold">
-                        {new Date(e.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {new Date(e.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' })}
                       </span>
                       <span
                         className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${
                           e.status === 'complete'
                             ? 'bg-neon-green/15 text-neon-green'
-                            : 'bg-yellow-400/15 text-yellow-400'
+                            : 'bg-amber-600/15 text-amber-600'
                         }`}
                       >
                         {e.status === 'complete' ? 'Complete' : `Round ${e.matchesComplete}/${e.matchesTotal}`}
                       </span>
-                      {!e.isRanked && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide bg-white/10 text-muted-foreground">
-                          Unranked
-                        </span>
-                      )}
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {leaderPlayer ? (
                         <>
-                          <span className="text-white/70 font-medium">{leaderPlayer.name.split(' ')[0]}</span> leads
+                          <span className="text-zinc-900/70 font-medium">{leaderPlayer.name.split(' ')[0]}</span> leads
                           with {leader!.points} pts
                         </>
                       ) : (

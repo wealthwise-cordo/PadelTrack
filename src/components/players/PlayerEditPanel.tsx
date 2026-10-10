@@ -6,10 +6,10 @@ import { Pencil, Check, X } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
 
 const PALETTE = [
-  '#00ff87', '#00d4ff', '#a855f7', '#ff6b35',
-  '#fbbf24', '#f472b6', '#34d399', '#60a5fa',
-  '#f87171', '#fb923c', '#e879f9', '#38bdf8',
-  '#4ade80', '#facc15', '#c084fc', '#94a3b8',
+  '#f97316', '#ea580c', '#3f3f46', '#18181b',
+  '#0ea5e9', '#2563eb', '#8b5cf6', '#c026d3',
+  '#10b981', '#059669', '#e11d48', '#dc2626',
+  '#f59e0b', '#ca8a04', '#64748b', '#0f766e',
 ]
 
 interface Props {
@@ -105,24 +105,24 @@ export default function PlayerEditPanel({ playerId, name, nickname, avatarColor 
               onChange={e => setNick(e.target.value)}
               maxLength={30}
               placeholder="e.g. The Hammer"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-neon-green/50"
+              className="w-full bg-zinc-900/5 border border-zinc-900/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
             />
           </div>
 
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {error && <p className="text-xs text-red-600">{error}</p>}
 
           <div className="flex gap-2">
             <button
               onClick={save}
               disabled={saving}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-neon-green text-background text-sm font-bold disabled:opacity-40 transition-all"
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-orange-500 text-white text-sm font-bold disabled:opacity-40 transition-all"
             >
               <Check className="h-4 w-4" />
               {saving ? 'Saving…' : 'Save'}
             </button>
             <button
               onClick={reset}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 text-sm text-muted-foreground hover:text-foreground transition-all"
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-900/5 text-sm text-muted-foreground hover:text-foreground transition-all"
             >
               <X className="h-4 w-4" />
               Cancel
