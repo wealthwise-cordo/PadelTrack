@@ -42,11 +42,18 @@ export interface MatchWithPlayers {
   id: string
   playedAt: string
   status: 'pending' | 'complete'
+  isRanked: boolean
   recordedById: string
   submittedAt: string
+  location: string | null
   // When a pending match will confirm itself if no opponent acts.
   autoConfirmAt: string
   autoConfirmed: boolean
+  scoreConfirmed: boolean
+  becameFriendly: boolean
+  // Players in the match who aren't on PadelTrack yet. The claim token (for
+  // the invite link) is only included in the viewer's own Match Centre.
+  guests: { id: string; name: string; claimToken?: string }[]
   // The viewing player's rating change from this match, when known.
   viewerDelta?: number
   // For pending matches: first names of the opponents who can confirm.
@@ -88,4 +95,18 @@ export interface HeadToHead {
   wins: number
   losses: number
   winRate: number
+}
+
+// One confirmed match from a single player's point of view, used by the
+// profile's time-range toggle.
+export interface ProfileMatch {
+  id: string
+  playedAt: string
+  won: boolean
+  setsFor: number
+  setsAgainst: number
+  gamesFor: number
+  gamesAgainst: number
+  delta: number
+  opponents: string
 }

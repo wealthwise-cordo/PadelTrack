@@ -67,10 +67,11 @@ model Player {
   @@index([createdById])
 }
 
-// A ranked match. Recorded as "pending" when the other team includes a
-// registered user — one of them must confirm before ratings move, and it
-// confirms itself after 48 hours if nobody does — or "complete" straight
-// away when the other team is all guests.
+// A match. Friendlies are saved as "complete" straight away. Ranked matches
+// start "pending" and become ranked once (a) a registered opponent confirms
+// the score and (b) every guest in the match has joined PadelTrack. After 48
+// hours: if a guest still hasn't joined it becomes a friendly permanently;
+// otherwise it confirms itself.
 model Match {
   id              String       @id @default(cuid())
   playedAt        DateTime     @default(now())
@@ -78,7 +79,16 @@ model Match {
   confirmedAt     DateTime?
   // True when nobody confirmed within the 48-hour window and it confirmed itself.
   autoConfirmed   Boolean      @default(false)
+  // When an opponent confirmed the score. A ranked match with guests in it
+  // also needs every guest to join PadelTrack before it becomes ranked.
+  scoreConfirmedAt DateTime?
+  // A ranked match whose guest(s) didn't join within 48 hours is turned into
+  // a friendly for good.
+  becameFriendly  Boolean      @default(false)
   status          String       @default("pending") // pending | complete
+  // Friendly matches are saved straight away and never touch ratings,
+  // circles or stats.
+  isRanked        Boolean      @default(true)
   winner          String // "A" | "B"
   recordedById    String
   recordedBy      User         @relation("MatchRecorder", fields: [recordedById], references: [id], onDelete: Cascade)
@@ -99,6 +109,8 @@ model Match {
   scoreMultiplier Float        @default(1)
   isUpset         Boolean      @default(false)
   matchQuality    Float        @default(0)
+  // Where it was played, free text (e.g. "Padel Club Cartagena").
+  location        String?
   notes           String?
   sets            MatchSet[]
   ptrHistory      PTRHistory[]

@@ -2,8 +2,11 @@
 
 Rankings for you and the people you play padel with. Next.js 14, Prisma, Postgres, NextAuth.
 
-- **Rankings**: one rating per user. You see yourself plus everyone you've played a confirmed ranked match with.
-- **New Match**: ranked doubles. If a registered player is on the other team, one of them has to confirm before ratings move. If nobody confirms within 48 hours, the match confirms automatically. Players who aren't on the app can be added as guests and invited to claim their profile later.
+- **Rankings**: one rating per user. You see yourself plus everyone you've played a ranked match with. A match becomes ranked once it's confirmed.
+- **New Match**: ranked (default) or friendly. Friendlies are saved straight away and never affect ratings, circles or stats.
+  - A ranked match becomes ranked once **an opponent confirms the score** and **every guest in it has joined PadelTrack** through their invite link. Both can happen in either order within 48 hours.
+  - After 48 hours: if a guest still hasn't joined, the match **becomes a friendly permanently**. If everyone's on PadelTrack but nobody confirmed, it **confirms itself** as ranked.
+  - Match Centre shows both checks on each pending match, with an **Invite** button that shares the guest's join link.
 - **Events**: Americano, Round Robin, Snake and Ladders, One Point. These are separate from rankings and never change ratings. The organiser and any registered player in the event can enter scores, and every open event page syncs live.
 
 ## Local development
@@ -29,3 +32,12 @@ Everything that's shared between users depends on a real hosted Postgres databas
 6. **Live updates** work by polling, with no extra services. Every signed-in page checks `/api/sync` every 20 seconds and only re-renders when the database fingerprint has changed. Open event pages re-fetch every 5 seconds while the event is in progress. If it ever feels slow or heavy with lots of users, look at switching to push updates, for example Pusher or Supabase Realtime.
 
 Not built yet: email verification and password reset (both need an email provider).
+
+## Native app notes (for when PadelTrack is wrapped as an iOS/Android app)
+
+- **Auto-focus on the score boxes.** On New Match, once the fourth player is chosen, the first score box is focused so the number keyboard opens straight away. iOS only shows the keyboard for focus that happens during a user tap. The app calls `focus()` directly inside the tap handler for that reason (`goToScoresIfReady` in `src/components/matches/MatchEntryForm.tsx`), so it never focuses after a delay.
+  - **Test this on a real iPhone once wrapped.** In a WKWebView (which Capacitor uses), focus inside a tap normally opens the keyboard. If it doesn't, the web view has to be allowed to show the keyboard without a direct tap on the field. That's the `KeyboardDisplayRequiresUserAction = false` behaviour. Cordova exposes it as a config preference. Capacitor has no built-in switch for it, so it needs a small native tweak or a keyboard plugin.
+  - Score boxes use `inputMode="numeric"` and `pattern="[0-9]*"` so both iOS and Android show the number pad.
+- **Safe areas.** The header and the New Match save bar already pad for the notch and home bar (`env(safe-area-inset-*)`, with `viewport-fit=cover` set in `src/app/layout.tsx`).
+- **Live updates** use polling (`/api/sync` every 20s, events every 5s) and pause while the app is in the background. When the app comes back to the foreground, the page checks immediately.
+

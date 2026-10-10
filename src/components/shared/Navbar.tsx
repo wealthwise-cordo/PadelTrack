@@ -8,7 +8,7 @@ import { Trophy, History, LayoutGrid, Plus, LogOut, User } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 
 const tabs = [
-  { href: '/', label: 'Rankings', icon: Trophy },
+  { href: '/', label: 'Ranking', icon: Trophy },
   { href: '/matches', label: 'Match Centre', icon: History },
   { href: '/events', label: 'Events', icon: LayoutGrid },
 ]
@@ -90,7 +90,7 @@ export default function Navbar({
             {getInitials(me.name)}
           </button>
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white text-zinc-900 shadow-lg border border-zinc-200 py-1 text-sm">
+            <div className="absolute right-0 mt-2 w-48 z-50 rounded-xl bg-white text-zinc-900 shadow-lg border border-zinc-200 py-1 text-sm">
               <div className="px-3 py-2 border-b border-zinc-100">
                 <div className="font-semibold truncate">{me.name}</div>
               </div>
@@ -115,7 +115,7 @@ export default function Navbar({
             key={href}
             href={href}
             className={cn(
-              'relative flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold border-b-2 transition-colors',
+              'relative flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors',
               isActive(pathname, href) ? 'border-orange-500 text-white' : 'border-transparent text-zinc-400'
             )}
           >

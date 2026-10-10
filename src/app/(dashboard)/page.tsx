@@ -22,10 +22,10 @@ export default async function RankingsPage() {
     <div className="py-6 space-y-6">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black tracking-tight">Rankings</h1>
+          <h1 className="text-2xl font-black tracking-tight">Ranking</h1>
           <p className="text-sm text-zinc-500 flex items-center gap-1.5 mt-0.5">
             <Users className="h-3.5 w-3.5" />
-            You and {circleSize} {circleSize === 1 ? 'player' : 'players'} you&apos;ve played
+            Your Circle ({circleSize})
           </p>
         </div>
       </div>
@@ -52,7 +52,7 @@ export default async function RankingsPage() {
           <Users className="h-10 w-10 mx-auto mb-3 text-zinc-300" />
           <h2 className="font-bold">Your circle is empty</h2>
           <p className="text-sm text-zinc-500 mt-1 max-w-sm mx-auto">
-            Record a ranked match and everyone you play with — partners and opponents — joins your rankings.
+            Record a match — once it’s confirmed and becomes a ranked match, everyone you played with, partners and opponents, joins your rankings.
           </p>
           <Link href="/matches/new" className="inline-flex items-center gap-1.5 mt-5 px-4 py-2.5 rounded-xl text-sm font-bold bg-orange-500 text-white hover:bg-orange-600">
             <Plus className="h-4 w-4" /> Record your first match

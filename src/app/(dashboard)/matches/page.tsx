@@ -9,7 +9,7 @@ export const revalidate = 0
 export default async function MatchCentrePage() {
   const session = await requireSession()
   const [matches, toConfirm] = await Promise.all([
-    getMatchesForPlayer(session.player.id),
+    getMatchesForPlayer(session.player.id, { withInvites: true }),
     getPendingForUser(session.userId),
   ])
   const toConfirmIds = new Set(toConfirm.map(m => m.id))
@@ -17,14 +17,16 @@ export default async function MatchCentrePage() {
   const needsMe = toConfirm.map(m => byId.get(m.id) ?? m)
   const waitingOnOthers = matches.filter(m => m.status === 'pending' && !toConfirmIds.has(m.id))
   const completed = matches.filter(m => m.status === 'complete')
+  const pendingHasGuests = [...needsMe, ...waitingOnOthers].some(m => m.guests.length > 0)
   const [latest, ...history] = completed
+  const rankedCount = completed.filter(m => m.isRanked).length
 
   return (
     <div className="py-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black tracking-tight">Match Centre</h1>
-          <p className="text-sm text-zinc-500">{completed.length} confirmed {completed.length === 1 ? 'match' : 'matches'}</p>
+          <p className="text-sm text-zinc-500">{rankedCount} ranked {rankedCount === 1 ? 'match' : 'matches'}</p>
         </div>
         <Link href="/matches/new" className="flex items-center gap-1.5 text-sm font-bold text-white bg-orange-500 rounded-lg px-3 py-1.5 hover:bg-orange-600 transition-colors">
           <Plus className="h-4 w-4" /> New
@@ -39,7 +41,9 @@ export default async function MatchCentrePage() {
           {needsMe.map(m => <MatchCard key={m.id} match={m} canConfirm canDelete />)}
           {waitingOnOthers.map(m => <MatchCard key={m.id} match={m} canDelete />)}
           <p className="text-[11px] text-zinc-400">
-            One opponent needs to confirm. If nobody responds within {AUTO_CONFIRM_HOURS} hours, the match confirms automatically.
+            {pendingHasGuests
+              ? <>A ranked match needs one opponent to confirm the score, and any guests to join PadelTrack. After {AUTO_CONFIRM_HOURS} hours it confirms automatically — or becomes a friendly if a guest still hasn’t joined.</>
+              : <>One opponent needs to confirm the score. If nobody responds within {AUTO_CONFIRM_HOURS} hours, it confirms automatically.</>}
           </p>
         </section>
       )}
@@ -50,7 +54,7 @@ export default async function MatchCentrePage() {
           {history.map(m => <MatchCard key={m.id} match={m} canDelete />)}
         </section>
       ) : (
-        <div className="text-center py-10 text-zinc-500 text-sm">No confirmed matches yet.</div>
+        <div className="text-center py-10 text-zinc-500 text-sm">No matches yet.</div>
       )}
     </div>
   )

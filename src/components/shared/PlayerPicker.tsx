@@ -12,15 +12,21 @@ interface Props {
   players: PlayerWithStats[]
   excludeIds?: string[]
   showRating?: boolean
+  // Heading for the quick picks, e.g. "Most played with".
+  quickLabel?: string
+  // Line under "Add … as a guest" explaining what being a guest means here.
+  guestHint?: string
   onClose: () => void
   onSelect: (player: PlayerWithStats) => void
   // Lets the parent remember newly found/created players for later picks.
   onDiscovered?: (player: PlayerWithStats) => void
 }
 
-// Choose a player: filter your quick picks, search everyone on PadelTrack, or
-// add someone new as a guest by name.
-export default function PlayerPicker({ open, title = 'Select player', players, excludeIds = [], showRating = true, onClose, onSelect, onDiscovered }: Props) {
+// Choose a player: your whole circle (registered players only, in the order
+// given), search everyone on PadelTrack, or type a name to add a guest.
+// Guests are never picked from a list — typing an existing guest's name
+// reuses them server-side.
+export default function PlayerPicker({ open, title = 'Select player', players, excludeIds = [], showRating = true, quickLabel = 'Your circle', guestHint = 'Not on PadelTrack — you can invite them to claim their profile later', onClose, onSelect, onDiscovered }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<PlayerWithStats[]>([])
   const [searching, setSearching] = useState(false)
@@ -48,10 +54,15 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
 
   const excluded = useMemo(() => new Set(excludeIds), [excludeIds])
   const q = query.trim().toLowerCase()
-  const quick = players.filter(p => !excluded.has(p.id) && (!q || p.name.toLowerCase().includes(q)))
-  const quickIds = new Set(players.map(p => p.id))
-  const found = results.filter(p => !excluded.has(p.id) && !quickIds.has(p.id))
-  const exactExists = [...players, ...results].some(p => p.name.trim().toLowerCase() === q)
+  const circle = players.filter(p => !p.isGuest)
+  const quick = circle.filter(p => !excluded.has(p.id) && (!q || p.name.toLowerCase().includes(q)))
+  const quickIds = new Set(circle.map(p => p.id))
+  const found = results.filter(p => !p.isGuest && !excluded.has(p.id) && !quickIds.has(p.id))
+  // Guests you've already played with only appear once you type their name,
+  // offered as "add as guest" so their existing profile is reused.
+  const knownGuests = q.length >= 2 ? players.filter(p => p.isGuest && !excluded.has(p.id) && p.name.toLowerCase().includes(q)) : []
+  // Offer a brand-new guest unless the name exactly matches someone already shown.
+  const exactExists = [...circle, ...results, ...knownGuests].some(p => p.name.trim().toLowerCase() === q)
 
   const pick = (p: PlayerWithStats) => {
     if (!quickIds.has(p.id)) onDiscovered?.(p)
@@ -95,14 +106,14 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
             autoFocus
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search name or email, or type a new name"
+            placeholder="Search your circle, or type a guest’s name"
             className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
           />
         </div>
 
         <div className="overflow-y-auto -mx-1 px-1 space-y-4">
           {quick.length > 0 && (
-            <Section label="Your players">
+            <Section label={quickLabel}>
               {quick.map(p => <Row key={p.id} p={p} showRating={showRating} onClick={() => pick(p)} />)}
             </Section>
           )}
@@ -115,6 +126,22 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
 
           {searching && <p className="text-xs text-zinc-400 text-center">Searching…</p>}
 
+          {knownGuests.map(g => (
+            <button
+              key={g.id}
+              onClick={() => onSelect(g)}
+              className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-orange-300 text-left hover:bg-orange-50 transition"
+            >
+              <span className="h-10 w-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ backgroundColor: g.avatarColor }}>
+                {getInitials(g.name)}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold truncate">Add “{g.name}” as a guest</span>
+                <span className="block text-[11px] text-zinc-500">Played with before · {guestHint.charAt(0).toLowerCase() + guestHint.slice(1)}</span>
+              </span>
+            </button>
+          ))}
+
           {q.length >= 1 && !exactExists && (
             <button
               onClick={addGuest}
@@ -126,7 +153,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
               </span>
               <span className="min-w-0">
                 <span className="block text-sm font-semibold truncate">Add “{query.trim()}” as a guest</span>
-                <span className="block text-[11px] text-zinc-500">Not on PadelTrack yet — you can send them an invite link later</span>
+                <span className="block text-[11px] text-zinc-500">{guestHint}</span>
               </span>
             </button>
           )}
@@ -134,7 +161,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
           {error && <p className="text-sm text-red-600 text-center">{error}</p>}
 
           {quick.length === 0 && found.length === 0 && !q && (
-            <p className="text-sm text-zinc-500 text-center py-6">Type a name to find a player or add a guest.</p>
+            <p className="text-sm text-zinc-500 text-center py-6">Your circle is empty — search for a player, or type a guest’s name.</p>
           )}
         </div>
       </div>
@@ -159,7 +186,7 @@ function Row({ p, showRating, onClick }: { p: PlayerWithStats; showRating: boole
       </span>
       <span className="flex-1 min-w-0">
         <span className="block text-sm font-semibold truncate">{p.name}</span>
-        <span className="block text-[11px] text-zinc-500">{p.isGuest ? 'Guest' : p.nickname || 'Player'}</span>
+        {p.nickname && <span className="block text-[11px] text-zinc-500">{p.nickname}</span>}
       </span>
       {showRating && <span className="font-mono text-sm font-bold text-zinc-700">{formatPTR(p.ptr)}</span>}
     </button>

@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, formatDistanceToNow } from 'date-fns'
-import { Zap, Clock, Check, X, Trash2, Timer } from 'lucide-react'
+import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle } from 'lucide-react'
 import { getInitials, getFullScore, setWinner } from '@/lib/utils'
+import InviteButton from '@/components/players/InviteButton'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 
 interface Props {
@@ -65,8 +66,13 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
   const Badges = () => (
     <div className="flex items-center gap-2">
       {pending && (
-        <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 font-semibold flex items-center gap-1">
-          <Clock className="h-2.5 w-2.5" /> AWAITING CONFIRMATION
+        <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 font-semibold flex items-center gap-1 whitespace-nowrap">
+          <Clock className="h-2.5 w-2.5" /> PENDING
+        </span>
+      )}
+      {!match.isRanked && (
+        <span className="text-[10px] bg-sky-100 text-sky-800 rounded px-1.5 py-0.5 font-semibold whitespace-nowrap" title="Doesn’t affect ratings">
+          FRIENDLY
         </span>
       )}
       {!pending && match.autoConfirmed && (
@@ -93,12 +99,48 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
 
   const Footer = () => (
     <>
-      {pending && (
-        <div className={`mt-3 flex items-center gap-1.5 text-[11px] ${featured ? 'text-zinc-400' : 'text-zinc-500'}`}>
-          <Timer className="h-3 w-3 shrink-0" />
-          {canConfirm
-            ? <>Confirms automatically in {mounted ? hoursLeft(match.autoConfirmAt) : '…'} if you don&apos;t respond</>
-            : <>Waiting for {match.awaitingConfirmationFrom?.join(' or ') || 'an opponent'} — confirms automatically in {mounted ? hoursLeft(match.autoConfirmAt) : '…'}</>}
+      {pending && (() => {
+        // Two things make a pending match ranked: the score confirmed by an
+        // opponent, and every guest joining PadelTrack.
+        const guestNames = match.guests.map(g => g.name.split(' ')[0])
+        const confirmers = match.awaitingConfirmationFrom ?? []
+        const scoreText = match.scoreConfirmed
+          ? 'Score confirmed'
+          : canConfirm
+            ? 'Waiting for you to confirm the score'
+            : confirmers.length
+              ? `Waiting for ${confirmers.join(' or ')} to confirm the score`
+              : `${guestNames.join(' or ')} confirms the score after joining`
+        const left = mounted ? hoursLeft(match.autoConfirmAt) : '…'
+        const muted = featured ? 'text-zinc-400' : 'text-zinc-500'
+        return (
+          <div className="mt-3 space-y-1.5 text-[11px]">
+            <Step done={match.scoreConfirmed} text={scoreText} muted={muted} />
+            {guestNames.length > 0 && (
+              <Step done={false} text={`Waiting for ${guestNames.join(' & ')} to join PadelTrack`} muted={muted} />
+            )}
+            {match.guests.some(g => g.claimToken) && (
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {match.guests.filter(g => g.claimToken).map(g => (
+                  <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} />
+                ))}
+              </div>
+            )}
+            <div className={`flex items-center gap-1.5 ${muted}`}>
+              <Timer className="h-3 w-3 shrink-0" />
+              {guestNames.length > 0
+                ? <>Becomes a friendly in {left} unless {guestNames.join(' & ')} {guestNames.length > 1 ? 'join' : 'joins'}</>
+                : canConfirm
+                  ? <>Confirms automatically in {left} if you don&apos;t respond</>
+                  : <>Confirms automatically in {left}</>}
+            </div>
+          </div>
+        )
+      })()}
+
+      {!pending && match.becameFriendly && (
+        <div className={`mt-3 text-[11px] ${featured ? 'text-zinc-400' : 'text-zinc-500'}`}>
+          Became a friendly — {match.guests.length ? `${match.guests.map(g => g.name.split(' ')[0]).join(' & ')} didn’t` : 'a guest didn’t'} join PadelTrack within 48 hours.
         </div>
       )}
 
@@ -137,7 +179,8 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-[11px] uppercase tracking-wider text-orange-500 font-bold">Latest match</div>
-            <div className="text-xs text-zinc-400">{mounted ? format(new Date(match.playedAt), 'EEE d MMM, HH:mm') : '\u00a0'}</div>
+            <div className="text-xs text-zinc-400">{mounted ? format(new Date(match.playedAt), new Date(match.playedAt).getFullYear() === new Date().getFullYear() ? 'EEEE d MMMM' : 'EEEE d MMMM yyyy') : '\u00a0'}</div>
+            {match.location && <div className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3" />{match.location}</div>}
           </div>
           <Badges />
         </div>
@@ -198,6 +241,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-zinc-500">
           {mounted ? formatDistanceToNow(new Date(match.playedAt), { addSuffix: true }) : '\u00a0'}
+          {match.location && <span className="inline-flex items-center gap-0.5 ml-2 text-zinc-400"><MapPin className="h-3 w-3" />{match.location}</span>}
         </span>
         <div className="flex items-center gap-2">
           {!pending && match.viewerDelta !== undefined && (
@@ -216,6 +260,15 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
       </div>
 
       <Footer />
+    </div>
+  )
+}
+
+function Step({ done, text, muted }: { done: boolean; text: string; muted: string }) {
+  return (
+    <div className={`flex items-center gap-1.5 ${done ? 'text-emerald-600' : muted}`}>
+      {done ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <Circle className="h-3 w-3 shrink-0" />}
+      {text}
     </div>
   )
 }

@@ -66,11 +66,18 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
     id: m.id,
     playedAt: m.playedAt.toISOString(),
     status: m.status as 'pending' | 'complete',
+    isRanked: m.isRanked,
     winner: m.winner as 'A' | 'B',
     recordedById: m.recordedById,
     submittedAt: m.submittedAt.toISOString(),
+    location: m.location,
     autoConfirmAt: new Date(m.submittedAt.getTime() + AUTO_CONFIRM_MS).toISOString(),
     autoConfirmed: m.autoConfirmed,
+    scoreConfirmed: !!m.scoreConfirmedAt,
+    becameFriendly: m.becameFriendly,
+    guests: [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
+      .filter(p => !p.userId)
+      .map(p => ({ id: p.id, name: p.name })),
     viewerDelta,
     teamAPlayer1Id: m.teamAPlayer1Id,
     teamAPlayer2Id: m.teamAPlayer2Id,
@@ -149,7 +156,7 @@ export async function signUp(data: {
   if (data.claimToken && (!guest || guest.userId)) return { error: 'This invite link is no longer valid' }
 
   const password = await bcrypt.hash(data.password, 10)
-  return prisma.$transaction(async tx => {
+  const result = await prisma.$transaction(async tx => {
     const user = await tx.user.create({ data: { email, password, name } })
     if (guest) {
       await tx.player.update({
@@ -164,6 +171,9 @@ export async function signUp(data: {
     }
     return { userId: user.id }
   })
+  // A claimed guest's pending matches may now be able to become ranked.
+  if (guest) await settleMatchesFor(guest.id)
+  return result
 }
 
 // An already-signed-in user claiming a guest profile. Only allowed while
@@ -184,6 +194,7 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
       data: { userId, claimToken: null, name: user?.name ?? guest.name },
     })
   })
+  await settleMatchesFor(guest.id)
   return { ok: true }
 }
 
@@ -207,11 +218,12 @@ export async function getPlayerRaw(id: string): Promise<Player | null> {
   return prisma.player.findUnique({ where: { id } })
 }
 
-// Everyone this player has shared a confirmed ranked match with — as partner
-// or opponent.
+// Everyone on PadelTrack this player has shared a ranked match with — as
+// partner or opponent. Guests can't be in a ranked match under the current
+// rules; filtering them out also guards against older data.
 export async function getCircleIds(playerId: string): Promise<string[]> {
   const matches = await prisma.match.findMany({
-    where: { status: 'complete', ...involving(playerId) },
+    where: { status: 'complete', isRanked: true, ...involving(playerId) },
     select: { teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
   })
   const ids = new Set<string>()
@@ -219,7 +231,11 @@ export async function getCircleIds(playerId: string): Promise<string[]> {
     for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) ids.add(id)
   }
   ids.delete(playerId)
-  return Array.from(ids)
+  const registered = await prisma.player.findMany({
+    where: { id: { in: Array.from(ids) }, userId: { not: null } },
+    select: { id: true },
+  })
+  return registered.map(p => p.id)
 }
 
 // The rankings view: you plus your circle, ordered by rating.
@@ -234,16 +250,27 @@ export async function getCircleRankings(playerId: string): Promise<PlayerWithSta
 }
 
 // Players a user can quickly pick when recording a match or setting up an
-// event: themselves, their circle, and the guests they've added.
+// event: themselves, their circle, guests they've added, and guests they've
+// played with.
 export async function getPickablePlayers(userId: string): Promise<PlayerWithStats[]> {
   const me = await getPlayerForUser(userId)
   const circleIds = me ? await getCircleIds(me.id) : []
+  // Guests you've played with in any match (they never join circles), so
+  // typing their name can reuse their profile.
+  const myMatches = me
+    ? await prisma.match.findMany({
+        where: involving(me.id),
+        select: { teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
+      })
+    : []
+  const playedWithIds = Array.from(new Set(myMatches.flatMap(m => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])))
   const rows = await prisma.player.findMany({
     where: {
       OR: [
         { userId },
         { id: { in: circleIds } },
         { createdById: userId, userId: null },
+        { id: { in: playedWithIds }, userId: null },
       ],
     },
     orderBy: { name: 'asc' },
@@ -253,10 +280,9 @@ export async function getPickablePlayers(userId: string): Promise<PlayerWithStat
   return [...players.filter(p => p.id === me?.id), ...players.filter(p => p.id !== me?.id)]
 }
 
-// Finds registered players by name or exact email, plus the caller's own
-// guests by name. Used by the player picker to add someone not yet in your
-// circle.
-export async function searchPlayers(query: string, userId: string): Promise<PlayerWithStats[]> {
+// Finds registered players by name or exact email. Guests are never
+// returned — they're added by typing their name (see createGuest).
+export async function searchPlayers(query: string): Promise<PlayerWithStats[]> {
   const q = query.trim()
   if (q.length < 2) return []
   const rows = await prisma.player.findMany({
@@ -264,7 +290,6 @@ export async function searchPlayers(query: string, userId: string): Promise<Play
       OR: [
         { userId: { not: null }, name: { contains: q, mode: 'insensitive' } },
         { user: { email: q.toLowerCase() } },
-        { createdById: userId, userId: null, name: { contains: q, mode: 'insensitive' } },
       ],
     },
     orderBy: { name: 'asc' },
@@ -277,6 +302,13 @@ export async function createGuest(userId: string, name: string): Promise<PlayerW
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Name is required' }
   if (trimmed.length > 40) return { error: 'Name is too long' }
+  // Typing the same guest's name again reuses their profile, so their record
+  // and invite link stay in one place instead of splitting across duplicates.
+  const existing = await prisma.player.findFirst({
+    where: { createdById: userId, userId: null, name: { equals: trimmed, mode: 'insensitive' } },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (existing) return toPlayerWithStats(existing)
   const count = await prisma.player.count()
   const p = await prisma.player.create({
     data: {
@@ -317,7 +349,9 @@ export async function getEventPlayers(ids: string[]): Promise<PlayerWithStats[]>
 // Matches
 // ---------------------------------------------------------------------------
 
-export async function getMatchesForPlayer(playerId: string): Promise<MatchWithPlayers[]> {
+// withInvites adds guests' claim tokens to pending matches so the viewer can
+// send invite links — only pass it when playerId is the signed-in viewer.
+export async function getMatchesForPlayer(playerId: string, opts?: { withInvites?: boolean }): Promise<MatchWithPlayers[]> {
   const matches = await prisma.match.findMany({
     where: involving(playerId),
     include: {
@@ -329,7 +363,13 @@ export async function getMatchesForPlayer(playerId: string): Promise<MatchWithPl
   })
   return matches.map(m => {
     const hydrated = hydrateMatch(m, m.ptrHistory[0]?.delta)
-    if (m.status === 'pending') hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
+    if (m.status === 'pending') {
+      hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
+      if (opts?.withInvites) {
+        const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p.claimToken]))
+        hydrated.guests = hydrated.guests.map(g => ({ ...g, claimToken: tokens.get(g.id) ?? undefined }))
+      }
+    }
     return hydrated
   })
 }
@@ -366,17 +406,17 @@ export async function matchPermissions(matchId: string, userId: string) {
   const recorder = await getPlayerForUser(m.recordedById)
   const recorderSide = recorder ? sideOf(m, recorder.id) : null
   return {
-    canConfirm: m.status === 'pending' && recorderSide !== null && mySide !== recorderSide,
+    canConfirm: m.status === 'pending' && !m.scoreConfirmedAt && recorderSide !== null && mySide !== recorderSide,
     canDelete: true,
   }
 }
 
-// Matches waiting for this user to confirm.
+// Matches waiting for this user to confirm the score.
 export async function getPendingForUser(userId: string): Promise<MatchWithPlayers[]> {
   const me = await getPlayerForUser(userId)
   if (!me) return []
   const pending = await prisma.match.findMany({
-    where: { status: 'pending', ...involving(me.id) },
+    where: { status: 'pending', scoreConfirmedAt: null, ...involving(me.id) },
     include: { ...MATCH_INCLUDE, recordedBy: { include: { player: true } } },
     orderBy: { playedAt: 'desc' },
   })
@@ -388,6 +428,20 @@ export async function getPendingForUser(userId: string): Promise<MatchWithPlayer
       return recorderSide !== null && sideOf(m, me.id) !== recorderSide
     })
     .map(m => hydrateMatch(m))
+}
+
+// Turns the form's calendar date into a timestamp. Today keeps the current
+// time (so same-day matches stay in the order they were entered); past days
+// are pinned to midday UTC so they land on the right day in any UK/EU
+// timezone. Allows up to 14h ahead to cover timezone differences.
+function resolvePlayedAt(playedOn: string | undefined): Date | null {
+  const now = new Date()
+  if (!playedOn) return now
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(playedOn)) return null
+  const d = new Date(`${playedOn}T12:00:00Z`)
+  if (Number.isNaN(d.getTime()) || d.getUTCFullYear() < 2000) return null
+  if (d.getTime() > now.getTime() + 14 * 3_600_000) return null
+  return playedOn === now.toISOString().slice(0, 10) || d > now ? now : d
 }
 
 function validateSets(sets: { teamAGames: number; teamBGames: number }[]): string | null {
@@ -407,8 +461,15 @@ export async function createMatch(userId: string, data: {
   teamBPlayer2Id: string
   sets: { teamAGames: number; teamBGames: number }[]
   winner: Side
-}): Promise<{ matchId: string; status: 'pending' | 'complete'; ptrDelta: number; isUpset: boolean } | { error: string }> {
+  // 'YYYY-MM-DD'. Defaults to now; past dates allowed, future dates aren't.
+  playedOn?: string
+  location?: string
+  // Friendly matches skip confirmation and never change ratings.
+  isRanked?: boolean
+}): Promise<{ matchId: string; status: 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string }[] } | { error: string }> {
   const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
+  const playedAt = resolvePlayedAt(data.playedOn)
+  if (!playedAt) return { error: 'Pick a valid date that isn’t in the future' }
   const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
   if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
   if (winner !== 'A' && winner !== 'B') return { error: 'Pick a winner' }
@@ -423,50 +484,91 @@ export async function createMatch(userId: string, data: {
   const players = await prisma.player.findMany({ where: { id: { in: ids } } })
   if (players.length !== 4) return { error: 'One or more players were not found' }
 
-  // Opponents who are on the app must confirm before ratings move. If the
-  // other team is all guests there's nobody to ask, so it counts right away.
-  const otherIds = mySide === 'A' ? [teamBPlayer1Id, teamBPlayer2Id] : [teamAPlayer1Id, teamAPlayer2Id]
-  const needsConfirmation = players.some(p => otherIds.includes(p.id) && p.userId)
+  // Ranked matches always start pending: an opponent confirms the score, and
+  // any guests have 48 hours to join PadelTrack (see finalizeIfReady and
+  // autoConfirmExpired). Friendlies are saved straight away.
+  const isRanked = data.isRanked !== false
+  const invites = isRanked
+    ? players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
+    : []
 
   return prisma.$transaction(async tx => {
     const match = await tx.match.create({
       data: {
         status: 'pending',
         winner,
+        playedAt,
+        isRanked,
+        location: data.location?.trim().slice(0, 60) || null,
         recordedById: userId,
         teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
         sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
       },
     })
-    if (needsConfirmation) return { matchId: match.id, status: 'pending' as const, ptrDelta: 0, isUpset: false }
-    const result = await applyPTR(tx, match.id)
-    return { matchId: match.id, status: 'complete' as const, ...result }
+    if (!isRanked) {
+      await tx.match.update({ where: { id: match.id }, data: { status: 'complete', confirmedAt: new Date() } })
+      return { matchId: match.id, status: 'complete' as const, ptrDelta: 0, isUpset: false, invites }
+    }
+    return { matchId: match.id, status: 'pending' as const, ptrDelta: 0, isUpset: false, invites }
   })
 }
 
-export async function confirmMatch(matchId: string, userId: string): Promise<{ ok: true; ptrDelta: number } | { error: string }> {
+// An opponent confirms the score. It becomes ranked right away if nobody in
+// it is still a guest; otherwise it waits for the guest(s) to join.
+export async function confirmMatch(matchId: string, userId: string): Promise<{ ok: true; ranked: boolean; ptrDelta: number } | { error: string }> {
   const perms = await matchPermissions(matchId, userId)
   if (!perms.canConfirm) return { error: 'You can’t confirm this match' }
-  const result = await claimAndApply(matchId, false)
-  if (!result) return { error: 'This match has already been confirmed' }
-  return { ok: true, ptrDelta: result.ptrDelta }
+  const marked = await prisma.match.updateMany({
+    where: { id: matchId, status: 'pending', scoreConfirmedAt: null },
+    data: { scoreConfirmedAt: new Date() },
+  })
+  if (marked.count === 0) return { error: 'This score has already been confirmed' }
+  const result = await finalizeIfReady(matchId)
+  return { ok: true, ranked: !!result, ptrDelta: result?.ptrDelta ?? 0 }
 }
 
-// Confirms every pending match whose 48-hour window has run out, oldest
-// first so ratings apply in the order matches were submitted. There's no
-// background job: this runs at the start of each signed-in request (see
-// getSession), which keeps it working on any host with no extra setup.
+// Makes a pending match ranked once its score is confirmed and everyone in it
+// is on PadelTrack. Safe to call any time; returns null if it isn't ready.
+async function finalizeIfReady(matchId: string): Promise<{ ptrDelta: number } | null> {
+  const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
+  if (!m || m.status !== 'pending' || !m.scoreConfirmedAt) return null
+  const everyoneJoined = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].every(p => p.userId)
+  return everyoneJoined ? claimAndApply(matchId, false) : null
+}
+
+// After a guest joins PadelTrack, any of their pending matches whose score is
+// already confirmed can now become ranked.
+async function settleMatchesFor(playerId: string): Promise<void> {
+  const pending = await prisma.match.findMany({ where: { status: 'pending', ...involving(playerId) }, select: { id: true } })
+  for (const { id } of pending) await finalizeIfReady(id)
+}
+
+// Settles every pending match whose 48-hour window has run out, oldest first
+// so ratings apply in the order matches were submitted:
+// - a guest still hasn't joined → it becomes a friendly, permanently;
+// - everyone's on PadelTrack → it confirms itself as ranked.
+// There's no background job: this runs at the start of each signed-in request
+// (see getSession), which keeps it working on any host with no extra setup.
 export async function autoConfirmExpired(): Promise<number> {
   const expired = await prisma.match.findMany({
     where: { status: 'pending', submittedAt: { lte: new Date(Date.now() - AUTO_CONFIRM_MS) } },
     orderBy: { submittedAt: 'asc' },
-    select: { id: true },
+    include: { teamAPlayer1: true, teamAPlayer2: true, teamBPlayer1: true, teamBPlayer2: true },
   })
-  let confirmed = 0
-  for (const { id } of expired) {
-    if (await claimAndApply(id, true)) confirmed++
+  let settled = 0
+  for (const m of expired) {
+    const guestLeft = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(p => !p.userId)
+    if (guestLeft) {
+      const converted = await prisma.match.updateMany({
+        where: { id: m.id, status: 'pending' },
+        data: { status: 'complete', isRanked: false, becameFriendly: true, confirmedAt: new Date() },
+      })
+      settled += converted.count
+    } else if (await claimAndApply(m.id, true)) {
+      settled++
+    }
   }
-  return confirmed
+  return settled
 }
 
 // Atomically flips a match from pending to complete and applies ratings in
@@ -494,7 +596,8 @@ export async function deleteMatch(matchId: string, userId: string): Promise<{ ok
     const match = await tx.match.findUnique({ where: { id: matchId }, include: { sets: true, ptrHistory: true } })
     if (!match) return { error: 'Match not found' }
 
-    if (match.status === 'complete') {
+    // Only confirmed ranked matches changed anyone's rating or stats.
+    if (match.status === 'complete' && match.isRanked) {
       const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
       const players = await tx.player.findMany({ where: { id: { in: ids } } })
       const byId = new Map(players.map(p => [p.id, p]))
@@ -650,14 +753,26 @@ export async function getUserName(userId: string): Promise<string | null> {
 // poll it and only re-render when it differs.
 export async function getSyncFingerprint(): Promise<string> {
   const [matches, players] = await Promise.all([
-    prisma.match.aggregate({ _count: true, _max: { submittedAt: true, confirmedAt: true } }),
+    prisma.match.aggregate({ _count: true, _max: { submittedAt: true, confirmedAt: true, scoreConfirmedAt: true } }),
     prisma.player.aggregate({ _count: true, _max: { updatedAt: true } }),
   ])
   return [
     matches._count,
     matches._max.submittedAt?.getTime() ?? 0,
     matches._max.confirmedAt?.getTime() ?? 0,
+    matches._max.scoreConfirmedAt?.getTime() ?? 0,
     players._count,
     players._max.updatedAt?.getTime() ?? 0,
   ].join('.')
+}
+
+// Places this player has recorded matches at, most recent first.
+export async function getRecentLocations(playerId: string, limit = 6): Promise<string[]> {
+  const rows = await prisma.match.findMany({
+    where: { ...involving(playerId), location: { not: null } },
+    select: { location: true },
+    orderBy: { submittedAt: 'desc' },
+    take: 50,
+  })
+  return Array.from(new Set(rows.map(r => r.location!))).slice(0, limit)
 }

@@ -1,20 +1,22 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getPlayer, getPlayerRaw, getMatchesForPlayer, getCircleRankings, canEditPlayer } from '@/lib/store'
 import { requireSession } from '@/lib/session'
-import PTRLineChart from '@/components/players/PTRLineChart'
+import ProfileStats from '@/components/players/ProfileStats'
 import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import InviteLink from '@/components/players/InviteLink'
+import MatchCard from '@/components/matches/MatchCard'
 import { getInitials, formatPTR, getWinRate } from '@/lib/utils'
-import { Trophy, Target, Zap, TrendingUp, Swords, Handshake } from 'lucide-react'
-import type { MatchWithPlayers } from '@/types'
+import { Trophy, Swords, Handshake, ChevronRight } from 'lucide-react'
+import type { MatchWithPlayers, ProfileMatch } from '@/types'
 
 export const revalidate = 0
 
 function headToHead(matches: MatchWithPlayers[], playerId: string) {
   const h2h: Record<string, { wins: number; losses: number; name: string; color: string }> = {}
   for (const m of matches) {
-    if (m.status !== 'complete') continue
+    if (m.status !== 'complete' || !m.isRanked) continue
     const onTeamA = m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId
     const opponents = onTeamA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
     const won = (onTeamA && m.winner === 'A') || (!onTeamA && m.winner === 'B')
@@ -29,12 +31,39 @@ function headToHead(matches: MatchWithPlayers[], playerId: string) {
     .sort((a, b) => b.wins + b.losses - (a.wins + a.losses))
 }
 
+// This player's confirmed matches from their side of the net, oldest first.
+function toProfileMatches(matches: MatchWithPlayers[], playerId: string): ProfileMatch[] {
+  return matches
+    .filter(m => m.status === 'complete' && m.isRanked)
+    .map(m => {
+      const onA = m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId
+      const played = m.sets.filter(s => s.teamAGames + s.teamBGames > 0)
+      const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
+      const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+      const gamesA = played.reduce((n, s) => n + s.teamAGames, 0)
+      const gamesB = played.reduce((n, s) => n + s.teamBGames, 0)
+      const opps = onA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
+      return {
+        id: m.id,
+        playedAt: m.playedAt,
+        won: m.winner === (onA ? 'A' : 'B'),
+        setsFor: onA ? setsA : setsB,
+        setsAgainst: onA ? setsB : setsA,
+        gamesFor: onA ? gamesA : gamesB,
+        gamesAgainst: onA ? gamesB : gamesA,
+        delta: m.viewerDelta ?? 0,
+        opponents: opps.map(p => p.name.split(' ')[0]).join(' & '),
+      }
+    })
+    .sort((a, b) => a.playedAt.localeCompare(b.playedAt))
+}
+
 // The viewer's record against, and alongside, this player.
 function versusMe(matches: MatchWithPlayers[], meId: string, themId: string) {
   let against = { wins: 0, losses: 0 }
   let together = { wins: 0, losses: 0 }
   for (const m of matches) {
-    if (m.status !== 'complete') continue
+    if (m.status !== 'complete' || !m.isRanked) continue
     const a = [m.teamAPlayer1Id, m.teamAPlayer2Id]
     const b = [m.teamBPlayer1Id, m.teamBPlayer2Id]
     const meSide = a.includes(meId) ? 'A' : b.includes(meId) ? 'B' : null
@@ -63,103 +92,82 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   const rank = circle.find(p => p.id === player.id)?.rank
   const lastDelta = player.ptrHistory.length > 0 ? player.ptrHistory[player.ptrHistory.length - 1].delta : 0
   const winRate = getWinRate(player.wins, player.matchesPlayed)
-  const avgGainPerWin = player.wins > 0
-    ? player.ptrHistory.filter(h => h.delta > 0).reduce((s, h) => s + h.delta, 0) / player.wins
-    : 0
-  const avgLossPerLoss = player.losses > 0
-    ? Math.abs(player.ptrHistory.filter(h => h.delta < 0).reduce((s, h) => s + h.delta, 0) / player.losses)
-    : 0
   const h2h = headToHead(matches, player.id)
   const vs = isMe ? null : versusMe(matches, session.player.id, player.id)
+  // Their latest confirmed matches. On someone else's profile the rating
+  // change shown would be theirs, not yours, so it's left off.
+  const recent = matches
+    .filter(m => m.status === 'complete' && m.isRanked)
+    .slice(0, 5)
+    .map(m => (isMe ? m : { ...m, viewerDelta: undefined }))
 
   return (
     <div className="py-6 space-y-5">
-      <div className="glass rounded-2xl p-5 flex items-start gap-4">
-        <div className="h-16 w-16 rounded-2xl flex items-center justify-center text-xl font-bold text-white shrink-0" style={{ backgroundColor: player.avatarColor }}>
-          {getInitials(player.name)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h1 className="text-xl font-black truncate">{player.name}</h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                {player.nickname && <span className="text-sm text-zinc-500">&ldquo;{player.nickname}&rdquo;</span>}
-                {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5">Guest</span>}
-                {isMe && <span className="text-[10px] font-bold text-orange-600 bg-orange-100 rounded px-1.5 py-0.5">YOU</span>}
-              </div>
+      <div className="glass rounded-2xl p-4">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0" style={{ backgroundColor: player.avatarColor }}>
+            {getInitials(player.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-lg font-black truncate">{player.name}</h1>
+              {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">Guest</span>}
+              {isMe && <span className="text-[10px] font-bold text-orange-600 bg-orange-100 rounded px-1.5 py-0.5 shrink-0">YOU</span>}
             </div>
-            <div className="text-right">
-              <div className="font-mono font-black text-2xl text-zinc-900">{formatPTR(player.ptr)}</div>
-              <PTRBadge delta={lastDelta} />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+              {player.nickname && <span>&ldquo;{player.nickname}&rdquo;</span>}
+              {rank && <span className="flex items-center gap-1"><Trophy className="h-3 w-3 text-orange-500" /> #{rank} in your circle</span>}
+              <span>{player.wins}W–{player.losses}L</span>
+              <span>{winRate}% wins</span>
             </div>
           </div>
-          <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
-            {rank && <span className="flex items-center gap-1"><Trophy className="h-3 w-3 text-orange-500" /> #{rank} in your circle</span>}
-            <span>{player.wins}W–{player.losses}L</span>
-            <span>{winRate}% wins</span>
+          <div className="text-right shrink-0">
+            <div className="font-mono font-black text-xl text-zinc-900 leading-tight">{formatPTR(player.ptr)}</div>
+            <PTRBadge delta={lastDelta} size="sm" />
           </div>
-          {canEdit && (
-            <div className="mt-3">
-              <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} />
-            </div>
-          )}
         </div>
+        {canEdit && (
+          <div className="mt-3">
+            <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} />
+          </div>
+        )}
       </div>
 
       {player.isGuest && canEdit && raw.claimToken && <InviteLink token={raw.claimToken} name={player.name} />}
 
       {vs && (
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-zinc-900 text-white p-4">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-400 mb-1">
-              <Swords className="h-3.5 w-3.5 text-orange-500" /> You vs {player.name.split(' ')[0]}
-            </div>
-            <div className="font-mono font-black text-2xl">
-              <span className="text-orange-500">{vs.against.wins}</span>
-              <span className="text-zinc-500 mx-1">–</span>
-              {vs.against.losses}
-            </div>
-          </div>
-          <div className="glass rounded-xl p-4">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-500 mb-1">
-              <Handshake className="h-3.5 w-3.5" /> As partners
-            </div>
-            <div className="font-mono font-black text-2xl">
-              {vs.together.wins}<span className="text-zinc-400 mx-1">–</span>{vs.together.losses}
-            </div>
-          </div>
+          {[
+            { label: `You vs ${player.name.split(' ')[0]}`, icon: Swords, record: vs.against, view: 'against' },
+            { label: 'As partners', icon: Handshake, record: vs.together, view: 'partners' },
+          ].map(({ label, icon: Icon, record, view }) => (
+            <Link key={label} href={`/players/${player.id}/vs?view=${view}`} className="group rounded-xl bg-zinc-900 text-white p-4 hover:bg-zinc-800 transition-colors">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-zinc-400 mb-1">
+                <Icon className="h-3.5 w-3.5 text-orange-500" /> <span className="flex-1">{label}</span>
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-500 group-hover:text-white transition-colors" />
+              </div>
+              <div className="font-mono font-black text-2xl">
+                <span className="text-orange-500">{record.wins}W</span>
+                <span className="text-zinc-500 mx-1.5">–</span>
+                {record.losses}L
+              </div>
+            </Link>
+          ))}
         </div>
       )}
 
-      <div className="glass rounded-xl p-4">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-orange-500" />
-          Rating history
-        </h2>
-        <PTRLineChart history={player.ptrHistory} color="#f97316" />
-      </div>
+      <ProfileStats matches={toProfileMatches(matches, player.id)} currentRating={player.ptr} />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {[
-          { label: 'Win rate', value: `${winRate}%`, icon: Target },
-          { label: 'Best streak', value: `${player.bestStreak}W`, icon: Zap },
-          { label: 'Avg gain / win', value: `+${avgGainPerWin.toFixed(1)}`, icon: TrendingUp },
-          { label: 'Avg loss / defeat', value: `-${avgLossPerLoss.toFixed(1)}`, icon: Trophy },
-          { label: 'Sets', value: `${player.setsWon}–${player.setsLost}`, icon: Target },
-          { label: 'Games', value: `${player.gamesWon}–${player.gamesLost}`, icon: Zap },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="glass rounded-xl p-3">
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 mb-1">
-              <Icon className="h-3 w-3" /> {label}
-            </div>
-            <div className="font-mono font-bold text-lg">{value}</div>
-          </div>
-        ))}
-      </div>
+      {recent.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold">{isMe ? 'Your recent ranked matches' : `${player.name.split(' ')[0]}’s recent ranked matches`}</h2>
+          {recent.map(m => <MatchCard key={m.id} match={m} canDelete={isMe} />)}
+        </section>
+      )}
 
       {h2h.length > 0 && (
         <div className="glass rounded-xl p-4">
-          <h2 className="text-sm font-semibold mb-3">Head-to-head</h2>
+          <h2 className="text-sm font-semibold mb-3 flex items-center justify-between">Head-to-head <span className="text-[11px] font-medium text-zinc-400">All time</span></h2>
           <div className="space-y-2">
             {h2h.map(opp => (
               <div key={opp.id} className="flex items-center gap-3">
