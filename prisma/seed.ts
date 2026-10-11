@@ -5,9 +5,9 @@ import { randomBytes } from 'crypto'
 // Local demo data: a few accounts plus one guest. Refuses to run against
 // anything but a localhost database, since every demo account shares the
 // same throwaway password.
-const url = process.env.POSTGRES_PRISMA_URL ?? ''
+const url = process.env.storage_POSTGRES_PRISMA_URL ?? ''
 if (!/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
-  console.error('Refusing to seed: POSTGRES_PRISMA_URL is not a localhost database.')
+  console.error('Refusing to seed: storage_POSTGRES_PRISMA_URL is not a localhost database.')
   process.exit(1)
 }
 

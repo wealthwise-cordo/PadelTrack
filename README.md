@@ -18,13 +18,13 @@ npm run db:seed             # demo accounts (refuses to run on a non-localhost D
 npm run dev
 ```
 
-`.env` needs `POSTGRES_PRISMA_URL`, `DATABASE_URL_UNPOOLED`, `NEXTAUTH_URL` and `NEXTAUTH_SECRET` (see `.env.example`).
+`.env` needs `storage_POSTGRES_PRISMA_URL`, `storage_DATABASE_URL_UNPOOLED`, `NEXTAUTH_URL` and `NEXTAUTH_SECRET` (see `.env.example`).
 
 ## Going live
 
 Everything that's shared between users depends on a real hosted Postgres database: accounts, circles, match confirmations, and events that several people see and score live. Until it's connected, the deployed site loads but every data page will error.
 
-1. **Database:** a separate Neon Postgres project connected through Vercel → Storage. Don't reuse the padeltourspain2026 database. Neon provides `POSTGRES_PRISMA_URL` (pooled, used by the app) and `DATABASE_URL_UNPOOLED` (direct, used for migrations).
+1. **Database:** a separate Neon Postgres project connected through Vercel → Storage. Don't reuse the padeltourspain2026 database. Neon provides `storage_POSTGRES_PRISMA_URL` (pooled, used by the app) and `storage_DATABASE_URL_UNPOOLED` (direct, used for migrations).
 2. **Sign-in secret:** set `NEXTAUTH_SECRET` for Production with `openssl rand -base64 32 | tr -d '\n' | npx vercel env add NEXTAUTH_SECRET production`. Leave `NEXTAUTH_URL` unset: on Vercel the site address comes from each request, so preview deployments sign in on their own URL.
 3. **Tables are created on deploy.** Production builds run `prisma migrate deploy`, which applies any new files in `prisma/migrations/`. It never drops data by itself; a destructive change makes the deploy fail instead. Preview builds skip migrations because they currently share the production database.
 4. **Don't run `npm run db:seed` in production.** It's demo data only and refuses non-localhost databases anyway.
