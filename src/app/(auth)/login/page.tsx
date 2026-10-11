@@ -4,7 +4,8 @@ import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import AuthShell, { inputClass, primaryButtonClass } from '@/components/shared/AuthShell'
+import AuthShell, { primaryButtonClass } from '@/components/shared/AuthShell'
+import { EmailField, PasswordField } from '@/components/shared/AuthFields'
 
 export default function LoginPage() {
   return (
@@ -38,15 +39,9 @@ function LoginForm() {
 
   return (
     <AuthShell subtitle="Sign in to see your rankings">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="text-xs font-medium text-zinc-600 block mb-1.5">Email</label>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className={inputClass} />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-zinc-600 block mb-1.5">Password</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" className={inputClass} />
-        </div>
+      <form onSubmit={handleSubmit} method="post" className="space-y-4">
+        <EmailField value={email} onChange={setEmail} purpose="sign-in" />
+        <PasswordField value={password} onChange={setPassword} purpose="current" />
         {error && <p className="text-sm text-red-600 text-center">{error}</p>}
         <button type="submit" disabled={loading} className={primaryButtonClass}>
           {loading ? 'Signing in…' : 'Sign in'}

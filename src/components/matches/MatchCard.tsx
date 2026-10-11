@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, formatDistanceToNow } from 'date-fns'
 import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle } from 'lucide-react'
-import { getInitials, getFullScore, setWinner } from '@/lib/utils'
+import { getInitials, getFullScore, setWinner, formatRatingDelta } from '@/lib/utils'
 import InviteButton from '@/components/players/InviteButton'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 
@@ -216,7 +216,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
           <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-sm">
             <span className="text-zinc-400">Your rating</span>
             <span className={`font-mono font-bold ${match.viewerDelta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {match.viewerDelta >= 0 ? '+' : ''}{match.viewerDelta.toFixed(1)}
+              {formatRatingDelta(match.viewerDelta)}
             </span>
           </div>
         )}
@@ -246,7 +246,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
         <div className="flex items-center gap-2">
           {!pending && match.viewerDelta !== undefined && (
             <span className={`text-[11px] font-mono font-bold ${match.viewerDelta >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-              {match.viewerDelta >= 0 ? '+' : ''}{match.viewerDelta.toFixed(1)}
+              {formatRatingDelta(match.viewerDelta)}
             </span>
           )}
           <Badges />

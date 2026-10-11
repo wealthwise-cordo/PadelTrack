@@ -15,9 +15,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
-  const { name } = await req.json().catch(() => ({}))
+  const { name, suggestedLevel } = await req.json().catch(() => ({}))
   if (typeof name !== 'string') return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-  const result = await createGuest(session.userId, name)
+  const result = await createGuest(session.userId, name, typeof suggestedLevel === 'number' ? suggestedLevel : undefined)
   if ('error' in result) return NextResponse.json(result, { status: 400 })
   return NextResponse.json(result)
 }

@@ -2,6 +2,8 @@ import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { prisma } from './prisma'
 import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
+import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
+import { isCountryCode } from './countries'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -134,20 +136,31 @@ export async function getPlayerForUser(userId: string): Promise<Player | null> {
   return prisma.player.findUnique({ where: { userId } })
 }
 
-// Creates an account and its player profile. With a claimToken, the new
-// account takes over that guest profile (rating and match history included)
-// instead of starting fresh at 1000.
+// Creates an account and its player profile, rated from the LTA level the
+// person picked. With a claimToken, the new account takes over that guest
+// profile: the guest's rating starts from the lower of their own pick and the
+// level whoever added them suggested, then any of their pending matches that
+// are ready become ranked on top of it.
 export async function signUp(data: {
   name: string
   email: string
   password: string
+  level: number
   claimToken?: string
+  // Required on direct sign-up; not asked when claiming a guest invite.
+  gender?: string
+  dateOfBirth?: string // YYYY-MM-DD
+  country?: string // ISO 3166-1 alpha-2
 }): Promise<{ userId: string } | { error: string }> {
   const name = data.name.trim()
   const email = data.email.trim().toLowerCase()
   if (!name) return { error: 'Name is required' }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Enter a valid email' }
   if (data.password.length < 8) return { error: 'Password must be at least 8 characters' }
+  if (data.password.length > 72) return { error: 'Password must be 72 characters or fewer' }
+  if (!isLtaLevel(data.level)) return { error: 'Pick the level that best describes you' }
+  const profile = validateProfileDetails(data, !data.claimToken)
+  if ('error' in profile) return profile
   if (await findUserByEmail(email)) return { error: 'An account with that email already exists' }
 
   const guest = data.claimToken
@@ -157,16 +170,31 @@ export async function signUp(data: {
 
   const password = await bcrypt.hash(data.password, 10)
   const result = await prisma.$transaction(async tx => {
-    const user = await tx.user.create({ data: { email, password, name } })
+    const user = await tx.user.create({ data: { email, password, name, ...profile } })
     if (guest) {
+      // Guests have no rating until they join. (Older guests who already
+      // have ranked matches keep the rating they earned.)
+      const start = startingLevelFor(data.level, guest.suggestedLevel)
       await tx.player.update({
         where: { id: guest.id },
-        data: { userId: user.id, name, claimToken: null },
+        data: {
+          userId: user.id,
+          name,
+          claimToken: null,
+          startingLevel: start,
+          ...(guest.matchesPlayed === 0 && { ptr: internalFromLevel(start) }),
+        },
       })
     } else {
       const count = await tx.player.count()
       await tx.player.create({
-        data: { name, userId: user.id, avatarColor: AVATAR_COLORS[count % AVATAR_COLORS.length] },
+        data: {
+          name,
+          userId: user.id,
+          avatarColor: AVATAR_COLORS[count % AVATAR_COLORS.length],
+          startingLevel: data.level,
+          ptr: internalFromLevel(data.level),
+        },
       })
     }
     return { userId: user.id }
@@ -174,6 +202,39 @@ export async function signUp(data: {
   // A claimed guest's pending matches may now be able to become ranked.
   if (guest) await settleMatchesFor(guest.id)
   return result
+}
+
+const GENDERS = ['male', 'female', 'other']
+
+// Gender, date of birth and country. Required when `required`; otherwise
+// accepted if given.
+function validateProfileDetails(
+  data: { gender?: string; dateOfBirth?: string; country?: string },
+  required: boolean,
+): { gender?: string; dateOfBirth?: Date; country?: string } | { error: string } {
+  const out: { gender?: string; dateOfBirth?: Date; country?: string } = {}
+  if (data.gender || required) {
+    if (!data.gender || !GENDERS.includes(data.gender)) return { error: 'Choose your gender' }
+    out.gender = data.gender
+  }
+  if (data.dateOfBirth || required) {
+    const ok = !!data.dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(data.dateOfBirth)
+    const dob = ok ? new Date(`${data.dateOfBirth}T00:00:00Z`) : null
+    const age = dob ? (Date.now() - dob.getTime()) / (365.25 * 24 * 3600 * 1000) : NaN
+    if (!dob || Number.isNaN(age) || age < 5 || age > 110) return { error: 'Enter a valid date of birth' }
+    out.dateOfBirth = dob
+  }
+  if (data.country || required) {
+    if (!isCountryCode(data.country)) return { error: 'Choose your country' }
+    out.country = data.country
+  }
+  return out
+}
+
+// When a guest joins, they start at the lower of their own pick and the
+// level suggested by whoever added them.
+function startingLevelFor(ownPick: number, suggested: number | null): number {
+  return suggested !== null ? Math.min(ownPick, suggested) : ownPick
 }
 
 // An already-signed-in user claiming a guest profile. Only allowed while
@@ -191,7 +252,17 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
     if (own) await tx.player.delete({ where: { id: own.id } })
     await tx.player.update({
       where: { id: guest.id },
-      data: { userId, claimToken: null, name: user?.name ?? guest.name },
+      data: {
+        userId,
+        claimToken: null,
+        name: user?.name ?? guest.name,
+        // They already picked a level for their own profile; it carries over,
+        // capped by the level whoever added them suggested.
+        ...(own && guest.matchesPlayed === 0 && (() => {
+          const start = startingLevelFor(own.startingLevel ?? levelFromInternal(own.ptr), guest.suggestedLevel)
+          return { ptr: internalFromLevel(start), startingLevel: start }
+        })()),
+      },
     })
   })
   await settleMatchesFor(guest.id)
@@ -298,7 +369,7 @@ export async function searchPlayers(query: string): Promise<PlayerWithStats[]> {
   return rows.map(p => toPlayerWithStats(p))
 }
 
-export async function createGuest(userId: string, name: string): Promise<PlayerWithStats | { error: string }> {
+export async function createGuest(userId: string, name: string, suggestedLevel?: number): Promise<PlayerWithStats | { error: string }> {
   const trimmed = name.trim()
   if (!trimmed) return { error: 'Name is required' }
   if (trimmed.length > 40) return { error: 'Name is too long' }
@@ -315,6 +386,7 @@ export async function createGuest(userId: string, name: string): Promise<PlayerW
       name: trimmed,
       createdById: userId,
       claimToken: newClaimToken(),
+      suggestedLevel: isLtaLevel(suggestedLevel) ? suggestedLevel : null,
       avatarColor: AVATAR_COLORS[count % AVATAR_COLORS.length],
     },
   })

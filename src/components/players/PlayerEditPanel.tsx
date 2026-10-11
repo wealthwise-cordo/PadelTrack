@@ -100,7 +100,7 @@ export default function PlayerEditPanel({ playerId, name, nickname, avatarColor 
           {/* Nickname */}
           <div>
             <div className="text-xs text-muted-foreground mb-1.5">Nickname</div>
-            <input
+            <input autoComplete="off"
               value={nick}
               onChange={e => setNick(e.target.value)}
               maxLength={30}

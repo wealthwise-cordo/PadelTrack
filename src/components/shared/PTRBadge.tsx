@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { levelDelta } from '@/lib/lta'
 
 interface Props {
   delta: number
@@ -24,7 +25,7 @@ export default function PTRBadge({ delta, size = 'md', className }: Props) {
       )}
     >
       {isUp ? '▲' : isNeutral ? '—' : '▼'}
-      {isNeutral ? '0' : `${Math.abs(delta).toFixed(1)}`}
+      {isNeutral ? '0.00' : `${Math.abs(levelDelta(delta)).toFixed(2)}`}
     </span>
   )
 }

@@ -1,28 +1,51 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { inputClass, primaryButtonClass } from '@/components/shared/AuthShell'
+import { primaryButtonClass } from '@/components/shared/AuthShell'
+import { NameField, EmailField, PasswordField, GenderField, DateOfBirthField, CountryField } from '@/components/shared/AuthFields'
+import { COUNTRIES } from '@/lib/countries'
+import LevelPicker from '@/components/shared/LevelPicker'
 
-// Creates an account and signs straight in. With claimToken, the account
-// takes over that guest profile.
-export default function SignUpForm({ claimToken, defaultName = '' }: { claimToken?: string; defaultName?: string }) {
+// Creates an account and signs straight in. The LTA level picked here sets
+// the starting rating. With claimToken, the account takes over that guest
+// profile; suggestedLevel (from whoever added them) is pre-selected, and the
+// server starts them at the lower of the two.
+export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean }) {
   const router = useRouter()
   const [name, setName] = useState(defaultName)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [level, setLevel] = useState<number | null>(suggestedLevel)
+  // Direct sign-up only: gender, date of birth and country.
+  const [gender, setGender] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [country, setCountry] = useState('')
+  const [today, setToday] = useState('')
+  useEffect(() => {
+    const d = new Date()
+    setToday(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+  }, [])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (collectProfile && !gender) {
+      setError('Choose your gender')
+      return
+    }
+    if (level === null) {
+      setError('Pick the level that best describes you')
+      return
+    }
     setLoading(true)
     setError('')
     const res = await fetch('/api/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, claimToken }),
+      body: JSON.stringify({ name, email, password, level, claimToken, ...(collectProfile && { gender, dateOfBirth, country }) }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -40,20 +63,24 @@ export default function SignUpForm({ claimToken, defaultName = '' }: { claimToke
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="text-xs font-medium text-zinc-600 block mb-1.5">Name</label>
-        <input value={name} onChange={e => setName(e.target.value)} required maxLength={40} autoComplete="name" className={inputClass} />
-      </div>
-      <div>
-        <label className="text-xs font-medium text-zinc-600 block mb-1.5">Email</label>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className={inputClass} />
-      </div>
-      <div>
-        <label className="text-xs font-medium text-zinc-600 block mb-1.5">Password</label>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" className={inputClass} />
-        <p className="text-[11px] text-muted-foreground mt-1">At least 8 characters</p>
-      </div>
+    <form onSubmit={handleSubmit} method="post" className="space-y-4">
+      <NameField value={name} onChange={setName} />
+      <EmailField value={email} onChange={setEmail} purpose="sign-up" />
+      <PasswordField value={password} onChange={setPassword} purpose="new" />
+      {collectProfile && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <GenderField value={gender} onChange={v => { setGender(v); setError('') }} />
+            <DateOfBirthField value={dateOfBirth} onChange={setDateOfBirth} max={today} />
+          </div>
+          <CountryField value={country} onChange={setCountry} countries={COUNTRIES} />
+        </>
+      )}
+      <LevelPicker
+        value={level}
+        onChange={l => { setLevel(l); setError('') }}
+        hint="Based on the LTA Padel Rating System — this may be the same as an existing rating you have on Playtomic or similar"
+      />
       {error && <p className="text-sm text-red-600 text-center">{error}</p>}
       <button type="submit" disabled={loading} className={primaryButtonClass}>
         {loading ? 'Creating account…' : claimToken ? 'Create account & claim profile' : 'Create account'}

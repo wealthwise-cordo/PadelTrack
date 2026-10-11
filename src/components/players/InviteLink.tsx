@@ -28,7 +28,7 @@ export default function InviteLink({ token, name }: { token: string; name: strin
         </p>
       </div>
       <div className="flex gap-2">
-        <input readOnly value={url} onFocus={e => e.target.select()} className="flex-1 min-w-0 bg-white border border-zinc-200 rounded-lg px-3 py-2 text-xs font-mono text-zinc-700" />
+        <input autoComplete="off" readOnly value={url} onFocus={e => e.target.select()} className="flex-1 min-w-0 bg-white border border-zinc-200 rounded-lg px-3 py-2 text-xs font-mono text-zinc-700" />
         <button onClick={copy} className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-bold bg-zinc-900 text-white hover:bg-zinc-800 shrink-0">
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? 'Copied' : 'Copy'}

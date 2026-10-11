@@ -3,7 +3,7 @@ import { Flame, TrendingUp, TrendingDown, Users, Plus } from 'lucide-react'
 import LeaderboardTable from '@/components/leaderboard/LeaderboardTable'
 import { getCircleRankings } from '@/lib/store'
 import { requireSession } from '@/lib/session'
-import { getInitials } from '@/lib/utils'
+import { getInitials, formatRating, formatRatingDelta } from '@/lib/utils'
 import type { PlayerWithStats } from '@/types'
 
 export const revalidate = 0
@@ -39,7 +39,7 @@ export default async function RankingsPage() {
         <div className="h-10 w-px bg-white/10" />
         <div className="flex-1 min-w-0">
           <div className="text-[11px] uppercase tracking-wider text-zinc-400">Your rating</div>
-          <div className="text-3xl font-black font-mono">{Math.round(me.ptr).toLocaleString()}</div>
+          <div className="text-3xl font-black font-mono">{formatRating(me.ptr)}</div>
         </div>
         <div className="text-right text-sm text-zinc-300">
           <div><span className="font-bold text-white">{me.wins}</span>W · <span className="font-bold text-white">{me.losses}</span>L</div>
@@ -73,7 +73,7 @@ export default async function RankingsPage() {
               icon={moverDelta >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
               tone={moverDelta >= 0 ? 'text-emerald-700' : 'text-red-600'}
               player={mover}
-              value={`${moverDelta > 0 ? '+' : ''}${moverDelta.toFixed(1)} last match`}
+              value={`${formatRatingDelta(moverDelta)} last match`}
             />
           </div>
           <LeaderboardTable players={players} meId={me.id} />

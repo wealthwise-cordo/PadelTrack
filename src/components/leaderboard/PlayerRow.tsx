@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Trophy, Flame } from 'lucide-react'
 import PTRBadge from '@/components/shared/PTRBadge'
 import SparklineChart from './SparklineChart'
-import { getInitials, formatPTR, getWinRate } from '@/lib/utils'
+import { getInitials, formatRating, getWinRate } from '@/lib/utils'
 import type { PlayerWithStats } from '@/types'
 
 interface Props {
@@ -61,7 +61,7 @@ export default function PlayerRow({ player, index, isMostInForm, isMe }: Props) 
         {/* PTR */}
         <div className="text-right shrink-0">
           <div className="font-mono font-bold text-base text-zinc-900">
-            {formatPTR(player.ptr)}
+            {formatRating(player.ptr)}
           </div>
           <PTRBadge delta={player.ptrDelta ?? 0} size="sm" />
         </div>

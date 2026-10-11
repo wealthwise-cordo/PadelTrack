@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { TrendingUp, Target, Zap, Trophy, Swords, Activity } from 'lucide-react'
 import PTRLineChart, { type RatingPoint } from '@/components/players/PTRLineChart'
-import { getWinRate } from '@/lib/utils'
+import { getWinRate, formatRatingDelta } from '@/lib/utils'
 import type { ProfileMatch } from '@/types'
 
 type Range = 'last5' | 'last10' | 'ytd' | 'all'
@@ -73,9 +73,9 @@ export default function ProfileStats({ matches, currentRating }: { matches: Prof
     { label: 'Sets', value: `${sum('setsFor')}–${sum('setsAgainst')}`, icon: Target },
     { label: 'Games', value: `${sum('gamesFor')}–${sum('gamesAgainst')}`, icon: Zap },
     { label: 'Best streak', value: `${bestStreak}W`, icon: Zap },
-    { label: 'Rating change', value: `${net > 0 ? '+' : ''}${net.toFixed(1)}`, icon: Activity, tone: net > 0 ? 'text-emerald-700' : net < 0 ? 'text-red-600' : '' },
-    { label: 'Avg gain / win', value: `+${avgGain.toFixed(1)}`, icon: TrendingUp },
-    { label: 'Avg loss / defeat', value: `-${avgDrop.toFixed(1)}`, icon: Trophy },
+    { label: 'Rating change', value: formatRatingDelta(net), icon: Activity, tone: net > 0 ? 'text-emerald-700' : net < 0 ? 'text-red-600' : '' },
+    { label: 'Avg gain / win', value: formatRatingDelta(avgGain), icon: TrendingUp },
+    { label: 'Avg loss / defeat', value: formatRatingDelta(-avgDrop), icon: Trophy },
   ]
 
   return (

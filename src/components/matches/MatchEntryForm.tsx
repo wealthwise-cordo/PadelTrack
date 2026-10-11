@@ -284,7 +284,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             <CalendarDays className="h-4 w-4 text-orange-500" />
             {today ? dateLabel(playedOn, today) : 'Today'}
             <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
-            <input
+            <input autoComplete="off"
               type="date"
               value={playedOn}
               max={today}
@@ -306,7 +306,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
         {editingLocation && (
           <div className="glass rounded-2xl p-3 space-y-2">
             <div className="flex gap-2">
-              <input
+              <input autoComplete="off"
                 autoFocus
                 value={location}
                 onChange={e => setLocation(e.target.value.slice(0, 60))}
@@ -462,6 +462,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
         players={players}
         excludeIds={slots.filter(Boolean)}
         guestHint="Not on PadelTrack — for a ranked match they need to join within 48 hours, or it becomes a friendly"
+        askGuestLevel
         onClose={() => setPickTarget(null)}
         onSelect={p => { if (pickTarget !== null) fill(p, pickTarget); setPickTarget(null) }}
         onDiscovered={p => setPlayers(prev => prev.some(x => x.id === p.id) ? prev : [...prev, p])}

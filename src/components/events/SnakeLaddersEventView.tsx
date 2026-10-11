@@ -240,7 +240,7 @@ function CourtCard({
 
       <div className="flex items-center gap-3">
         <TeamPill p1={match.teamAPlayer1Id} p2={match.teamAPlayer2Id} byId={byId} />
-        <input
+        <input autoComplete="off"
           inputMode="numeric"
           pattern="[0-9]*"
           value={teamAScore}
@@ -252,7 +252,7 @@ function CourtCard({
       </div>
       <div className="flex items-center gap-3">
         <TeamPill p1={match.teamBPlayer1Id} p2={match.teamBPlayer2Id} byId={byId} />
-        <input
+        <input autoComplete="off"
           inputMode="numeric"
           pattern="[0-9]*"
           value={teamBScore}

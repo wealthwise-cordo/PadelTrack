@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'crypto'
+import { internalFromLevel } from '../src/lib/lta'
 
 // Local demo data: a few accounts plus one guest. Refuses to run against
 // anything but a localhost database, since every demo account shares the
@@ -15,23 +16,23 @@ const prisma = new PrismaClient()
 const DEMO_PASSWORD = 'padeltrack-demo'
 
 const USERS = [
-  { name: 'Cord van Eck', color: '#f97316' },
-  { name: 'JonJon Clark', color: '#3f3f46' },
-  { name: 'Zac Schmidt', color: '#0ea5e9' },
-  { name: 'Brandon Fair', color: '#8b5cf6' },
+  { name: 'Cord van Eck', color: '#f97316', level: 4.0 },
+  { name: 'JonJon Clark', color: '#3f3f46', level: 3.5 },
+  { name: 'Zac Schmidt', color: '#0ea5e9', level: 3.0 },
+  { name: 'Brandon Fair', color: '#8b5cf6', level: 4.5 },
 ]
 
 async function main() {
   console.log('Seeding demo data…')
   const password = await bcrypt.hash(DEMO_PASSWORD, 10)
 
-  for (const { name, color } of USERS) {
+  for (const { name, color, level } of USERS) {
     const email = name.toLowerCase().replace(/ /g, '.') + '@demo.padeltrack'
     const user = await prisma.user.upsert({ where: { email }, update: {}, create: { email, password, name } })
     await prisma.player.upsert({
       where: { userId: user.id },
       update: {},
-      create: { name, avatarColor: color, userId: user.id },
+      create: { name, avatarColor: color, userId: user.id, startingLevel: level, ptr: internalFromLevel(level) },
     })
     console.log(`  ✓ ${email}`)
   }
@@ -39,7 +40,7 @@ async function main() {
   const owner = await prisma.user.findFirstOrThrow({ where: { email: 'cord.van.eck@demo.padeltrack' } })
   if (!(await prisma.player.findFirst({ where: { name: 'Ashley Butler', userId: null } }))) {
     await prisma.player.create({
-      data: { name: 'Ashley Butler', avatarColor: '#10b981', createdById: owner.id, claimToken: randomBytes(16).toString('base64url') },
+      data: { name: 'Ashley Butler', avatarColor: '#10b981', createdById: owner.id, claimToken: randomBytes(16).toString('base64url'), suggestedLevel: 3.5 },
     })
     console.log('  ✓ guest Ashley Butler')
   }

@@ -25,6 +25,6 @@ export default function AuthShell({ subtitle, children }: { subtitle: string; ch
 }
 
 export const inputClass =
-  'w-full bg-white border border-zinc-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition'
+  'w-full bg-white border border-zinc-300 rounded-xl px-4 py-3 text-base focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 transition'
 export const primaryButtonClass =
   'w-full py-3 rounded-xl font-bold text-sm bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 transition'

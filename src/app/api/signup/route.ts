@@ -10,6 +10,10 @@ export async function POST(req: NextRequest) {
     name: body.name,
     email: body.email,
     password: body.password,
+    level: body.level,
+    gender: typeof body.gender === 'string' ? body.gender : undefined,
+    dateOfBirth: typeof body.dateOfBirth === 'string' ? body.dateOfBirth : undefined,
+    country: typeof body.country === 'string' ? body.country : undefined,
     claimToken: typeof body.claimToken === 'string' ? body.claimToken : undefined,
   })
   if ('error' in result) return NextResponse.json(result, { status: 400 })

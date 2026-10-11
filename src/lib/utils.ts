@@ -1,17 +1,23 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { levelFromInternal, levelDelta } from '@/lib/lta'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatPTR(ptr: number): string {
-  return Math.round(ptr).toLocaleString()
+// Ratings are stored on the engine's internal scale and shown on the LTA
+// 1.0–7.0 scale (see lib/lta.ts), to two decimals so match-by-match movement
+// is visible.
+export function formatRating(internal: number): string {
+  return levelFromInternal(internal).toFixed(2)
 }
 
-export function formatDelta(delta: number): string {
-  if (delta > 0) return `+${delta.toFixed(1)}`
-  return delta.toFixed(1)
+// An internal rating change shown in LTA levels, e.g. "+0.12".
+export function formatRatingDelta(internalDelta: number): string {
+  const d = levelDelta(internalDelta)
+  const rounded = Math.abs(d) < 0.005 ? 0 : d
+  return `${rounded > 0 ? '+' : rounded < 0 ? '−' : '±'}${Math.abs(rounded).toFixed(2)}`
 }
 
 export function getStreakLabel(streak: number): string {

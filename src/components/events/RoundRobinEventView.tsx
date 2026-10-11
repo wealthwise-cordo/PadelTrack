@@ -160,7 +160,7 @@ export default function RoundRobinEventView({ event, players }: Props) {
 
           <div className="flex items-center gap-3">
             <TeamPill p1={current.teamAPlayer1Id} p2={current.teamAPlayer2Id} />
-            <input
+            <input autoComplete="off"
               inputMode="numeric"
               pattern="[0-9]*"
               value={teamAScore}
@@ -172,7 +172,7 @@ export default function RoundRobinEventView({ event, players }: Props) {
           </div>
           <div className="flex items-center gap-3">
             <TeamPill p1={current.teamBPlayer1Id} p2={current.teamBPlayer2Id} />
-            <input
+            <input autoComplete="off"
               inputMode="numeric"
               pattern="[0-9]*"
               value={teamBScore}

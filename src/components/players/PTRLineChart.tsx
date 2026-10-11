@@ -3,6 +3,7 @@
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
+import { levelFromInternal, levelDelta } from '@/lib/lta'
 import { curveCardinal } from 'victory-vendor/d3-shape'
 
 // Tension 0 is fully rounded, 1 is straight lines between matches.
@@ -15,13 +16,20 @@ export interface RatingPoint {
 }
 
 interface Props {
+  // Ratings and deltas on the engine's internal scale; plotted as LTA levels.
   points: RatingPoint[]
   color: string
-  baseline?: number
 }
 
-export default function PTRLineChart({ points, color, baseline = 1000 }: Props) {
-  const data = points.map((p, i) => ({ ...p, i, rating: Math.round(p.rating) }))
+export default function PTRLineChart({ points, color }: Props) {
+  const data = points.map((p, i) => ({
+    ...p,
+    i,
+    rating: Number(levelFromInternal(p.rating).toFixed(2)),
+    delta: p.delta === undefined ? undefined : levelDelta(p.delta),
+  }))
+  // Dashed guide at where this period started.
+  const baseline = data[0]?.rating
 
   return (
     <ResponsiveContainer width="100%" height={200}>
@@ -34,19 +42,20 @@ export default function PTRLineChart({ points, color, baseline = 1000 }: Props) 
           tickLine={false}
           axisLine={false}
           domain={['auto', 'auto']}
-          width={45}
+          tickFormatter={(v: number) => v.toFixed(1)}
+          width={36}
         />
         <Tooltip
           contentStyle={{ background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px', fontSize: '12px' }}
           labelStyle={{ color: '#52525b' }}
           itemStyle={{ color }}
           formatter={(value: number, _: string, item: { payload?: { delta?: number } }) => [
-            `${value} ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(1)})` : ''}`,
+            `${value.toFixed(2)} ${item.payload?.delta !== undefined ? `(${item.payload.delta > 0 ? '+' : ''}${item.payload.delta.toFixed(2)})` : ''}`,
             'Rating',
           ]}
           labelFormatter={(i: number) => data[i]?.title ?? ''}
         />
-        <ReferenceLine y={baseline} stroke="#d4d4d8" strokeDasharray="4 4" />
+        {baseline !== undefined && <ReferenceLine y={baseline} stroke="#d4d4d8" strokeDasharray="4 4" />}
         <Line
           type={CURVE}
           dataKey="rating"

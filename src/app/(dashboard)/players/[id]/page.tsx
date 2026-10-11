@@ -7,7 +7,7 @@ import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
-import { getInitials, formatPTR, getWinRate } from '@/lib/utils'
+import { getInitials, formatRating, getWinRate } from '@/lib/utils'
 import { Trophy, Swords, Handshake, ChevronRight } from 'lucide-react'
 import type { MatchWithPlayers, ProfileMatch } from '@/types'
 
@@ -122,8 +122,14 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="font-mono font-black text-xl text-zinc-900 leading-tight">{formatPTR(player.ptr)}</div>
-            <PTRBadge delta={lastDelta} size="sm" />
+            {player.isGuest ? (
+              <div className="text-xs font-semibold text-zinc-400 leading-tight">Unrated</div>
+            ) : (
+              <>
+                <div className="font-mono font-black text-xl text-zinc-900 leading-tight">{formatRating(player.ptr)}</div>
+                <PTRBadge delta={lastDelta} size="sm" />
+              </>
+            )}
           </div>
         </div>
         {canEdit && (

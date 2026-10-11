@@ -4,7 +4,6 @@ import SignUpForm from '@/components/shared/SignUpForm'
 import ClaimButton from '@/components/players/ClaimButton'
 import { getGuestByClaimToken } from '@/lib/store'
 import { getSession } from '@/lib/session'
-import { formatPTR } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,10 +29,9 @@ export default async function ClaimPage({ params }: { params: { token: string } 
       <div className="flex-1 min-w-0">
         <div className="font-bold truncate">{guest.name}</div>
         <div className="text-xs text-muted-foreground">
-          Added by {guest.createdBy?.name ?? 'a friend'} · {guest.matchesPlayed} matches
+          Added by {guest.createdBy?.name ?? 'a friend'}
         </div>
       </div>
-      <div className="font-mono font-black text-lg text-orange-600">{formatPTR(guest.ptr)}</div>
     </div>
   )
 
@@ -47,9 +45,9 @@ export default async function ClaimPage({ params }: { params: { token: string } 
   }
 
   return (
-    <AuthShell subtitle="You've been added to PadelTrack — create an account to claim your profile">
+    <AuthShell subtitle="You've been added to a PadelTrack match — create an account to claim your profile and record the game">
       {summary}
-      <SignUpForm claimToken={params.token} defaultName={guest.name} />
+      <SignUpForm claimToken={params.token} defaultName={guest.name} suggestedLevel={guest.suggestedLevel} />
       <p className="text-sm text-muted-foreground text-center mt-6">
         Already have an account?{' '}
         <Link href={`/login?next=/claim/${params.token}`} className="font-semibold text-orange-600 hover:underline">Sign in to claim</Link>
