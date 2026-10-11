@@ -15,9 +15,6 @@ build/
 .env.test.local
 .env.production.local
 
-# Prisma
-prisma/migrations/
-
 # Misc
 .DS_Store
 *.pem
@@ -28,3 +25,8 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Production env pulled from Vercel (vercel env pull .env.vercel)
+.env.vercel
+.vercel
+.env*

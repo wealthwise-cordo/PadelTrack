@@ -13,25 +13,31 @@ Rankings for you and the people you play padel with. Next.js 14, Prisma, Postgre
 
 ```bash
 npm install
-npx prisma db push      # create tables in the DB from .env
-npm run db:seed         # demo accounts (refuses to run on a non-localhost DB)
+npx prisma migrate deploy   # create tables in the DB from .env
+npm run db:seed             # demo accounts (refuses to run on a non-localhost DB)
 npm run dev
 ```
 
 `.env` needs `POSTGRES_PRISMA_URL`, `DATABASE_URL_UNPOOLED`, `NEXTAUTH_URL` and `NEXTAUTH_SECRET` (see `.env.example`).
 
-## ⚠️ Before going live (database not set up yet)
+## Going live
 
 Everything that's shared between users depends on a real hosted Postgres database: accounts, circles, match confirmations, and events that several people see and score live. Until it's connected, the deployed site loads but every data page will error.
 
-1. **Create a Postgres database** for PadelTrack only, for example Neon via Vercel → Storage. Don't reuse the padeltourspain2026 database.
-2. **Check the Vercel environment variables**: `POSTGRES_PRISMA_URL`, `DATABASE_URL_UNPOOLED`, `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`) and `NEXTAUTH_URL` (your site's URL).
-3. **Create the tables once** by running `npx prisma db push` against the new database. The build doesn't do this. Re-run it whenever `prisma/schema.prisma` changes.
+1. **Database:** a separate Neon Postgres project connected through Vercel → Storage. Don't reuse the padeltourspain2026 database. Neon provides `POSTGRES_PRISMA_URL` (pooled, used by the app) and `DATABASE_URL_UNPOOLED` (direct, used for migrations).
+2. **Sign-in secret:** set `NEXTAUTH_SECRET` for Production with `openssl rand -base64 32 | tr -d '\n' | npx vercel env add NEXTAUTH_SECRET production`. Leave `NEXTAUTH_URL` unset: on Vercel the site address comes from each request, so preview deployments sign in on their own URL.
+3. **Tables are created on deploy.** Production builds run `prisma migrate deploy`, which applies any new files in `prisma/migrations/`. It never drops data by itself; a destructive change makes the deploy fail instead. Preview builds skip migrations because they currently share the production database.
 4. **Don't run `npm run db:seed` in production.** It's demo data only and refuses non-localhost databases anyway.
 5. **Auto-confirm** needs no cron job. Expired pending matches are settled at the start of any signed-in request, oldest first, so it works on any host.
 6. **Live updates** work by polling, with no extra services. Every signed-in page checks `/api/sync` every 20 seconds and only re-renders when the database fingerprint has changed. Open event pages re-fetch every 5 seconds while the event is in progress. If it ever feels slow or heavy with lots of users, look at switching to push updates, for example Pusher or Supabase Realtime.
 
 Not built yet: email verification and password reset (both need an email provider).
+
+## Changing the database schema
+
+1. Edit `prisma/schema.prisma`.
+2. With the local test database running, run `npm run db:migrate -- --name short_description`. This creates a new folder in `prisma/migrations/` and applies it locally.
+3. Commit the migration with the code. The next production deploy applies it to the live database.
 
 ## Native app notes (for when PadelTrack is wrapped as an iOS/Android app)
 
