@@ -7,7 +7,6 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 export const metadata: Metadata = {
   title: 'PadelTrack',
   description: 'Rankings for you and the people you play padel with.',
-  icons: { icon: '/favicon.ico' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

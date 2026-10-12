@@ -1,0 +1,10 @@
+// The PadelTrack mark: an orange padel ball with a rising graph inside. One SVG
+// source for the in-app logo, the favicon (src/app/icon.svg) and the
+// home-screen icons (src/app/apple-icon.tsx, /pwa-icon/[size]).
+export const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <circle cx="16" cy="16" r="15" fill="#f97316"/>
+  <path d="M5.2 7.4C10 12 10 20 5.2 24.6M26.8 7.4C22 12 22 20 26.8 24.6" fill="none" stroke="#18181b" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M7.9 20.6L13.2 15.8L17 19L24.1 11.4" fill="none" stroke="#18181b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`
+
+export const LOGO_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(LOGO_SVG)}`

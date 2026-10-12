@@ -7,6 +7,7 @@ import { signOut } from 'next-auth/react'
 import { Trophy, History, LayoutGrid, Plus, LogOut, User, BarChart3, FileText } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import PushToggle from '@/components/shared/PushToggle'
+import Logo from '@/components/shared/Logo'
 
 const tabs = [
   { href: '/', label: 'Ranking', icon: Trophy },
@@ -51,12 +52,7 @@ export default function Navbar({
     <header className="sticky top-0 z-50 bg-zinc-900 text-white shadow-md [padding-top:env(safe-area-inset-top)]">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
         <Link href="/" className="flex items-center gap-2 shrink-0">
-          <span className="h-8 w-8 rounded-lg bg-orange-500 flex items-center justify-center">
-            <Trophy className="h-4 w-4 text-white" />
-          </span>
-          <span className="font-black text-lg tracking-tight">
-            Padel<span className="text-orange-500">Track</span>
-          </span>
+          <Logo />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 ml-4">

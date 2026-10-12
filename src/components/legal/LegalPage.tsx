@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Trophy } from 'lucide-react'
+import Logo from '@/components/shared/Logo'
 import { LEGAL } from '@/lib/legal'
 
 // Shared frame for the privacy notice and terms of use: readable
@@ -10,12 +10,7 @@ export default function LegalPage({ title, intro, children }: { title: string; i
       <header className="bg-zinc-900 text-white">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2">
-            <span className="h-8 w-8 rounded-lg bg-orange-500 flex items-center justify-center">
-              <Trophy className="h-4 w-4 text-white" />
-            </span>
-            <span className="font-black text-lg tracking-tight">
-              Padel<span className="text-orange-500">Track</span>
-            </span>
+            <Logo />
           </Link>
         </div>
       </header>
