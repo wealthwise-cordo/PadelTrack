@@ -131,9 +131,12 @@ export function GenderField({ value, onChange }: { value: string; onChange: (v: 
 }
 
 // Native date picker; `bday` lets the phone fill it from the contact card.
+// iOS Safari gives date inputs a wide intrinsic size and ignores width/height
+// until `appearance` is reset, so it overflowed its grid cell; `min-w-0` lets
+// both the cell and the input shrink to fit (see .date-input in globals.css).
 export function DateOfBirthField({ value, onChange, max }: { value: string; onChange: (v: string) => void; max: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label htmlFor="bday" className={labelClass}>Date of birth</label>
       <input
         id="bday"
@@ -145,7 +148,7 @@ export function DateOfBirthField({ value, onChange, max }: { value: string; onCh
         max={max || undefined}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className={`${inputClass} px-3 h-[50px] ${value ? "" : "text-zinc-400"}`}
+        className={`${inputClass} date-input block min-w-0 appearance-none px-3 h-[50px] text-left ${value ? "" : "text-zinc-400"}`}
       />
     </div>
   )

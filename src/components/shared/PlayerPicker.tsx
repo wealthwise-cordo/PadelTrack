@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Search, UserPlus, X } from 'lucide-react'
 import { getInitials, formatRating } from '@/lib/utils'
 import LevelPicker from '@/components/shared/LevelPicker'
+import { useKeyboardInset } from '@/lib/use-keyboard-inset'
 import type { PlayerWithStats } from '@/types'
 
 interface Props {
@@ -36,6 +37,8 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
   const [searching, setSearching] = useState(false)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
+  // Lift the sheet above the phone's keyboard so the search results stay visible.
+  const keyboard = useKeyboardInset(open)
 
   useEffect(() => {
     if (!open) { setQuery(''); setResults([]); setError(''); setLevelFor(null) }
@@ -106,7 +109,9 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
   return (
     <>
       <div className="fixed inset-0 bg-zinc-900/40 z-[60]" onClick={onClose} />
-      <div className="fixed z-[70] inset-x-0 bottom-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[440px] bg-white rounded-t-3xl sm:rounded-2xl shadow-xl p-5 pb-8 sm:pb-5 max-h-[80vh] flex flex-col animate-slide-in">
+      <div className="fixed z-[70] inset-x-0 bottom-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[440px] bg-white rounded-t-3xl sm:rounded-2xl shadow-xl p-5 pb-8 sm:pb-5 max-h-[80vh] flex flex-col animate-slide-in"
+        style={keyboard.inset > 0 ? { bottom: keyboard.inset, maxHeight: keyboard.viewportHeight - 16, paddingBottom: 20 } : undefined}
+      >
         <div className="flex items-center justify-between mb-3">
           <span className="text-base font-bold">{title}</span>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-900 transition-colors" aria-label="Close">

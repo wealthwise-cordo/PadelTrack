@@ -42,6 +42,9 @@ function LoginForm() {
       <form onSubmit={handleSubmit} method="post" className="space-y-4">
         <EmailField value={email} onChange={setEmail} purpose="sign-in" />
         <PasswordField value={password} onChange={setPassword} purpose="current" />
+        <div className="-mt-2 text-right">
+          <Link href="/forgot-password" className="text-xs font-semibold text-orange-600 hover:underline">Forgot password?</Link>
+        </div>
         {error && <p className="text-sm text-red-600 text-center">{error}</p>}
         <button type="submit" disabled={loading} className={primaryButtonClass}>
           {loading ? 'Signing in…' : 'Sign in'}

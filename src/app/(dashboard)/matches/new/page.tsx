@@ -1,5 +1,5 @@
 import MatchEntryForm, { type Lineup } from '@/components/matches/MatchEntryForm'
-import { getPickablePlayers, getPlayer, getMatchesForPlayer, getRecentLocations } from '@/lib/store'
+import { getPickablePlayers, getPlayer, getMatchesForPlayer, getRecentLocations, getClubs } from '@/lib/store'
 import { requireSession } from '@/lib/session'
 
 export const revalidate = 0
@@ -7,11 +7,12 @@ export const revalidate = 0
 export default async function NewMatchPage() {
   const session = await requireSession()
   const meId = session.player.id
-  const [me, pickable, myMatches, locations] = await Promise.all([
+  const [me, pickable, myMatches, locations, clubs] = await Promise.all([
     getPlayer(meId),
     getPickablePlayers(session.userId),
     getMatchesForPlayer(meId),
     getRecentLocations(meId),
+    getClubs(),
   ])
 
   // Who you play with most, from your last 50 matches, so the quick-pick
@@ -42,5 +43,5 @@ export default async function NewMatchPage() {
     if (lineups.length === 3) break
   }
 
-  return <MatchEntryForm me={me!} players={players} lineups={lineups} recentLocations={locations} />
+  return <MatchEntryForm me={me!} players={players} lineups={lineups} recentLocations={locations} clubs={clubs} />
 }

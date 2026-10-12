@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { getPlayer, getPlayerRaw, getMatchesForPlayer, getCircleRankings, canEditPlayer } from '@/lib/store'
+import { getPlayer, getPlayerRaw, getMatchesForPlayer, getCircleRankings, canEditPlayer, getAccount } from '@/lib/store'
 import { requireSession } from '@/lib/session'
 import ProfileStats from '@/components/players/ProfileStats'
 import PTRBadge from '@/components/shared/PTRBadge'
@@ -79,11 +79,12 @@ function versusMe(matches: MatchWithPlayers[], meId: string, themId: string) {
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
   const session = await requireSession()
-  const [player, raw, matches, circle] = await Promise.all([
+  const [player, raw, matches, circle, account] = await Promise.all([
     getPlayer(params.id),
     getPlayerRaw(params.id),
     getMatchesForPlayer(params.id),
     getCircleRankings(session.player.id),
+    params.id === session.player.id ? getAccount(session.userId) : null,
   ])
   if (!player || !raw) notFound()
 
@@ -134,7 +135,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
         </div>
         {canEdit && (
           <div className="mt-3">
-            <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} />
+            <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} account={isMe ? account : null} />
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import { getInitials, setWinner, isSetComplete } from '@/lib/utils'
 import PlayerPicker from '@/components/shared/PlayerPicker'
 import InviteButton from '@/components/players/InviteButton'
 import type { PlayerWithStats } from '@/types'
+import type { LocationOption } from '@/lib/store'
 
 export interface Lineup {
   partner: PlayerWithStats
@@ -19,7 +20,10 @@ interface Props {
   // Ordered most-played-with first.
   players: PlayerWithStats[]
   lineups: Lineup[]
-  recentLocations: string[]
+  // Where you've played, most recently played first.
+  recentLocations: LocationOption[]
+  // Every listed club, A–Z.
+  clubs: LocationOption[]
 }
 
 // Each set is two typed digits, kept as strings so a box can be empty.
@@ -44,7 +48,7 @@ function dateLabel(value: string, today: string): string {
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })
 }
 
-export default function MatchEntryForm({ me, players: initialPlayers, lineups, recentLocations }: Props) {
+export default function MatchEntryForm({ me, players: initialPlayers, lineups, recentLocations, clubs }: Props) {
   const router = useRouter()
   const [players, setPlayers] = useState(initialPlayers)
   const [slots, setSlots] = useState<Slots>([me.id, '', '', ''])
@@ -55,8 +59,9 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const [pickTarget, setPickTarget] = useState<number | null>(null)
   const [today, setToday] = useState('')
   const [playedOn, setPlayedOn] = useState('')
-  const [location, setLocation] = useState(recentLocations[0] ?? '')
+  const [location, setLocation] = useState<LocationOption | null>(recentLocations[0] ?? null)
   const [editingLocation, setEditingLocation] = useState(false)
+  const [locationQuery, setLocationQuery] = useState('')
   const [isRanked, setIsRanked] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -181,7 +186,8 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           sets: counted.filter(Boolean).map(s => ({ teamAGames: s!.us, teamBGames: s!.them })),
           winner,
           playedOn: playedOn || undefined,
-          location: location.trim() || undefined,
+          location: location?.label,
+          clubId: location?.clubId ?? undefined,
           isRanked,
         }),
       })
@@ -295,41 +301,24 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             />
           </label>
           <button
-            onClick={() => setEditingLocation(v => !v)}
+            onClick={() => { setEditingLocation(v => !v); setLocationQuery('') }}
             className={`flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-zinc-100 text-sm font-semibold min-w-0 ${location ? '' : 'text-zinc-500'}`}
           >
             <MapPin className="h-4 w-4 text-orange-500 shrink-0" />
-            <span className="truncate">{location || 'Add location'}</span>
+            <span className="truncate">{location?.label || 'Add location'}</span>
             <ChevronDown className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
           </button>
         </div>
         {editingLocation && (
-          <div className="glass rounded-2xl p-3 space-y-2">
-            <div className="flex gap-2">
-              <input autoComplete="off"
-                autoFocus
-                value={location}
-                onChange={e => setLocation(e.target.value.slice(0, 60))}
-                onKeyDown={e => { if (e.key === 'Enter') setEditingLocation(false) }}
-                placeholder="Club or court name"
-                enterKeyHint="done"
-                className="flex-1 min-w-0 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
-              />
-              <button onClick={() => setEditingLocation(false)} className="px-4 rounded-xl text-sm font-bold bg-zinc-900 text-white">Done</button>
-            </div>
-            {recentLocations.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {recentLocations.map(l => (
-                  <button key={l} onClick={() => { setLocation(l); setEditingLocation(false) }} className={`px-3 py-1.5 rounded-full text-xs font-medium border ${l === location ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-zinc-200 text-zinc-600'}`}>
-                    {l}
-                  </button>
-                ))}
-                {location && (
-                  <button onClick={() => setLocation('')} className="px-3 py-1.5 rounded-full text-xs font-medium text-zinc-400">Clear</button>
-                )}
-              </div>
-            )}
-          </div>
+          <LocationPanel
+            recent={recentLocations}
+            clubs={clubs}
+            selected={location}
+            query={locationQuery}
+            onQuery={setLocationQuery}
+            onPick={l => { setLocation(l); setEditingLocation(false) }}
+            onClose={() => setEditingLocation(false)}
+          />
         )}
       </div>
 
@@ -467,6 +456,110 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
         onSelect={p => { if (pickTarget !== null) fill(p, pickTarget); setPickTarget(null) }}
         onDiscovered={p => setPlayers(prev => prev.some(x => x.id === p.id) ? prev : [...prev, p])}
       />
+    </div>
+  )
+}
+
+// Search the listed clubs. Places you've played come first, most recent
+// first; then every other club A–Z. "My venue isn't listed" saves free text
+// with no club — those are reviewed monthly for clubs to add (see
+// scripts/unlisted-venues.ts).
+function LocationPanel({ recent, clubs, selected, query, onQuery, onPick, onClose }: {
+  recent: LocationOption[]
+  clubs: LocationOption[]
+  selected: LocationOption | null
+  query: string
+  onQuery: (q: string) => void
+  onPick: (l: LocationOption | null) => void
+  onClose: () => void
+}) {
+  const [unlisted, setUnlisted] = useState(false)
+  const [venue, setVenue] = useState('')
+  const q = query.trim().toLowerCase()
+  const matches = (l: LocationOption) => !q || l.label.toLowerCase().includes(q)
+  const recentClubIds = new Set(recent.map(l => l.clubId).filter(Boolean))
+  const played = recent.filter(matches)
+  const others = clubs.filter(c => !recentClubIds.has(c.clubId) && matches(c))
+  const isSelected = (l: LocationOption) => !!selected && (l.clubId ? l.clubId === selected.clubId : !selected.clubId && l.label === selected.label)
+
+  const row = (l: LocationOption) => (
+    <button
+      key={l.clubId ?? l.label}
+      onClick={() => onPick(l)}
+      className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-sm ${isSelected(l) ? 'bg-orange-50 text-orange-700 font-semibold' : 'hover:bg-zinc-50'}`}
+    >
+      <MapPin className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+      <span className="truncate">{l.label}</span>
+    </button>
+  )
+
+  const saveVenue = () => { if (venue.trim()) onPick({ clubId: null, label: venue.trim() }) }
+
+  if (unlisted) {
+    return (
+      <div className="glass rounded-2xl p-3 space-y-2">
+        <label htmlFor="venue" className="text-xs font-medium text-zinc-600 block px-1">Where did you play?</label>
+        <div className="flex gap-2">
+          <input autoComplete="off"
+            id="venue"
+            autoFocus
+            value={venue}
+            onChange={e => setVenue(e.target.value.slice(0, 60))}
+            onKeyDown={e => { if (e.key === 'Enter') saveVenue() }}
+            placeholder="Club name, Area"
+            enterKeyHint="done"
+            className="flex-1 min-w-0 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+          />
+          <button onClick={saveVenue} disabled={!venue.trim()} className="px-4 rounded-xl text-sm font-bold bg-zinc-900 text-white disabled:opacity-40">Save</button>
+        </div>
+        <p className="text-[11px] text-zinc-500 px-1">We’ll look at adding it to the list of clubs. Tip: write it as Club name, Area</p>
+        <button onClick={() => setUnlisted(false)} className="px-1 text-xs font-medium text-zinc-400">Back to the list</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="glass rounded-2xl p-3 space-y-2">
+      <div className="flex gap-2">
+        <input autoComplete="off"
+          autoFocus
+          value={query}
+          onChange={e => onQuery(e.target.value.slice(0, 60))}
+          onKeyDown={e => { const first = played[0] ?? others[0]; if (e.key === 'Enter' && q && first) onPick(first) }}
+          placeholder="Search clubs"
+          enterKeyHint="done"
+          className="flex-1 min-w-0 bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+        />
+        <button onClick={onClose} className="px-4 rounded-xl text-sm font-bold bg-zinc-900 text-white">Done</button>
+      </div>
+      <div className="max-h-60 overflow-y-auto -mx-1 px-1 space-y-3">
+        {played.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider px-1 mb-1">Recently played</div>
+            {played.map(row)}
+          </div>
+        )}
+        {others.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider px-1 mb-1">{played.length ? 'All clubs' : 'Clubs'}</div>
+            {others.map(row)}
+          </div>
+        )}
+        {q && played.length === 0 && others.length === 0 && (
+          <p className="text-sm text-zinc-500 text-center py-3">No clubs match “{query.trim()}”</p>
+        )}
+        {/* Last item in the list, styled like a club row. */}
+        <button
+          onClick={() => { setVenue(query.trim()); setUnlisted(true) }}
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-left text-sm text-orange-600 hover:bg-zinc-50"
+        >
+          <MapPin className="h-3.5 w-3.5 shrink-0" />
+          My venue isn’t listed
+        </button>
+      </div>
+      {selected && (
+        <button onClick={() => onPick(null)} className="px-1 text-xs font-medium text-zinc-400">Clear location</button>
+      )}
     </div>
   )
 }

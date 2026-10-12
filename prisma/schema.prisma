@@ -20,6 +20,7 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   player      Player?   @relation("UserPlayer")
+  passwordResets PasswordReset[]
 
   guestsCreated      Player[]            @relation("GuestCreator")
   matchesRecorded    Match[]             @relation("MatchRecorder")
@@ -120,8 +121,11 @@ model Match {
   scoreMultiplier  Float        @default(1)
   isUpset          Boolean      @default(false)
   matchQuality     Float        @default(0)
-  // Where it was played, free text (e.g. "Padel Club Cartagena").
+  // Where it was played, free text (e.g. "Padel Club Cartagena"). When a
+  // listed club was picked, `clubId` links it and `location` holds its label.
   location         String?
+  clubId           String?
+  club             Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
   notes            String?
   sets             MatchSet[]
   ptrHistory       PTRHistory[]
@@ -131,6 +135,7 @@ model Match {
   @@index([teamBPlayer1Id])
   @@index([teamBPlayer2Id])
   @@index([status, submittedAt])
+  @@index([clubId])
 }
 
 model MatchSet {
@@ -280,4 +285,38 @@ model SnakeLaddersMatch {
 
   @@unique([eventId, round, court])
   @@index([eventId])
+}
+
+// Padel venues offered in the match location picker. Add new regions or
+// venue changes with a migration; set `active` false to hide a closed club
+// without breaking matches already played there.
+model Club {
+  id        String   @id @default(cuid())
+  name      String
+  // Neighbourhood, to tell apart sites of the same chain ("Battersea").
+  area      String
+  city      String
+  country   String   @default("GB") // ISO 3166-1 alpha-2
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  matches   Match[]
+
+  @@unique([name, area, city])
+  @@index([city, active])
+}
+
+
+// "Forgot password" links. Only a SHA-256 hash of the emailed token is kept;
+// a link works once, within an hour, and using one cancels the others.
+model PasswordReset {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
 }

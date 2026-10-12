@@ -14,11 +14,12 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
   try {
-    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, playedOn, location, isRanked } = await req.json()
+    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, playedOn, location, clubId, isRanked } = await req.json()
     const result = await createMatch(session.userId, {
       teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner,
       playedOn: typeof playedOn === 'string' ? playedOn : undefined,
       location: typeof location === 'string' ? location : undefined,
+      clubId: typeof clubId === 'string' ? clubId : undefined,
       isRanked: isRanked !== false,
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })

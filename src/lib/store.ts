@@ -1,5 +1,6 @@
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
+import { sendEmail } from '@/lib/email'
 import { prisma } from './prisma'
 import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
@@ -394,16 +395,86 @@ export async function createGuest(userId: string, name: string, suggestedLevel?:
 }
 
 // Identity edits only (nickname/colour) — on your own profile or a guest
-// you created.
+// you created. The display name (Player.name) is yours alone to change; your
+// account keeps the name you signed up with (User.name).
 export async function updatePlayer(
   id: string,
   userId: string,
-  data: { nickname?: string; avatarColor?: string }
+  data: { name?: string; nickname?: string; avatarColor?: string }
 ): Promise<{ ok: true } | { error: string }> {
   const p = await prisma.player.findUnique({ where: { id } })
   if (!p) return { error: 'Player not found' }
   if (!canEditPlayer(p, userId)) return { error: 'You can only edit your own profile or guests you added' }
+  if (data.name !== undefined) {
+    if (p.userId !== userId) return { error: 'You can only change your own display name' }
+    data = { ...data, name: data.name.trim() }
+    if (!data.name) return { error: 'Display name can’t be empty' }
+  }
   await prisma.player.update({ where: { id }, data })
+  return { ok: true }
+}
+
+const RESET_TTL_MS = 60 * 60 * 1000
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
+
+// Emails a one-hour reset link if the address has an account. Callers always
+// tell the visitor the same thing, so this can't reveal who has an account.
+// At most 3 links per account per hour.
+export async function requestPasswordReset(email: string, baseUrl: string): Promise<void> {
+  const user = await findUserByEmail(email)
+  if (!user) return
+  const recent = await prisma.passwordReset.count({ where: { userId: user.id, createdAt: { gt: new Date(Date.now() - RESET_TTL_MS) } } })
+  if (recent >= 3) return
+  const token = randomBytes(32).toString('base64url')
+  await prisma.passwordReset.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + RESET_TTL_MS) } })
+  const link = `${baseUrl}/reset-password/${token}`
+  const first = user.name.split(' ')[0]
+  await sendEmail({
+    to: user.email,
+    subject: 'Reset your PadelTrack password',
+    text: `Hi ${first},\n\nUse this link to set a new PadelTrack password. It works once and expires in 1 hour:\n\n${link}\n\nIf you didn’t ask for this, you can ignore this email — your password won’t change.`,
+    html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#18181b">
+  <p style="font-size:20px;font-weight:800;margin:0 0 20px">Padel<span style="color:#f97316">Track</span></p>
+  <p>Hi ${escapeHtml(first)},</p>
+  <p>Tap the button to set a new password. The link works once and expires in 1 hour.</p>
+  <p style="margin:28px 0"><a href="${link}" style="background:#f97316;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">Reset password</a></p>
+  <p style="font-size:13px;color:#71717a">If you didn’t ask for this, you can ignore this email — your password won’t change.</p>
+</div>`,
+  })
+}
+
+// Whether a reset link can still be used, so the page can say so up front.
+export async function isResetTokenValid(token: string): Promise<boolean> {
+  const r = await prisma.passwordReset.findUnique({ where: { tokenHash: hashToken(token) } })
+  return !!r && !r.usedAt && r.expiresAt > new Date()
+}
+
+// Sets the new password and uses up every outstanding link for the account.
+// Returns the email so the page can sign the person straight in.
+export async function resetPassword(token: string, next: string): Promise<{ email: string } | { error: string }> {
+  if (next.length < 8) return { error: 'Password must be at least 8 characters' }
+  if (next.length > 72) return { error: 'Password must be 72 characters or fewer' }
+  const r = await prisma.passwordReset.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } })
+  if (!r || r.usedAt || r.expiresAt <= new Date()) return { error: 'This reset link has expired or already been used' }
+  const password = await bcrypt.hash(next, 10)
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: r.userId }, data: { password } }),
+    prisma.passwordReset.updateMany({ where: { userId: r.userId, usedAt: null }, data: { usedAt: new Date() } }),
+  ])
+  return { email: r.user.email }
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+}
+
+export async function changePassword(userId: string, current: string, next: string): Promise<{ ok: true } | { error: string }> {
+  if (next.length < 8) return { error: 'New password must be at least 8 characters' }
+  if (next.length > 72) return { error: 'New password must be 72 characters or fewer' }
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) return { error: 'Account not found' }
+  if (!(await bcrypt.compare(current, user.password))) return { error: 'Current password is incorrect' }
+  await prisma.user.update({ where: { id: userId }, data: { password: await bcrypt.hash(next, 10) } })
   return { ok: true }
 }
 
@@ -536,6 +607,8 @@ export async function createMatch(userId: string, data: {
   // 'YYYY-MM-DD'. Defaults to now; past dates allowed, future dates aren't.
   playedOn?: string
   location?: string
+  // A listed club; its label becomes the location.
+  clubId?: string
   // Friendly matches skip confirmation and never change ratings.
   isRanked?: boolean
 }): Promise<{ matchId: string; status: 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string }[] } | { error: string }> {
@@ -556,6 +629,9 @@ export async function createMatch(userId: string, data: {
   const players = await prisma.player.findMany({ where: { id: { in: ids } } })
   if (players.length !== 4) return { error: 'One or more players were not found' }
 
+  const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
+  if (data.clubId && !club) return { error: 'That club was not found' }
+
   // Ranked matches always start pending: an opponent confirms the score, and
   // any guests have 48 hours to join PadelTrack (see finalizeIfReady and
   // autoConfirmExpired). Friendlies are saved straight away.
@@ -571,7 +647,8 @@ export async function createMatch(userId: string, data: {
         winner,
         playedAt,
         isRanked,
-        location: data.location?.trim().slice(0, 60) || null,
+        location: club ? clubLabel(club) : data.location?.trim().slice(0, 60) || null,
+        clubId: club?.id ?? null,
         recordedById: userId,
         teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
         sets: { create: sets.map((s, i) => ({ setNumber: i + 1, teamAGames: s.teamAGames, teamBGames: s.teamBGames })) },
@@ -814,6 +891,11 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
   return { ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
 }
 
+// Sign-up name and email, for the edit-profile panel.
+export async function getAccount(userId: string): Promise<{ name: string; email: string } | null> {
+  return prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } })
+}
+
 export async function getUserName(userId: string): Promise<string | null> {
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } })
   return u?.name ?? null
@@ -839,12 +921,36 @@ export async function getSyncFingerprint(): Promise<string> {
 }
 
 // Places this player has recorded matches at, most recent first.
-export async function getRecentLocations(playerId: string, limit = 6): Promise<string[]> {
+export type LocationOption = { clubId: string | null; label: string }
+
+const clubLabel = (c: { name: string; area: string }) => `${c.name}, ${c.area}`
+const byLabel = (a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base', ignorePunctuation: true })
+
+// Every active club for the location picker, A–Z ("¡PADEL PADEL!" under P).
+export async function getClubs(): Promise<LocationOption[]> {
+  const clubs = await prisma.club.findMany({ where: { active: true }, select: { id: true, name: true, area: true } })
+  return clubs.map(c => ({ clubId: c.id, label: clubLabel(c) })).sort((a, b) => byLabel(a.label, b.label))
+}
+
+// Where you've played, most recently played first (by match date). Listed
+// clubs show their current name; other venues their free-text location.
+export async function getRecentLocations(playerId: string, limit = 10): Promise<LocationOption[]> {
   const rows = await prisma.match.findMany({
-    where: { ...involving(playerId), location: { not: null } },
-    select: { location: true },
-    orderBy: { submittedAt: 'desc' },
-    take: 50,
+    where: { AND: [involving(playerId), { OR: [{ clubId: { not: null } }, { location: { not: null } }] }] },
+    select: { location: true, club: { select: { id: true, name: true, area: true, active: true } } },
+    orderBy: [{ playedAt: 'desc' }, { submittedAt: 'desc' }],
+    take: 100,
   })
-  return Array.from(new Set(rows.map(r => r.location!))).slice(0, limit)
+  const seen = new Set<string>()
+  const out: LocationOption[] = []
+  for (const r of rows) {
+    if (r.club && !r.club.active) continue
+    const option = r.club ? { clubId: r.club.id, label: clubLabel(r.club) } : { clubId: null, label: r.location! }
+    const key = option.clubId ?? option.label.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(option)
+    if (out.length === limit) break
+  }
+  return out
 }

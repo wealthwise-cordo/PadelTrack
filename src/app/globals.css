@@ -57,3 +57,8 @@
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 2px; }
+
+/* iOS Safari date inputs: left-align the value and drop the inner padding
+   so it sits like the other fields instead of centred and oversized. */
+.date-input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+.date-input::-webkit-datetime-edit { padding: 0; }
