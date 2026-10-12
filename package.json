@@ -12,7 +12,8 @@
     "db:seed": "node --env-file=.env node_modules/.bin/tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
-    "venues:review": "node --env-file=.env node_modules/.bin/tsx scripts/unlisted-venues.ts"
+    "venues:review": "node --env-file=.env node_modules/.bin/tsx scripts/unlisted-venues.ts",
+    "db:launch-reset": "node --env-file=.env node_modules/.bin/tsx scripts/reset-for-launch.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
