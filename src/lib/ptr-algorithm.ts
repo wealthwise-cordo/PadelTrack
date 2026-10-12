@@ -1,16 +1,61 @@
 import type { MatchSet, PTRCalculation } from '@/types'
 
-const K_MAX = 50  // volatility for new players
-const K_MIN = 30  // volatility for established players
-const RELIABILITY_MATCHES = 15 // matches to reach full reliability
 const ELO_DIVISOR = 400
 
-export function calculateReliability(matchesPlayed: number): number {
-  return Math.min(1.0, matchesPlayed / RELIABILITY_MATCHES)
+// --- Reliability ------------------------------------------------------------
+// How settled a player's rating is, 1%–100%; volatility is its inverse.
+// It grows towards 100% with each ranked match, following
+//   reliability = 1 − e^(−c × matches)
+// with c = 0.02773, so 25 matches ≈ 50%, 68 ≈ 85% and 93 ≈ 90%. New players
+// start at the 1% floor — the most volatile they will ever be.
+export const RELIABILITY_GROWTH = 0.02773
+export const MIN_RELIABILITY = 0.01
+// After more than 30 days without a ranked match, reliability decays by 0.05
+// for every 30 days, down to a floor of 20% (it never lifts anyone below 20%
+// up to it). The decayed value is kept and grows back as they play again.
+export const DECAY_AFTER_DAYS = 30
+export const DECAY_PER_30_DAYS = 0.05
+export const DECAY_FLOOR = 0.2
+
+const DAY_MS = 864e5
+const clampReliability = (r: number) => Math.min(1, Math.max(MIN_RELIABILITY, r))
+
+// One more ranked match: the same step along the curve as matches → matches + 1.
+export function reliabilityAfterMatch(reliability: number): number {
+  return clampReliability(1 - (1 - clampReliability(reliability)) * Math.exp(-RELIABILITY_GROWTH))
 }
 
+export function decayReliability(reliability: number, daysSinceLastMatch: number): number {
+  const r = clampReliability(reliability)
+  if (daysSinceLastMatch <= DECAY_AFTER_DAYS || r <= DECAY_FLOOR) return r
+  return Math.max(DECAY_FLOOR, r - DECAY_PER_30_DAYS * (daysSinceLastMatch / 30))
+}
+
+// A player's reliability at a moment: their stored value, decayed for the
+// time since their last ranked match. `at` defaults to now.
+export function currentReliability(stored: number, lastRankedPlayedAt: Date | null, at: Date = new Date()): number {
+  if (!lastRankedPlayedAt) return clampReliability(stored)
+  return decayReliability(stored, Math.max(0, (at.getTime() - lastRankedPlayedAt.getTime()) / DAY_MS))
+}
+
+// --- Volatility ----------------------------------------------------------------
+// Each player's own volatility (K, in internal points; 200 = one LTA level),
+// calibrated against real results from the system PadelTrack mirrors:
+//   K (levels) = 1.505 × (1 − reliability)^2.65 + 0.088
+// It falls steeply as reliability builds — ~0.33 of a level at 50%, ~0.1 at
+// 85%+ — so settled players move little and new ones move a lot. (Fitted as
+// 1.63·(1−r)^2.65 + 0.095 with no score multiplier, then divided by ~1.083,
+// the multiplier for a typical 6-4 6-4.) Capped at one level so a brand-new
+// player moves at most about ±0.5 of a level on an even match.
+const VOLATILITY_SCALE = 1.505
+const VOLATILITY_POWER = 2.65
+const VOLATILITY_FLOOR = 0.088
+const VOLATILITY_CAP = 1.0 // levels
+
 export function calculateKFactor(reliability: number): number {
-  return K_MAX * (1 - reliability) + K_MIN * reliability
+  const r = clampReliability(reliability)
+  const levels = Math.min(VOLATILITY_CAP, VOLATILITY_SCALE * Math.pow(1 - r, VOLATILITY_POWER) + VOLATILITY_FLOOR)
+  return levels * 200
 }
 
 export function calculateExpectedWin(avgPTRA: number, avgPTRB: number): number {
@@ -73,36 +118,6 @@ export function isUpset(
   return expectedA > 0.6  // B was underdog
 }
 
-// How much weight to give individual contribution vs flat team split.
-// 0 = both teammates always get the same delta; 1 = fully individual.
-const INDIVIDUAL_FACTOR = 0.5
-
-/**
- * For each player on a team, compute their normalised weight in the
- * delta distribution based on their individual ELO expectation vs the
- * opposing team's average PTR.
- *
- * Winners: the player who was individually less expected to win gets more
- *          credit (they outperformed their expectation).
- * Losers:  the player who was individually more expected to win takes more
- *          of the penalty (they underperformed their expectation).
- *
- * Weights always sum to 1 so the team total is preserved.
- */
-function individualWeights(
-  ptrs: [number, number],
-  opponentAvgPTR: number,
-  isWinner: boolean
-): [number, number] {
-  const e0 = calculateExpectedWin(ptrs[0], opponentAvgPTR)
-  const e1 = calculateExpectedWin(ptrs[1], opponentAvgPTR)
-  const w0 = isWinner ? (1 - e0) : e0
-  const w1 = isWinner ? (1 - e1) : e1
-  const total = w0 + w1
-  if (total === 0) return [0.5, 0.5]
-  return [w0 / total, w1 / total]
-}
-
 export function calculatePTRChanges(
   playerAPTRs: [number, number],
   playerBPTRs: [number, number],
@@ -123,32 +138,31 @@ export function calculatePTRChanges(
   const avgPTRA = (playerAPTRs[0] + playerAPTRs[1]) / 2
   const avgPTRB = (playerBPTRs[0] + playerBPTRs[1]) / 2
 
-  const avgRelA = (playerAReliabilities[0] + playerAReliabilities[1]) / 2
-  const avgRelB = (playerBReliabilities[0] + playerBReliabilities[1]) / 2
-  const avgRel = (avgRelA + avgRelB) / 2
+  // Each player moves by their own volatility, so partners can move
+  // different amounts.
+  const kA = playerAReliabilities.map(calculateKFactor) as [number, number]
+  const kB = playerBReliabilities.map(calculateKFactor) as [number, number]
 
-  const K = calculateKFactor(avgRel)
   const expectedWinA = calculateExpectedWin(avgPTRA, avgPTRB)
   const scoreMultiplier = calculateScoreMultiplier(sets, winner)
   const matchQuality = calculateMatchQuality(avgPTRA, avgPTRB, sets)
   const upset = isUpset(avgPTRA, avgPTRB, winner)
 
   const actualA = winner === 'A' ? 1 : 0
-  const rawDelta = K * scoreMultiplier * (actualA - expectedWinA)
+  // The team result before each player's own volatility is applied.
+  const swing = scoreMultiplier * (actualA - expectedWinA)
 
-  // Individual distribution: blend flat split with individual-weighted split.
-  // delta_i = teamDelta * (1 + (2*weight_i - 1) * INDIVIDUAL_FACTOR)
-  // Since weight_i sum to 1, both players' deltas still average to teamDelta.
-  const [wA0, wA1] = individualWeights(playerAPTRs, avgPTRB, winner === 'A')
-  const [wB0, wB1] = individualWeights(playerBPTRs, avgPTRA, winner === 'B')
+  // Each player: their own volatility × the team result. Partners share the
+  // team result (no split by who is stronger), so a weaker player paired
+  // with a stronger one gains and loses on the pair's expectation.
+  const r = (k: number) => Math.round(k * swing * 10) / 10
 
-  const r = (w: number) => Math.round(rawDelta * (1 + (2 * w - 1) * INDIVIDUAL_FACTOR) * 10) / 10
+  const playerADeltas: [number, number] = [r(kA[0]), r(kA[1])]
+  const playerBDeltas: [number, number] = [-r(kB[0]), -r(kB[1])]
 
-  const playerADeltas: [number, number] = [r(wA0), r(wA1)]
-  const playerBDeltas: [number, number] = [-r(wB0), -r(wB1)]
-
-  const teamADelta = Math.round(rawDelta * 10) / 10
-  const teamBDelta = Math.round(-rawDelta * 10) / 10
+  // Pair figures shown on the match: the average of the two partners.
+  const teamADelta = Math.round(((playerADeltas[0] + playerADeltas[1]) / 2) * 10) / 10
+  const teamBDelta = Math.round(((playerBDeltas[0] + playerBDeltas[1]) / 2) * 10) / 10
 
   return {
     playerADeltas,
@@ -162,36 +176,33 @@ export function calculatePTRChanges(
   }
 }
 
+// Rough preview before a match is saved, from the four players' current
+// reliabilities: the pair's average change if A or B wins.
 export function previewPTRChanges(
   playerAPTRs: [number, number],
   playerBPTRs: [number, number],
-  playerAMatches: [number, number],
-  playerBMatches: [number, number],
+  playerAReliabilities: [number, number],
+  playerBReliabilities: [number, number],
   sets: MatchSet[]
 ): PTRCalculation {
   const avgPTRA = (playerAPTRs[0] + playerAPTRs[1]) / 2
   const avgPTRB = (playerBPTRs[0] + playerBPTRs[1]) / 2
+  const kA = (calculateKFactor(playerAReliabilities[0]) + calculateKFactor(playerAReliabilities[1])) / 2
+  const kB = (calculateKFactor(playerBReliabilities[0]) + calculateKFactor(playerBReliabilities[1])) / 2
 
-  const relA1 = calculateReliability(playerAMatches[0])
-  const relA2 = calculateReliability(playerAMatches[1])
-  const relB1 = calculateReliability(playerBMatches[0])
-  const relB2 = calculateReliability(playerBMatches[1])
-  const avgRel = (relA1 + relA2 + relB1 + relB2) / 4
-
-  const K = calculateKFactor(avgRel)
   const expectedWinA = calculateExpectedWin(avgPTRA, avgPTRB)
   const scoreMultiplier = sets.length > 0 && (sets[0].teamAGames > 0 || sets[0].teamBGames > 0)
     ? calculateScoreMultiplier(sets, sets[0].teamAGames > sets[0].teamBGames ? 'A' : 'B')
     : 1.0
 
-  const deltaIfAWins = Math.round(K * scoreMultiplier * (1 - expectedWinA) * 10) / 10
-  const deltaIfBWins = Math.round(K * scoreMultiplier * expectedWinA * 10) / 10
+  const deltaIfAWins = Math.round(kA * scoreMultiplier * (1 - expectedWinA) * 10) / 10
+  const deltaIfBWins = Math.round(kB * scoreMultiplier * expectedWinA * 10) / 10
 
   return {
     teamAAvgPTR: Math.round(avgPTRA),
     teamBAvgPTR: Math.round(avgPTRB),
     expectedWinProbA: Math.round(expectedWinA * 100),
-    kFactor: Math.round(K),
+    kFactor: Math.round((kA + kB) / 2),
     scoreMultiplier,
     deltaIfAWins,
     deltaIfBWins,

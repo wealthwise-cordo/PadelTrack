@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPlayerRaw } from '@/lib/store'
 import { getSession } from '@/lib/session'
-import { previewPTRChanges } from '@/lib/ptr-algorithm'
+import { previewPTRChanges, currentReliability } from '@/lib/ptr-algorithm'
 
 export async function POST(req: NextRequest) {
   if (!(await getSession())) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
     const preview = previewPTRChanges(
       [p1.ptr, p2.ptr],
       [p3.ptr, p4.ptr],
-      [p1.matchesPlayed, p2.matchesPlayed],
-      [p3.matchesPlayed, p4.matchesPlayed],
+      [currentReliability(p1.reliability, p1.lastRankedPlayedAt), currentReliability(p2.reliability, p2.lastRankedPlayedAt)],
+      [currentReliability(p3.reliability, p3.lastRankedPlayedAt), currentReliability(p4.reliability, p4.lastRankedPlayedAt)],
       sets || []
     )
 

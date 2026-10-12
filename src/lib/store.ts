@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { sendEmail } from '@/lib/email'
 import { LEGAL_VERSION } from '@/lib/legal'
 import { prisma } from './prisma'
-import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
+import { calculatePTRChanges, currentReliability, reliabilityAfterMatch } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
 import { isCountryCode } from './countries'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
@@ -554,7 +554,7 @@ export async function matchPermissions(matchId: string, userId: string) {
   const recorderSide = recorder ? sideOf(m, recorder.id) : null
   return {
     canConfirm: m.status === 'pending' && !m.scoreConfirmedAt && recorderSide !== null && mySide !== recorderSide,
-    canDelete: true,
+    canDelete: m.status === 'pending',
   }
 }
 
@@ -739,50 +739,22 @@ async function claimAndApply(matchId: string, auto: boolean): Promise<{ ptrDelta
   })
 }
 
-// Deletes a match. Pending matches have no rating effect, so this is just a
-// reject. Confirmed ones reverse each player's recorded delta and stats.
+// Removes a pending match (withdrawn by its recorder or rejected by another
+// player). Pending matches haven't touched anyone's rating or stats. Once a
+// match is confirmed — or saved as a friendly — it stays in the record and
+// can't be deleted.
 export async function deleteMatch(matchId: string, userId: string): Promise<{ ok: true } | { error: string }> {
+  const existing = await prisma.match.findUnique({ where: { id: matchId }, select: { status: true } })
+  if (!existing) return { error: 'Match not found' }
+  if (existing.status !== 'pending') return { error: 'Confirmed matches can’t be deleted — only pending ones can be removed' }
   const perms = await matchPermissions(matchId, userId)
-  if (!perms.canDelete) return { error: 'Only players in this match can delete it' }
+  if (!perms.canDelete) return { error: 'Only players in this match can remove it' }
 
   return prisma.$transaction(async tx => {
-    const match = await tx.match.findUnique({ where: { id: matchId }, include: { sets: true, ptrHistory: true } })
+    // Re-checked inside the transaction in case it was confirmed meanwhile.
+    const match = await tx.match.findUnique({ where: { id: matchId } })
     if (!match) return { error: 'Match not found' }
-
-    // Only confirmed ranked matches changed anyone's rating or stats.
-    if (match.status === 'complete' && match.isRanked) {
-      const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
-      const players = await tx.player.findMany({ where: { id: { in: ids } } })
-      const byId = new Map(players.map(p => [p.id, p]))
-      const winner = match.winner as Side
-      const t = tallySets(match.sets)
-      const getDelta = (pid: string) => match.ptrHistory.find(h => h.playerId === pid)?.delta ?? 0
-
-      await Promise.all(ids.map((pid, i) => {
-        const p = byId.get(pid)
-        if (!p) return null
-        const onA = i < 2
-        const isWinner = (winner === 'A') === onA
-        const newMatches = Math.max(0, p.matchesPlayed - 1)
-        return tx.player.update({
-          where: { id: pid },
-          data: {
-            ptr: p.ptr - getDelta(pid),
-            matchesPlayed: newMatches,
-            reliability: calculateReliability(newMatches),
-            wins: isWinner ? Math.max(0, p.wins - 1) : p.wins,
-            losses: isWinner ? p.losses : Math.max(0, p.losses - 1),
-            setsWon: Math.max(0, p.setsWon - (onA ? t.setsA : t.setsB)),
-            setsLost: Math.max(0, p.setsLost - (onA ? t.setsB : t.setsA)),
-            gamesWon: Math.max(0, p.gamesWon - (onA ? t.gamesA : t.gamesB)),
-            gamesLost: Math.max(0, p.gamesLost - (onA ? t.gamesB : t.gamesA)),
-            tiebreaksWon: Math.max(0, p.tiebreaksWon - (onA ? t.tbWonA : t.tbWonB)),
-            tiebreaksPlayed: Math.max(0, p.tiebreaksPlayed - t.tbTotal),
-            currentStreak: 0,
-          },
-        })
-      }))
-    }
+    if (match.status !== 'pending') return { error: 'Confirmed matches can’t be deleted — only pending ones can be removed' }
 
     await tx.match.delete({ where: { id: matchId } }) // sets + history cascade
     await tx.matchDeletion.create({
@@ -833,11 +805,14 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
   const teamAPTRBefore = (p1.ptr + p2.ptr) / 2
   const teamBPTRBefore = (p3.ptr + p4.ptr) / 2
 
+  // Each player's reliability on the day this match was played: decayed for
+  // any time since their previous ranked match (see ptr-algorithm.ts).
+  const rel = [p1, p2, p3, p4].map(p => currentReliability(p.reliability, p.lastRankedPlayedAt, match.playedAt))
   const result = calculatePTRChanges(
     [p1.ptr, p2.ptr],
     [p3.ptr, p4.ptr],
-    [calculateReliability(p1.matchesPlayed), calculateReliability(p2.matchesPlayed)],
-    [calculateReliability(p3.matchesPlayed), calculateReliability(p4.matchesPlayed)],
+    [rel[0], rel[1]],
+    [rel[2], rel[3]],
     sets.map((s, i) => ({ setNumber: i + 1, ...s })),
     winner,
   )
@@ -850,6 +825,8 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
       const delta = deltas[i]
       const isWinner = (winner === 'A') === onA
       const newMatches = p.matchesPlayed + 1
+      const newReliability = reliabilityAfterMatch(rel[i])
+      const lastPlayed = p.lastRankedPlayedAt && p.lastRankedPlayedAt > match.playedAt ? p.lastRankedPlayedAt : match.playedAt
       const newStreak = isWinner
         ? (p.currentStreak > 0 ? p.currentStreak + 1 : 1)
         : (p.currentStreak < 0 ? p.currentStreak - 1 : -1)
@@ -859,7 +836,8 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
           data: {
             ptr: p.ptr + delta,
             matchesPlayed: newMatches,
-            reliability: calculateReliability(newMatches),
+            reliability: newReliability,
+            lastRankedPlayedAt: lastPlayed,
             wins: isWinner ? p.wins + 1 : p.wins,
             losses: isWinner ? p.losses : p.losses + 1,
             setsWon: p.setsWon + (onA ? t.setsA : t.setsB),
@@ -879,7 +857,7 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
             ptrBefore: p.ptr,
             ptrAfter: p.ptr + delta,
             delta,
-            reliability: calculateReliability(newMatches),
+            reliability: newReliability,
           },
         }),
       ])

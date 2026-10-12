@@ -85,11 +85,12 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
           <Zap className="h-2.5 w-2.5" /> UPSET
         </span>
       )}
-      {canDelete && !canConfirm && (
+      {/* Only pending matches can be removed; confirmed ones stay on record. */}
+      {canDelete && pending && !canConfirm && (
         <button
           onClick={() => setConfirmingDelete(v => !v)}
           className={`transition-colors ${featured ? 'text-zinc-500 hover:text-red-400' : 'text-zinc-400 hover:text-red-600'}`}
-          aria-label={pending ? 'Cancel match' : 'Delete match'}
+          aria-label="Cancel match"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

@@ -75,7 +75,7 @@ async function main() {
       where: { id: player.id },
       data: {
         ptr: player.startingLevel !== null ? internalFromLevel(player.startingLevel) : player.ptr,
-        reliability: 0,
+        reliability: 0.01, lastRankedPlayedAt: null,
         matchesPlayed: 0, wins: 0, losses: 0,
         setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0,
         tiebreaksWon: 0, tiebreaksPlayed: 0,

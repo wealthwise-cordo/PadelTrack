@@ -8,8 +8,9 @@ import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
 import { getInitials, formatRating, getWinRate } from '@/lib/utils'
-import { Trophy, Swords, Handshake, ChevronRight } from 'lucide-react'
+import { Trophy, Swords, Handshake, ChevronRight, Info } from 'lucide-react'
 import type { MatchWithPlayers, ProfileMatch } from '@/types'
+import { currentReliability } from '@/lib/ptr-algorithm'
 
 export const revalidate = 0
 
@@ -97,6 +98,9 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   const vs = isMe ? null : versusMe(matches, session.player.id, player.id)
   // Their latest confirmed matches. On someone else's profile the rating
   // change shown would be theirs, not yours, so it's left off.
+  // Reliability today (includes any decay since their last ranked match).
+  const reliability = currentReliability(raw.reliability, raw.lastRankedPlayedAt)
+
   const recent = matches
     .filter(m => m.status === 'complete' && m.isRanked)
     .slice(0, 5)
@@ -115,11 +119,24 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
               {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">Guest</span>}
               {isMe && <span className="text-[10px] font-bold text-orange-600 bg-orange-100 rounded px-1.5 py-0.5 shrink-0">YOU</span>}
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
+            <div className="relative flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
               {player.nickname && <span>&ldquo;{player.nickname}&rdquo;</span>}
               {rank && <span className="flex items-center gap-1"><Trophy className="h-3 w-3 text-orange-500" /> #{rank} in your circle</span>}
               <span>{player.wins}W–{player.losses}L</span>
               <span>{winRate}% wins</span>
+              {!player.isGuest && (
+                <span className="inline-flex items-center gap-1">
+                  Reliability {Math.round(reliability * 100)}%
+                  <details className="inline-block">
+                    <summary className="list-none cursor-pointer text-zinc-400 hover:text-zinc-700" aria-label="What is reliability?">
+                      <Info className="h-3.5 w-3.5" />
+                    </summary>
+                    <span className="absolute left-0 right-0 top-full mt-1 z-10 rounded-lg bg-zinc-900 text-white text-[11px] leading-snug p-2 shadow-lg">
+                      How settled this rating is. It starts low, so early matches move your rating more, and it builds with every ranked match you play.
+                    </span>
+                  </details>
+                </span>
+              )}
             </div>
           </div>
           <div className="text-right shrink-0">

@@ -61,19 +61,23 @@ model Player {
   suggestedLevel Float?
 
   // Rating and career stats — only confirmed ranked matches move these.
-  ptr             Float @default(1000)
-  reliability     Float @default(0)
-  matchesPlayed   Int   @default(0)
-  wins            Int   @default(0)
-  losses          Int   @default(0)
-  setsWon         Int   @default(0)
-  setsLost        Int   @default(0)
-  gamesWon        Int   @default(0)
-  gamesLost       Int   @default(0)
-  tiebreaksWon    Int   @default(0)
-  tiebreaksPlayed Int   @default(0)
-  currentStreak   Int   @default(0)
-  bestStreak      Int   @default(0)
+  ptr                Float     @default(1000)
+  // 0.01–1.0: how settled the rating is (the inverse of volatility). Grows
+  // with each ranked match and decays after 30+ days without one — see
+  // ptr-algorithm.ts. lastRankedPlayedAt is the latest ranked match played.
+  reliability        Float     @default(0.01)
+  lastRankedPlayedAt DateTime?
+  matchesPlayed      Int       @default(0)
+  wins               Int       @default(0)
+  losses             Int       @default(0)
+  setsWon            Int       @default(0)
+  setsLost           Int       @default(0)
+  gamesWon           Int       @default(0)
+  gamesLost          Int       @default(0)
+  tiebreaksWon       Int       @default(0)
+  tiebreaksPlayed    Int       @default(0)
+  currentStreak      Int       @default(0)
+  bestStreak         Int       @default(0)
 
   ptrHistory PTRHistory[]
   teamA1     Match[]      @relation("TeamA1")
