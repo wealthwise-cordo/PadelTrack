@@ -9,17 +9,17 @@ datasource db {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  email       String    @unique
-  password    String
-  name        String
+  id             String          @id @default(cuid())
+  email          String          @unique
+  password       String
+  name           String
   // Collected on direct sign-up (not when claiming a guest invite).
-  gender      String? // male | female | other
-  dateOfBirth DateTime? @db.Date
-  country     String? // ISO 3166-1 alpha-2, e.g. GB
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  player      Player?   @relation("UserPlayer")
+  gender         String? // male | female | other
+  dateOfBirth    DateTime?       @db.Date
+  country        String? // ISO 3166-1 alpha-2, e.g. GB
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  player         Player?         @relation("UserPlayer")
   passwordResets PasswordReset[]
   signIns        SignIn[]
   activeDays     ActiveDay[]
@@ -308,7 +308,6 @@ model Club {
   @@index([city, active])
 }
 
-
 // "Forgot password" links. Only a SHA-256 hash of the emailed token is kept;
 // a link works once, within an hour, and using one cancels the others.
 model PasswordReset {
@@ -358,6 +357,21 @@ model ErrorLog {
   path      String?
   userId    String?
   createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// A match that was deleted — kept so the admin page can track withdrawals
+// (the recorder deleting their own) and rejections (another player deleting
+// one that was pending). The match itself is gone.
+model MatchDeletion {
+  id               String   @id @default(cuid())
+  matchId          String
+  wasPending       Boolean
+  wasRanked        Boolean
+  byRecorder       Boolean
+  matchSubmittedAt DateTime
+  createdAt        DateTime @default(now())
 
   @@index([createdAt])
 }

@@ -28,7 +28,7 @@ export function WeeklyBars({ data, label, ofKey, height = 160 }: { data: Row[]; 
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
         <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="week" {...axis} interval="preserveStartEnd" minTickGap={16} />
+        <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={16} />
         <YAxis {...axis} allowDecimals={false} width={36} />
         <Tooltip {...tooltip} formatter={(v: number, _n: string, item: { payload?: Row }) => [
           ofKey && item.payload ? `${v ?? 0} of ${item.payload[ofKey] ?? 0}` : v ?? 0,
@@ -51,7 +51,7 @@ export function MatchBars({ data }: { data: Row[] }) {
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="week" {...axis} interval="preserveStartEnd" minTickGap={16} />
+          <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={16} />
           <YAxis {...axis} allowDecimals={false} width={36} />
           <Tooltip {...tooltip} formatter={(v: number, name: string) => [v ?? 0, name === 'ranked' ? 'Ranked' : 'Friendly']} />
           <Bar dataKey="ranked" stackId="m" fill={ORANGE} stroke={SURFACE} strokeWidth={2} maxBarSize={24} isAnimationActive={false} />
@@ -80,7 +80,7 @@ export function WeeklyLine({ data, dataKey = 'count', label, decimals = 0, padde
     <ResponsiveContainer width="100%" height={160}>
       <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
         <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="week" {...axis} interval="preserveStartEnd" minTickGap={16} />
+        <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={16} />
         <YAxis {...axis} allowDecimals={decimals > 0} width={decimals > 0 ? 44 : 36} domain={domain} ticks={ticks} tickFormatter={(v: number) => v.toFixed(decimals)} />
         <Tooltip {...tooltip} cursor={{ stroke: GRID }} formatter={(v: number) => [typeof v === 'number' ? v.toFixed(decimals) : 'Not tracked yet', label]} />
         <Line dataKey={dataKey} stroke={ORANGE} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
@@ -90,14 +90,15 @@ export function WeeklyLine({ data, dataKey = 'count', label, decimals = 0, padde
   )
 }
 
-export function CircleBars({ data }: { data: Row[] }) {
+// Category bars (circle sizes, levels); `label` heads the tooltip.
+export function CircleBars({ data, label }: { data: Row[]; label: string }) {
   return (
     <ResponsiveContainer width="100%" height={160}>
       <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="size" {...axis} />
         <YAxis {...axis} allowDecimals={false} width={36} />
-        <Tooltip {...tooltip} labelFormatter={(s: string) => `Circle of ${s}`} formatter={(v: number) => [v, 'Players']} />
+        <Tooltip {...tooltip} labelFormatter={(s: string) => `${label} ${s}`} formatter={(v: number) => [v, 'Players']} />
         <Bar dataKey="players" fill={ORANGE} maxBarSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>

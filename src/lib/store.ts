@@ -781,6 +781,15 @@ export async function deleteMatch(matchId: string, userId: string): Promise<{ ok
     }
 
     await tx.match.delete({ where: { id: matchId } }) // sets + history cascade
+    await tx.matchDeletion.create({
+      data: {
+        matchId,
+        wasPending: match.status === 'pending',
+        wasRanked: match.isRanked || match.becameFriendly,
+        byRecorder: match.recordedById === userId,
+        matchSubmittedAt: match.submittedAt,
+      },
+    })
     return { ok: true as const }
   })
 }
