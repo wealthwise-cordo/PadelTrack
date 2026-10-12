@@ -180,6 +180,28 @@ export async function getAdminStats(period: Period) {
   const activeIn = new Set(activeInWindow.map(a => a.userId)).size
   const active7d = new Set(activeDays.filter(a => a.day.getTime() >= now.getTime() - 7 * DAY).map(a => a.userId)).size
 
+  // Who was active in the period — name, last active, days active and
+  // matches only (no contact or profile details), most recent first.
+  const playerByUser = new Map(players.filter(p => p.userId).map(p => [p.userId!, p]))
+  const activeByUser = new Map<string, { days: number; last: Date }>()
+  for (const a of activeInWindow) {
+    const cur = activeByUser.get(a.userId) ?? { days: 0, last: a.day }
+    cur.days++
+    if (a.day > cur.last) cur.last = a.day
+    activeByUser.set(a.userId, cur)
+  }
+  const matchesInByPlayer = new Map<string, number>()
+  for (const m of matchesIn) {
+    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) matchesInByPlayer.set(id, (matchesInByPlayer.get(id) ?? 0) + 1)
+  }
+  const activePlayers = Array.from(activeByUser.entries())
+    .map(([userId, a]) => {
+      const p = playerByUser.get(userId)
+      return p ? { id: p.id, name: p.name, lastActive: a.last.toISOString().slice(0, 10), days: a.days, matches: matchesInByPlayer.get(p.id) ?? 0 } : null
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((x, y) => y.lastActive.localeCompare(x.lastActive) || y.days - x.days)
+
   // --- Ranked matches turned friendly (a guest didn't join within 48 hours) ---
   const rankedIn = matchesIn.filter(recordedRanked)
   const convertedSeries = buckets.map((b, i) => {
@@ -395,6 +417,7 @@ export async function getAdminStats(period: Period) {
       .slice(0, 20)
       .map(p => ({ id: p.id, name: p.name, lastMatch: lastMatch(p.id) ? new Date(lastMatch(p.id)).toISOString().slice(0, 10) : 'Never', joined: p.user!.createdAt.toISOString().slice(0, 10) })),
     grain,
+    activePlayers,
     tiles: {
       registered: registered.length,
       newInPeriod: newPlayers.length,

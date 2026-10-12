@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
     dateOfBirth: typeof body.dateOfBirth === 'string' ? body.dateOfBirth : undefined,
     country: typeof body.country === 'string' ? body.country : undefined,
     claimToken: typeof body.claimToken === 'string' ? body.claimToken : undefined,
+    acceptTerms: body.acceptTerms === true,
   })
   if ('error' in result) return NextResponse.json(result, { status: 400 })
   return NextResponse.json({ ok: true })

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { sendEmail } from '@/lib/email'
+import { LEGAL_VERSION } from '@/lib/legal'
 import { prisma } from './prisma'
 import { calculatePTRChanges, calculateReliability } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
@@ -152,6 +153,8 @@ export async function signUp(data: {
   gender?: string
   dateOfBirth?: string // YYYY-MM-DD
   country?: string // ISO 3166-1 alpha-2
+  // Ticked "I agree" to the terms of use (incl. liability) and privacy notice.
+  acceptTerms?: boolean
 }): Promise<{ userId: string } | { error: string }> {
   const name = data.name.trim()
   const email = data.email.trim().toLowerCase()
@@ -160,6 +163,7 @@ export async function signUp(data: {
   if (data.password.length < 8) return { error: 'Password must be at least 8 characters' }
   if (data.password.length > 72) return { error: 'Password must be 72 characters or fewer' }
   if (!isLtaLevel(data.level)) return { error: 'Pick the level that best describes you' }
+  if (data.acceptTerms !== true) return { error: 'Please agree to the Terms and Privacy Notice to create an account' }
   const profile = validateProfileDetails(data, !data.claimToken)
   if ('error' in profile) return profile
   if (await findUserByEmail(email)) return { error: 'An account with that email already exists' }
@@ -171,7 +175,7 @@ export async function signUp(data: {
 
   const password = await bcrypt.hash(data.password, 10)
   const result = await prisma.$transaction(async tx => {
-    const user = await tx.user.create({ data: { email, password, name, ...profile } })
+    const user = await tx.user.create({ data: { email, password, name, ...profile, termsAcceptedAt: new Date(), termsVersion: LEGAL_VERSION } })
     if (guest) {
       // Guests have no rating until they join. (Older guests who already
       // have ranked matches keep the rating they earned.)

@@ -70,6 +70,26 @@ export default async function AdminPage({ searchParams }: { searchParams: { peri
           <Tile label="Matches recorded" value={t.matchesInPeriod} note={period === 'all' ? 'all time' : `${span} · ${t.matchesAllTime} all time`} />
           <Tile label="Guests claimed" value={pct(t.claimed, t.claimed + t.guests)} note={`${t.claimed} of ${t.claimed + t.guests} guests joined, all time`} />
         </div>
+        <details className="glass rounded-xl group">
+          <summary className="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-semibold">
+            <span>See who was active · {s.activePlayers.length}</span>
+            <span className="text-xs text-zinc-500 group-open:hidden">Show</span>
+            <span className="text-xs text-zinc-500 hidden group-open:inline">Hide</span>
+          </summary>
+          <div className="px-4 pb-4">
+            <p className="text-[11px] text-zinc-500 mb-2">Players who opened the app, {span}. Admin only — not for sharing or export.</p>
+            <Table
+              empty="Nobody active in this period"
+              head={['Player', 'Last active', 'Days', 'Matches']}
+              rows={s.activePlayers.map(p => [
+                <Link key="n" href={`/players/${p.id}`} className="hover:underline">{p.name}</Link>,
+                p.lastActive,
+                p.days,
+                p.matches,
+              ])}
+            />
+          </div>
+        </details>
         <div className="grid sm:grid-cols-2 gap-3">
           <Card title="New sign-ups"><WeeklyBars data={s.signups} label="Sign-ups" /></Card>
           <Card title="Matches recorded"><MatchBars data={s.matchesRecorded} /></Card>

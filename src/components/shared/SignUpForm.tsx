@@ -29,6 +29,7 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
   }, [])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [accepted, setAccepted] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,12 +41,16 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
       setError('Pick the level that best describes you')
       return
     }
+    if (!accepted) {
+      setError('Please agree to the Terms and Privacy Notice')
+      return
+    }
     setLoading(true)
     setError('')
     const res = await fetch('/api/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, level, claimToken, ...(collectProfile && { gender, dateOfBirth, country }) }),
+      body: JSON.stringify({ name, email, password, level, claimToken, acceptTerms: accepted, ...(collectProfile && { gender, dateOfBirth, country }) }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -81,6 +86,20 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
         onChange={l => { setLevel(l); setError('') }}
         hint="Based on the LTA Padel Rating System — this may be the same as an existing rating you have on Playtomic or similar"
       />
+      <label className="flex items-start gap-2.5 text-xs text-zinc-600 leading-relaxed cursor-pointer">
+        <input
+          type="checkbox"
+          name="accept-terms"
+          required
+          checked={accepted}
+          onChange={e => { setAccepted(e.target.checked); setError('') }}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-orange-500"
+        />
+        <span>
+          I agree to the <a href="/terms" target="_blank" className="font-semibold text-orange-600 underline">Terms of Use</a>, including liability and safety, and I’ve read the{' '}
+          <a href="/privacy" target="_blank" className="font-semibold text-orange-600 underline">Privacy Notice</a>.
+        </span>
+      </label>
       {error && <p className="text-sm text-red-600 text-center">{error}</p>}
       <button type="submit" disabled={loading} className={primaryButtonClass}>
         {loading ? 'Creating account…' : claimToken ? 'Create account & claim profile' : 'Create account'}

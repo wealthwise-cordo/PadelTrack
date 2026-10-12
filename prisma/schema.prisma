@@ -9,20 +9,24 @@ datasource db {
 }
 
 model User {
-  id             String          @id @default(cuid())
-  email          String          @unique
-  password       String
-  name           String
+  id              String          @id @default(cuid())
+  email           String          @unique
+  password        String
+  name            String
   // Collected on direct sign-up (not when claiming a guest invite).
-  gender         String? // male | female | other
-  dateOfBirth    DateTime?       @db.Date
-  country        String? // ISO 3166-1 alpha-2, e.g. GB
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  player         Player?         @relation("UserPlayer")
-  passwordResets PasswordReset[]
-  signIns        SignIn[]
-  activeDays     ActiveDay[]
+  gender          String? // male | female | other
+  dateOfBirth     DateTime?       @db.Date
+  country         String? // ISO 3166-1 alpha-2, e.g. GB
+  // When the terms of use (incl. liability) and privacy notice were accepted at
+  // sign-up, and which version (see src/lib/legal.ts).
+  termsAcceptedAt DateTime?
+  termsVersion    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  player          Player?         @relation("UserPlayer")
+  passwordResets  PasswordReset[]
+  signIns         SignIn[]
+  activeDays      ActiveDay[]
 
   guestsCreated      Player[]            @relation("GuestCreator")
   matchesRecorded    Match[]             @relation("MatchRecorder")

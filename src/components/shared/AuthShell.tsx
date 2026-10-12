@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { Trophy } from 'lucide-react'
 
 // Shared frame for the signed-out screens (login, sign up, claim).
@@ -20,6 +21,10 @@ export default function AuthShell({ subtitle, children }: { subtitle: string; ch
           {children}
         </div>
       </div>
+      <footer className="flex justify-center gap-4 pb-6 text-[11px] text-zinc-400">
+        <Link href="/terms" className="hover:text-zinc-700">Terms of Use</Link>
+        <Link href="/privacy" className="hover:text-zinc-700">Privacy</Link>
+      </footer>
     </div>
   )
 }
