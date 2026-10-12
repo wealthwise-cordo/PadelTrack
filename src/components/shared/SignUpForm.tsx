@@ -7,12 +7,15 @@ import { primaryButtonClass } from '@/components/shared/AuthShell'
 import { NameField, EmailField, PasswordField, GenderField, DateOfBirthField, CountryField } from '@/components/shared/AuthFields'
 import { COUNTRIES } from '@/lib/countries'
 import LevelPicker from '@/components/shared/LevelPicker'
+import PushToggle from '@/components/shared/PushToggle'
 
 // Creates an account and signs straight in. The LTA level picked here sets
 // the starting rating. With claimToken, the account takes over that guest
 // profile; suggestedLevel (from whoever added them) is pre-selected, and the
 // server starts them at the lower of the two.
-export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean }) {
+// `heading` and `footer` show while signing up and are hidden on the
+// notifications step that follows a direct sign-up.
+export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false, heading, footer }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean; heading?: string; footer?: React.ReactNode }) {
   const router = useRouter()
   const [name, setName] = useState(defaultName)
   const [email, setEmail] = useState('')
@@ -30,6 +33,9 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [accepted, setAccepted] = useState(false)
+  // Direct sign-ups get one more step: turning on phone notifications.
+  // (Invite-link sign-ups are offered it in "Complete your profile".)
+  const [created, setCreated] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,11 +69,38 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
       router.push('/login')
       return
     }
+    if (!claimToken) {
+      setCreated(true)
+      setLoading(false)
+      return
+    }
     router.push('/')
     router.refresh()
   }
 
+  const goToApp = () => {
+    router.push('/')
+    router.refresh()
+  }
+
+  if (created) {
+    return (
+      <div className="space-y-4">
+        <div className="text-center">
+          <div className="text-lg font-black">You’re all set, {name.trim().split(' ')[0]}</div>
+          <p className="text-sm text-zinc-600 mt-1">One last thing — want a heads-up on your phone?</p>
+        </div>
+        <PushToggle variant="inline" onUnavailable={goToApp} />
+        <button type="button" onClick={goToApp} className={primaryButtonClass}>
+          Continue to PadelTrack
+        </button>
+      </div>
+    )
+  }
+
   return (
+    <>
+    {heading && <p className="text-sm text-muted-foreground text-center mb-6">{heading}</p>}
     <form onSubmit={handleSubmit} method="post" className="space-y-4">
       <NameField value={name} onChange={setName} />
       <EmailField value={email} onChange={setEmail} purpose="sign-up" />
@@ -105,5 +138,7 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
         {loading ? 'Creating account…' : claimToken ? 'Create account & claim profile' : 'Create account'}
       </button>
     </form>
+    {footer}
+    </>
   )
 }

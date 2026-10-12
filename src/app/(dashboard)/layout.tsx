@@ -15,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         me={{ playerId: session.player.id, name: session.player.name, avatarColor: session.player.avatarColor }}
         pendingCount={pending.length}
         isAdmin={isAdminEmail(account?.email)}
+        profileIncomplete={!!account?.profileIncomplete}
       />
       <main className="px-4 pb-10 max-w-3xl mx-auto">
         {children}

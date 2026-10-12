@@ -5,6 +5,7 @@ import { requireSession } from '@/lib/session'
 import ProfileStats from '@/components/players/ProfileStats'
 import PTRBadge from '@/components/shared/PTRBadge'
 import PlayerEditPanel from '@/components/players/PlayerEditPanel'
+import CompleteProfileCard from '@/components/players/CompleteProfileCard'
 import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
 import { getInitials, formatRating, getWinRate } from '@/lib/utils'
@@ -156,6 +157,8 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           </div>
         )}
       </div>
+
+      {isMe && account?.profileIncomplete && <CompleteProfileCard />}
 
       {player.isGuest && canEdit && raw.claimToken && <InviteLink token={raw.claimToken} name={player.name} />}
 

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
+import { sendPush, usersOfPlayers } from './push'
 import { generateRoundRobinSchedule, scoreLeagueResult, leagueStandings, leagueMatchActions, checkOneOffScore, type LeagueScoring, type OneOffScoring, type SetScore } from './round-robin'
 import { computeLeaderboardPoints } from './americano'
 import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
@@ -262,7 +263,29 @@ export async function submitLeagueScore(actor: Actor, eventId: string, matchId: 
     },
   })
   if (saved.count === 0) return { error: 'Someone already entered this score' }
+  await notifyLeague(found.match, actor.playerId, 'other', 'Confirm your league score', 'entered a league score — confirm or reject it.')
   return { ok: true }
+}
+
+// Phone notifications for league scores: `other` = the pair that didn't act,
+// `submitter` = whoever entered the score.
+async function notifyLeague(
+  m: { eventId: string; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string; submittedById: string | null },
+  actorPlayerId: string,
+  to: 'other' | 'submitter',
+  title: string,
+  action: string
+) {
+  const onA = [m.teamAPlayer1Id, m.teamAPlayer2Id].includes(actorPlayerId)
+  const targets = to === 'submitter'
+    ? (m.submittedById ? [m.submittedById] : [])
+    : onA ? [m.teamBPlayer1Id, m.teamBPlayer2Id] : [m.teamAPlayer1Id, m.teamAPlayer2Id]
+  const actor = await prisma.player.findUnique({ where: { id: actorPlayerId }, select: { name: true } })
+  await sendPush(await usersOfPlayers(targets), {
+    title,
+    body: `${(actor?.name ?? 'A player').split(' ')[0]} ${action}`,
+    url: `/events/round-robin/${m.eventId}`,
+  })
 }
 
 export async function confirmLeagueScore(actor: Actor, eventId: string, matchId: string): Promise<{ ok: true } | { error: string }> {
@@ -275,6 +298,7 @@ export async function confirmLeagueScore(actor: Actor, eventId: string, matchId:
   })
   if (saved.count === 0) return { error: 'This score has already been confirmed or changed' }
   await finalizeIfDone(eventId)
+  await notifyLeague(found.match, actor.playerId, 'submitter', 'League score confirmed', 'confirmed the score you entered.')
   return { ok: true }
 }
 
@@ -289,6 +313,10 @@ export async function clearLeagueScore(actor: Actor, eventId: string, matchId: s
     data: { status: 'pending', teamAScore: null, teamBScore: null, sets: Prisma.DbNull, submittedById: null, submittedAt: null },
   })
   if (saved.count === 0) return { error: 'This score has already been confirmed or changed' }
+  // Rejected by the other pair (not withdrawn by the pair that entered it).
+  if (found.actions.canConfirm) {
+    await notifyLeague(found.match, actor.playerId, 'submitter', 'League score rejected', 'rejected the score you entered — enter it again.')
+  }
   return { ok: true }
 }
 

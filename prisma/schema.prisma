@@ -33,6 +33,7 @@ model User {
   americanoEvents    AmericanoEvent[]    @relation("AmericanoEventOwner")
   roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
+  PushSubscription   PushSubscription[]
 }
 
 // A person who plays. Registered users have exactly one Player (userId set).
@@ -382,4 +383,18 @@ model MatchDeletion {
   createdAt        DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// A device that turned on phone notifications (Web Push). One user can have
+// several; dead ones are removed when the push service rejects them.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }

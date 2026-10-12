@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Trophy } from 'lucide-react'
 
 // Shared frame for the signed-out screens (login, sign up, claim).
-export default function AuthShell({ subtitle, children }: { subtitle: string; children: React.ReactNode }) {
+export default function AuthShell({ subtitle, children }: { subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <header className="bg-zinc-900 text-white">
@@ -17,7 +17,7 @@ export default function AuthShell({ subtitle, children }: { subtitle: string; ch
       </header>
       <div className="flex-1 flex items-start sm:items-center justify-center px-4 py-10">
         <div className="w-full max-w-sm">
-          <p className="text-sm text-muted-foreground text-center mb-6">{subtitle}</p>
+          {subtitle && <p className="text-sm text-muted-foreground text-center mb-6">{subtitle}</p>}
           {children}
         </div>
       </div>

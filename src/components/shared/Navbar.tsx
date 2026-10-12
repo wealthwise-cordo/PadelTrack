@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { Trophy, History, LayoutGrid, Plus, LogOut, User, BarChart3, FileText } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
+import PushToggle from '@/components/shared/PushToggle'
 
 const tabs = [
   { href: '/', label: 'Ranking', icon: Trophy },
@@ -23,10 +24,14 @@ export default function Navbar({
   me,
   pendingCount,
   isAdmin = false,
+  profileIncomplete = false,
 }: {
   me: { playerId: string; name: string; avatarColor: string }
   pendingCount: number
   isAdmin?: boolean
+  // Invite-link sign-ups missing profile details: a dot on the avatar and a
+  // menu link to their profile until they complete it.
+  profileIncomplete?: boolean
 }) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -85,11 +90,14 @@ export default function Navbar({
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setMenuOpen(o => !o)}
-            className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold text-white ring-2 ring-white/10 hover:ring-orange-500 transition"
+            className="relative h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold text-white ring-2 ring-white/10 hover:ring-orange-500 transition"
             style={{ backgroundColor: me.avatarColor }}
             aria-label="Account menu"
           >
             {getInitials(me.name)}
+            {profileIncomplete && (
+              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-orange-500 ring-2 ring-zinc-900" aria-label="Profile incomplete" />
+            )}
           </button>
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-48 z-50 rounded-xl bg-white text-zinc-900 shadow-lg border border-zinc-200 py-1 text-sm">
@@ -98,12 +106,14 @@ export default function Navbar({
               </div>
               <Link href={`/players/${me.playerId}`} className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
                 <User className="h-4 w-4 text-zinc-500" /> My profile
+                {profileIncomplete && <span className="ml-auto text-[10px] font-semibold text-orange-600">Complete it</span>}
               </Link>
               {isAdmin && (
                 <Link href="/admin" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
                   <BarChart3 className="h-4 w-4 text-zinc-500" /> Analytics
                 </Link>
               )}
+              <PushToggle variant="menu" />
               <Link href="/terms" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
                 <FileText className="h-4 w-4 text-zinc-500" /> Terms &amp; privacy
               </Link>

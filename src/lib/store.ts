@@ -1,7 +1,9 @@
 import { createHash, randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { sendEmail } from '@/lib/email'
-import { LEGAL_VERSION } from '@/lib/legal'
+import { sendEmail, appUrl } from '@/lib/email'
+import { logError } from '@/lib/analytics'
+import { sendPush, usersOfPlayers } from '@/lib/push'
+import { LEGAL, LEGAL_VERSION } from '@/lib/legal'
 import { prisma } from './prisma'
 import { calculatePTRChanges, currentReliability, reliabilityAfterMatch } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
@@ -206,7 +208,39 @@ export async function signUp(data: {
   })
   // A claimed guest's pending matches may now be able to become ranked.
   if (guest) await settleMatchesFor(guest.id)
+  if (guest?.createdById) {
+    await sendPush([guest.createdById], {
+      title: `${firstName(name)} joined PadelTrack`,
+      body: 'Matches you played together can now count towards rankings.',
+      url: `/players/${guest.id}`,
+    })
+  }
+  // Confirmation email. A failed email never undoes the sign-up.
+  try {
+    await sendAccountCreatedEmail(email, name, guest ? Math.min(data.level, guest.suggestedLevel ?? data.level) : data.level)
+  } catch (error) {
+    await logError({ source: 'server', error, path: 'signUp → account created email', userId: result.userId })
+  }
   return result
+}
+
+// The only emails PadelTrack sends are this and password resets; everything
+// else is shown in the app.
+async function sendAccountCreatedEmail(email: string, name: string, level: number) {
+  const first = name.split(' ')[0]
+  const link = appUrl('')
+  await sendEmail({
+    to: email,
+    subject: 'Welcome to PadelTrack — your account is ready',
+    text: `Hi ${first},\n\nYour PadelTrack account has been created for ${email}. Your starting level is ${level.toFixed(1)}.\n\nOpen PadelTrack: ${link}\n\nIf you didn't create this account, email ${LEGAL.contactEmail} and we'll remove it.`,
+    html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#18181b">
+  <p style="font-size:20px;font-weight:800;margin:0 0 20px">Padel<span style="color:#f97316">Track</span></p>
+  <p>Hi ${escapeHtml(first)},</p>
+  <p>Your PadelTrack account has been created for <strong>${escapeHtml(email)}</strong>. Your starting level is <strong>${level.toFixed(1)}</strong>.</p>
+  <p style="margin:28px 0"><a href="${link}" style="background:#f97316;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">Open PadelTrack</a></p>
+  <p style="font-size:13px;color:#71717a">If you didn’t create this account, email <a href="mailto:${LEGAL.contactEmail}" style="color:#71717a">${LEGAL.contactEmail}</a> and we’ll remove it.</p>
+</div>`,
+  })
 }
 
 const GENDERS = ['male', 'female', 'other']
@@ -271,6 +305,13 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
     })
   })
   await settleMatchesFor(guest.id)
+  if (guest.createdById && guest.createdById !== userId) {
+    await sendPush([guest.createdById], {
+      title: `${firstName(user?.name ?? guest.name)} joined PadelTrack`,
+      body: 'Matches you played together can now count towards rankings.',
+      url: `/players/${guest.id}`,
+    })
+  }
   return { ok: true }
 }
 
@@ -644,7 +685,7 @@ export async function createMatch(userId: string, data: {
     ? players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
     : []
 
-  return prisma.$transaction(async tx => {
+  const saved = await prisma.$transaction(async tx => {
     const match = await tx.match.create({
       data: {
         status: 'pending',
@@ -664,7 +705,44 @@ export async function createMatch(userId: string, data: {
     }
     return { matchId: match.id, status: 'pending' as const, ptrDelta: 0, isUpset: false, invites }
   })
+
+  // Phone notification for the other pair, who can confirm it.
+  if (saved.status === 'pending') {
+    const byId = new Map(players.map(p => [p.id, p]))
+    const theirs = mySide === 'A' ? [teamBPlayer1Id, teamBPlayer2Id] : [teamAPlayer1Id, teamAPlayer2Id]
+    await sendPush(theirs.map(id => byId.get(id)?.userId), {
+      title: 'Confirm your match',
+      body: `${firstName(me.name)} recorded: ${resultLine(data, byId)}`,
+      url: '/matches',
+      tag: `match-${saved.matchId}`,
+    })
+  }
+  return saved
 }
+
+const firstName = (name: string) => name.split(' ')[0]
+
+// "Morgan & Riley beat Alex & Taylor 6–3 6–4" (winner's games first).
+function resultLine(
+  m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string; winner: string; sets: { teamAGames: number; teamBGames: number }[] },
+  byId: Map<string, { name: string }>
+): string {
+  const pair = (a: string, b: string) => `${firstName(byId.get(a)?.name ?? '?')} & ${firstName(byId.get(b)?.name ?? '?')}`
+  const A = pair(m.teamAPlayer1Id, m.teamAPlayer2Id)
+  const B = pair(m.teamBPlayer1Id, m.teamBPlayer2Id)
+  const aWon = m.winner === 'A'
+  const score = m.sets.map(s => (aWon ? `${s.teamAGames}–${s.teamBGames}` : `${s.teamBGames}–${s.teamAGames}`)).join(' ')
+  return aWon ? `${A} beat ${B} ${score}` : `${B} beat ${A} ${score}`
+}
+
+// The recorder and their partner, as user ids.
+async function recorderSideUsers(m: { recordedById: string; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }): Promise<string[]> {
+  const recorder = await getPlayerForUser(m.recordedById)
+  const side = recorder ? sideOf(m, recorder.id) : null
+  if (!side) return [m.recordedById]
+  return usersOfPlayers(side === 'A' ? [m.teamAPlayer1Id, m.teamAPlayer2Id] : [m.teamBPlayer1Id, m.teamBPlayer2Id])
+}
+
 
 // An opponent confirms the score. It becomes ranked right away if nobody in
 // it is still a guest; otherwise it waits for the guest(s) to join.
@@ -677,6 +755,19 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
   })
   if (marked.count === 0) return { error: 'This score has already been confirmed' }
   const result = await finalizeIfReady(matchId)
+  {
+    const m = await prisma.match.findUnique({ where: { id: matchId }, include: { sets: { orderBy: { setNumber: 'asc' } }, teamAPlayer1: true, teamAPlayer2: true, teamBPlayer1: true, teamBPlayer2: true } })
+    const confirmer = await getPlayerForUser(userId)
+    if (m) {
+      const byId = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p]))
+      await sendPush(await recorderSideUsers(m), {
+        title: 'Match confirmed',
+        body: `${firstName(confirmer?.name ?? 'Your opponent')} confirmed ${resultLine(m, byId)}${result ? '' : ' — waiting for guests to join'}`,
+        url: '/matches',
+        tag: `match-${matchId}`,
+      })
+    }
+  }
   return { ok: true, ranked: !!result, ptrDelta: result?.ptrDelta ?? 0 }
 }
 
@@ -717,6 +808,15 @@ export async function autoConfirmExpired(): Promise<number> {
         data: { status: 'complete', isRanked: false, becameFriendly: true, confirmedAt: new Date() },
       })
       settled += converted.count
+      if (converted.count) {
+        const guests = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(p => !p.userId).map(p => firstName(p.name))
+        await sendPush([m.recordedById], {
+          title: 'Match became a friendly',
+          body: `${guests.join(' & ')} didn’t join PadelTrack within ${AUTO_CONFIRM_HOURS} hours, so your match won’t count towards ratings.`,
+          url: '/matches',
+          tag: `match-${m.id}`,
+        })
+      }
     } else if (await claimAndApply(m.id, true)) {
       settled++
     }
@@ -766,6 +866,18 @@ export async function deleteMatch(matchId: string, userId: string): Promise<{ ok
         matchSubmittedAt: match.submittedAt,
       },
     })
+    return { ok: true as const, match }
+  }).then(async r => {
+    if ('error' in r) return r
+    // Rejected by another player: tell whoever recorded it.
+    if (r.match.recordedById !== userId) {
+      const rejecter = await getPlayerForUser(userId)
+      await sendPush([r.match.recordedById], {
+        title: 'Match rejected',
+        body: `${firstName(rejecter?.name ?? 'A player')} rejected the match you recorded. You can record it again if needed.`,
+        url: '/matches',
+      })
+    }
     return { ok: true as const }
   })
 }
@@ -882,9 +994,20 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
   return { ptrDelta: Math.abs(result.teamADelta), isUpset: result.isUpset }
 }
 
-// Sign-up name and email, for the edit-profile panel.
-export async function getAccount(userId: string): Promise<{ name: string; email: string } | null> {
-  return prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } })
+// Sign-up name and email, for the edit-profile panel, and whether profile
+// details are missing (invite-link sign-ups skip them at first).
+export async function getAccount(userId: string): Promise<{ name: string; email: string; profileIncomplete: boolean } | null> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, gender: true, dateOfBirth: true, country: true } })
+  if (!u) return null
+  return { name: u.name, email: u.email, profileIncomplete: !u.gender || !u.dateOfBirth || !u.country }
+}
+
+// Fills in gender, date of birth and country — all three required.
+export async function completeProfile(userId: string, data: { gender?: string; dateOfBirth?: string; country?: string }): Promise<{ ok: true } | { error: string }> {
+  const profile = validateProfileDetails(data, true)
+  if ('error' in profile) return profile
+  await prisma.user.update({ where: { id: userId }, data: profile })
+  return { ok: true }
 }
 
 export async function getUserName(userId: string): Promise<string | null> {

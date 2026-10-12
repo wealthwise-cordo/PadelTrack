@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Plus, Clock } from 'lucide-react'
 import MatchCard from '@/components/matches/MatchCard'
+import PushToggle from '@/components/shared/PushToggle'
 import { getMatchesForPlayer, getPendingForUser, AUTO_CONFIRM_HOURS } from '@/lib/store'
 import { requireSession } from '@/lib/session'
 
@@ -32,6 +33,8 @@ export default async function MatchCentrePage() {
           <Plus className="h-4 w-4" /> New
         </Link>
       </div>
+
+      <PushToggle variant="card" />
 
       {(needsMe.length > 0 || waitingOnOthers.length > 0) && (
         <section className="space-y-3">
