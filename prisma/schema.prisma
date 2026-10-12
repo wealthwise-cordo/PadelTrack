@@ -28,7 +28,6 @@ model User {
   matchesRecorded    Match[]             @relation("MatchRecorder")
   americanoEvents    AmericanoEvent[]    @relation("AmericanoEventOwner")
   roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
-  onePointEvents     OnePointEvent[]     @relation("OnePointEventOwner")
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
 }
 
@@ -179,6 +178,8 @@ model AmericanoEvent {
   scoreMode String // "points" | "games"
   target    Int
   playerIds String[]
+  // Courts played on at once; each round has up to this many matches.
+  courts    Int              @default(1)
   matches   AmericanoMatch[]
 
   @@index([ownerId])
@@ -188,6 +189,7 @@ model AmericanoMatch {
   id             String         @id @default(cuid())
   eventId        String
   round          Int
+  court          Int? // 1-based; null on events from before multiple courts
   teamAPlayer1Id String
   teamAPlayer2Id String
   teamBPlayer1Id String
@@ -208,6 +210,14 @@ model RoundRobinEvent {
   status        String            @default("in_progress") // in_progress | complete
   target        Int // games target, first-to (not best-of)
   teamPlayerIds String[] // flattened, consecutive pairs = teams: [t0p1,t0p2,t1p1,t1p2,...]
+  // Courts played on at once (1–6); matches are grouped into rounds of up to
+  // this many. A league has no rounds or courts: players arrange each
+  // fixture themselves and play them in any order.
+  courts        Int               @default(1)
+  league        Boolean           @default(false)
+  // League scoring: games (first to `target`) | set (one set to 6, tie-break
+  // at 6–6) | match (best of 3 sets). One-off events always use games.
+  scoring       String            @default("games")
   matches       RoundRobinMatch[]
 
   @@index([ownerId])
@@ -216,42 +226,29 @@ model RoundRobinEvent {
 model RoundRobinMatch {
   id             String          @id @default(cuid())
   eventId        String
+  // Scheduled: the round played in, and which court (1-based). League:
+  // `round` is just the fixture's list order and `court` is null.
   round          Int
+  court          Int?
   teamAPlayer1Id String
   teamAPlayer2Id String
   teamBPlayer1Id String
   teamBPlayer2Id String
+  // Games won; for a full match, sets won (games per set are in `sets`).
   teamAScore     Int?
   teamBScore     Int?
-  status         String          @default("pending") // pending | complete
+  // League: each set's games, [{ a, b }, …].
+  sets           Json?
+  // pending | submitted (league: entered, waiting for the other pair) | complete
+  status         String          @default("pending")
+  // League confirmation, the same rules as ranked matches: a player in the
+  // match enters the score, the other pair confirms, or it confirms itself
+  // after 48 hours.
+  submittedById  String? // player id
+  submittedAt    DateTime?
+  confirmedAt    DateTime?
+  autoConfirmed  Boolean         @default(false)
   event          RoundRobinEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-
-  @@index([eventId])
-}
-
-model OnePointEvent {
-  id        String          @id @default(cuid())
-  createdAt DateTime        @default(now())
-  ownerId   String
-  owner     User            @relation("OnePointEventOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  status    String          @default("in_progress") // in_progress | complete
-  playerIds String[] // exactly 8, in bracket slot order (position 1..8)
-  matches   OnePointMatch[]
-
-  @@index([ownerId])
-}
-
-model OnePointMatch {
-  id        String        @id @default(cuid())
-  eventId   String
-  round     Int // 1 = quarterfinal, 2 = semifinal, 3 = final
-  position  Int // 1-based position within the round
-  sequence  Int // play order across the whole bracket (top of the draw, moving down)
-  player1Id String? // null until the feeding match(es) resolve, for round 2/3
-  player2Id String?
-  winnerId  String?
-  status    String        @default("pending") // pending | complete
-  event     OnePointEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
 }
@@ -265,7 +262,10 @@ model SnakeLaddersEvent {
   scoreMode   String // "points" | "games"
   target      Int
   totalRounds Int
-  playerIds   String[] // exactly 8, seeded by rating desc at creation (ranks 1-8)
+  // Courts in the ladder (1–4), 4 players each. Events from before this
+  // setting had 2.
+  courts      Int                 @default(2)
+  playerIds   String[] // 4 × courts, seeded by rating desc at creation
   matches     SnakeLaddersMatch[]
 
   @@index([ownerId])
@@ -275,7 +275,7 @@ model SnakeLaddersMatch {
   id             String            @id @default(cuid())
   eventId        String
   round          Int
-  court          String // "top" | "bottom"
+  court          String // "1" (top) … "4"; older events: "top" | "bottom"
   teamAPlayer1Id String
   teamAPlayer2Id String
   teamBPlayer1Id String

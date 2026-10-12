@@ -10,7 +10,7 @@ import { cn, getInitials } from '@/lib/utils'
 const tabs = [
   { href: '/', label: 'Ranking', icon: Trophy },
   { href: '/matches', label: 'Match Centre', icon: History },
-  { href: '/events', label: 'Events', icon: LayoutGrid },
+  { href: '/events', label: 'Events & Leagues', icon: LayoutGrid },
 ]
 
 function isActive(pathname: string, href: string) {
@@ -122,7 +122,7 @@ export default function Navbar({
             key={href}
             href={href}
             className={cn(
-              'relative flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors',
+              'relative flex-auto flex items-center justify-center gap-1 px-1.5 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors',
               isActive(pathname, href) ? 'border-orange-500 text-white' : 'border-transparent text-zinc-400'
             )}
           >

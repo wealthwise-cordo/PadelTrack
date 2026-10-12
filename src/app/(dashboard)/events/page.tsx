@@ -1,10 +1,9 @@
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { Shuffle, RotateCcw, Zap, ArrowUpDown, ChevronRight, Info } from 'lucide-react'
+import { Shuffle, RotateCcw, ArrowUpDown, ChevronRight, Info } from 'lucide-react'
 import { requireSession } from '@/lib/session'
 import { listAmericanoEvents } from '@/lib/americano-store'
 import { listRoundRobinEvents } from '@/lib/round-robin-store'
-import { listOnePointEvents } from '@/lib/one-point-store'
 import { listSnakeLaddersEvents } from '@/lib/snake-ladders-store'
 
 export const revalidate = 0
@@ -14,45 +13,36 @@ const formats = [
     icon: Shuffle,
     name: 'Americano',
     description: 'Rotating partners each round. Points add up individually — everyone plays with and against everyone.',
-    tag: '4–8 players',
+    tag: '4+ players',
     href: '/events/americano',
   },
   {
     icon: RotateCcw,
     name: 'Round Robin',
-    description: 'Fixed pairs, every team plays every other team once. First to 4, 6 or 8 games.',
-    tag: '3–4 teams',
+    description: 'Fixed pairs, every team plays every other team once, on 1–6 courts — or as a league players arrange themselves.',
+    tag: '3+ teams',
     href: '/events/round-robin',
   },
   {
     icon: ArrowUpDown,
     name: 'Snake and Ladders',
-    description: 'Two courts. Win and climb to the top court, lose and slide down — the final round decides 1st to 4th.',
-    tag: '8 players',
+    description: '1–4 courts. Win and climb to the top court, lose and slide down — the final round decides the placings.',
+    tag: '4–16 players',
     href: '/events/snake-ladders',
-  },
-  {
-    icon: Zap,
-    name: 'One Point',
-    description: 'Seeded knockout where every match is sudden death — one point decides it.',
-    tag: '8 players',
-    href: '/events/one-point',
   },
 ]
 
 export default async function EventsPage() {
   const session = await requireSession()
   const actor = { userId: session.userId, playerId: session.player.id }
-  const [am, rr, op, sl] = await Promise.all([
+  const [am, rr, sl] = await Promise.all([
     listAmericanoEvents(actor),
     listRoundRobinEvents(actor),
-    listOnePointEvents(actor),
     listSnakeLaddersEvents(actor),
   ])
   const recent = [
     ...am.map(e => ({ ...e, format: 'Americano', href: `/events/americano/${e.id}` })),
-    ...rr.map(e => ({ ...e, format: 'Round Robin', href: `/events/round-robin/${e.id}` })),
-    ...op.map(e => ({ ...e, format: 'One Point', href: `/events/one-point/${e.id}` })),
+    ...rr.map(e => ({ ...e, format: e.league ? 'League' : 'Round Robin', href: `/events/round-robin/${e.id}` })),
     ...sl.map(e => ({ ...e, format: 'Snake and Ladders', href: `/events/snake-ladders/${e.id}` })),
   ]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -61,7 +51,7 @@ export default async function EventsPage() {
   return (
     <div className="py-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-black tracking-tight">Events</h1>
+        <h1 className="text-2xl font-black tracking-tight">Events &amp; Leagues</h1>
         <p className="text-sm text-zinc-500 mt-0.5">Run a social event with anyone — users or guests.</p>
       </div>
 

@@ -5,6 +5,7 @@ import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
 export interface AmericanoMatchView {
   id: string
   round: number
+  court: number | null
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
@@ -20,6 +21,7 @@ export interface AmericanoEventView {
   status: 'in_progress' | 'complete'
   scoreMode: 'points' | 'games'
   target: number
+  courts: number
   ownerId: string
   playerIds: string[]
   matches: AmericanoMatchView[]
@@ -42,13 +44,15 @@ export async function createAmericanoEvent(
   playerIds: string[],
   scoreMode: 'points' | 'games',
   target: number,
-  ownerId: string
+  ownerId: string,
+  courts = 1
 ): Promise<string> {
-  const fixtures = generateAmericanoSchedule(playerIds)
+  const fixtures = generateAmericanoSchedule(playerIds, courts)
   const event = await prisma.americanoEvent.create({
     data: {
       scoreMode,
       target,
+      courts: Math.max(...fixtures.map(f => f.court)),
       ownerId,
       playerIds,
       matches: { create: fixtures.map(f => ({ ...f })) },
@@ -60,7 +64,7 @@ export async function createAmericanoEvent(
 export async function getAmericanoEvent(id: string): Promise<AmericanoEventView | null> {
   const event = await prisma.americanoEvent.findUnique({
     where: { id },
-    include: { matches: { orderBy: { round: 'asc' } } },
+    include: { matches: { orderBy: [{ round: 'asc' }, { court: 'asc' }] } },
   })
   if (!event) return null
 
@@ -70,11 +74,13 @@ export async function getAmericanoEvent(id: string): Promise<AmericanoEventView 
     status: event.status as 'in_progress' | 'complete',
     scoreMode: event.scoreMode as 'points' | 'games',
     target: event.target,
+    courts: event.courts,
     ownerId: event.ownerId,
     playerIds: event.playerIds,
     matches: event.matches.map(m => ({
       id: m.id,
       round: m.round,
+      court: m.court,
       teamAPlayer1Id: m.teamAPlayer1Id,
       teamAPlayer2Id: m.teamAPlayer2Id,
       teamBPlayer1Id: m.teamBPlayer1Id,

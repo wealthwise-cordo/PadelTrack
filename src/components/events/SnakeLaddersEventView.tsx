@@ -14,7 +14,7 @@ interface Props {
   players: PlayerWithStats[]
 }
 
-const PLACEMENT_LABELS = ['1st', '2nd', '3rd', '4th']
+const PLACEMENT_LABELS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th']
 
 type PlayerLookup = Map<string, PlayerWithStats>
 
@@ -48,16 +48,17 @@ export default function SnakeLaddersEventView({ event, players }: Props) {
 
   const currentRoundNum = event.matches.reduce((max, m) => Math.max(max, m.round), 1)
   const currentRoundMatches = event.matches.filter(m => m.round === currentRoundNum)
-  const topMatch = currentRoundMatches.find(m => m.court === 'top')
-  const bottomMatch = currentRoundMatches.find(m => m.court === 'bottom')
+  const courts = event.courts
+  // Court 1 is the top of the ladder, the last court the bottom.
+  const courtLabel = (c: number) => (courts === 1 ? 'Court' : c === 1 ? 'Court 1 · top' : c === courts ? `Court ${c} · bottom` : `Court ${c}`)
   const isFinalRound = currentRoundNum === event.totalRounds
   const roundInPlay = event.status === 'in_progress'
 
-  const placements = finalPlacements(event.matches, event.totalRounds)
+  const placements = finalPlacements(event.matches.map(m => ({ ...m, court: String(m.court) })), event.totalRounds, courts)
 
   const history = [...event.matches]
     .filter(m => m.status === 'complete')
-    .sort((a, b) => a.round - b.round || a.court.localeCompare(b.court))
+    .sort((a, b) => a.round - b.round || a.court - b.court)
 
   return (
     <div className="pt-5 pb-4 space-y-4">
@@ -102,7 +103,7 @@ export default function SnakeLaddersEventView({ event, players }: Props) {
           Round {Math.min(currentRoundNum, event.totalRounds)}/{event.totalRounds}
         </span>
         <span className="font-mono text-muted-foreground">
-          {event.matches.filter(m => m.status === 'complete').length}/{event.totalRounds * 2} matches
+          {event.matches.filter(m => m.status === 'complete').length}/{event.totalRounds * courts} matches
         </span>
       </div>
 
@@ -110,19 +111,18 @@ export default function SnakeLaddersEventView({ event, players }: Props) {
         <div className="glass rounded-xl p-3 border border-zinc-600/40 flex items-center gap-2.5">
           <Flag className="h-4 w-4 text-zinc-600 shrink-0" />
           <div className="text-[11px] text-muted-foreground">
-            <span className="text-zinc-600 font-bold">Final round — last 2 matches.</span> Top court winner
-            takes 1st, loser takes 2nd. Bottom court winner takes 3rd, loser takes 4th.
+            <span className="text-zinc-600 font-bold">Final round.</span>{' '}
+            {courts === 1
+              ? 'The winners take 1st, the losers 2nd.'
+              : `Court 1's winners take 1st and losers 2nd, court 2's take 3rd and 4th${courts > 2 ? ', and so on down the ladder' : ''}.`}
           </div>
         </div>
       )}
 
       {/* Courts */}
-      {roundInPlay && topMatch && (
-        <CourtCard label="Top Court" icon="up" match={topMatch} eventId={event.id} target={event.target} byId={byId} />
-      )}
-      {roundInPlay && bottomMatch && (
-        <CourtCard label="Bottom Court" icon="down" match={bottomMatch} eventId={event.id} target={event.target} byId={byId} />
-      )}
+      {roundInPlay && currentRoundMatches.map(m => (
+        <CourtCard key={m.id} label={courtLabel(m.court)} icon={m.court === courts && courts > 1 ? 'down' : 'up'} match={m} eventId={event.id} target={event.target} byId={byId} />
+      ))}
 
       {/* Match history */}
       {history.length > 0 && (
@@ -135,7 +135,7 @@ export default function SnakeLaddersEventView({ event, players }: Props) {
               <div key={m.id} className="py-2">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="w-14 shrink-0 font-mono text-muted-foreground">
-                    R{m.round} {m.court === 'top' ? '↑' : '↓'}
+                    R{m.round} {courts === 1 ? '' : `C${m.court}`}
                   </span>
                   <span className="flex-1 min-w-0 truncate text-muted-foreground">
                     {firstName(m.teamAPlayer1Id)} &amp; {firstName(m.teamAPlayer2Id)}

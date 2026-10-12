@@ -1,10 +1,11 @@
-// Individual Americano scheduling for 4, 5, 7, or 8 players on 1 court.
-// Goal: every player partners with every other player at least once
-// (exactly once where the player count allows it), with play time and
-// opponent exposure balanced as evenly as possible.
+// Individual Americano scheduling: 4–24 players (not 7, 11, 15, 19 or 23) on
+// 1–6 courts. Partners rotate every round. Goal: every player partners every
+// other player exactly once where the count allows it (one partnership repeats
+// when it doesn't), with play time and opponents balanced.
 
 export interface AmericanoFixture {
   round: number
+  court: number
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
@@ -12,13 +13,18 @@ export interface AmericanoFixture {
 }
 
 type Pair = [string, string]
+type Match = [Pair, Pair]
 
 const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
 
-// Circle method: produces playerIds.length - 1 "sessions", each a perfect
-// matching (pairs covering every player exactly once). Across all sessions,
-// every unordered pair of players occurs together exactly once. Only valid
-// when playerIds.length is even.
+// Player counts offered. Counts of the form 4k+3 are left out by choice.
+export const AMERICANO_SIZES = [4, 5, 6, 8, 9, 10, 12, 13, 14, 16, 17, 18, 20, 21, 22, 24]
+export const AMERICANO_MAX_COURTS = 6
+// Each court takes 4 players.
+export const americanoMaxCourts = (players: number) => Math.max(1, Math.min(AMERICANO_MAX_COURTS, Math.floor(players / 4)))
+
+// Circle method: for an even count, n - 1 "sessions", each pairing everyone
+// off, so every pair of players is together in exactly one session.
 function circleMethodPartnerSessions(playerIds: string[]): Pair[][] {
   const n = playerIds.length
   const fixed = playerIds[0]
@@ -38,154 +44,89 @@ function circleMethodPartnerSessions(playerIds: string[]): Pair[][] {
   return sessions
 }
 
-// 4 or 8 players: each circle-method session either *is* one match (4
-// players, 2 pairs) or splits cleanly into two matches (8 players, 4 pairs).
-// Both cases are a proven-exact decomposition — every partnership occurs
-// exactly once across the whole schedule.
-function evenPlayerSchedule(playerIds: string[]): AmericanoFixture[] {
-  const sessions = circleMethodPartnerSessions(playerIds)
-  const opponentCount = new Map<string, number>()
-  const oppCost = (pairA: Pair, pairB: Pair) =>
-    pairA.reduce((sum, a) => sum + pairB.reduce((s, b) => s + (opponentCount.get(key(a, b)) ?? 0), 0), 0)
-  const recordOpponents = (pairA: Pair, pairB: Pair) => {
-    for (const a of pairA) for (const b of pairB) opponentCount.set(key(a, b), (opponentCount.get(key(a, b)) ?? 0) + 1)
-  }
+const BYE = '__bye__'
 
-  const fixtures: AmericanoFixture[] = []
-  let round = 1
-
-  const addMatch = (teamA: Pair, teamB: Pair) => {
-    fixtures.push({
-      round: round++,
-      teamAPlayer1Id: teamA[0],
-      teamAPlayer2Id: teamA[1],
-      teamBPlayer1Id: teamB[0],
-      teamBPlayer2Id: teamB[1],
-    })
-    recordOpponents(teamA, teamB)
-  }
-
-  for (const pairs of sessions) {
-    if (pairs.length === 2) {
-      // 4 players: the session's 2 pairs are the only possible match.
-      addMatch(pairs[0], pairs[1])
-    } else {
-      // 8 players: 3 ways to split 4 partner-pairs into two matches; pick
-      // whichever split has been seen least as opponents so far.
-      const [p0, p1, p2, p3] = pairs
-      const candidates: { match1: [Pair, Pair]; match2: [Pair, Pair]; cost: number }[] = [
-        { match1: [p0, p1], match2: [p2, p3], cost: oppCost(p0, p1) + oppCost(p2, p3) },
-        { match1: [p0, p2], match2: [p1, p3], cost: oppCost(p0, p2) + oppCost(p1, p3) },
-        { match1: [p0, p3], match2: [p1, p2], cost: oppCost(p0, p3) + oppCost(p1, p2) },
-      ]
-      candidates.sort((a, b) => a.cost - b.cost)
-      const best = candidates[0]
-      addMatch(best.match1[0], best.match1[1])
-      addMatch(best.match2[0], best.match2[1])
-    }
-  }
-
-  return fixtures
-}
-
-// 5 or 7 players, 1 court: 4 play each round, the rest sit out. When N isn't
-// a multiple of 4, C(N,2) partner pairs can't always be split evenly across
-// 2-pairs-per-round matches — for N=5 it works out exactly (10 pairs, 5
-// rounds), for N=7 one pair is unavoidably repeated (21 pairs is odd).
-// Greedily builds rounds from the 4-player subset (and pairing within it)
-// that best balances fresh partnerships, play-time, and opponent exposure.
-function unevenPlayerSchedule(playerIds: string[]): AmericanoFixture[] {
+// Every partnership in sessions, then each session's pairs matched up into
+// games (pair vs pair), choosing opponents seen least so far.
+//  · 4k players: each session splits into k games — exact.
+//  · 4k+1: a "bye" makes the count even; whoever is paired with it sits out
+//    that session, the rest split into k games — still exact.
+//  · 4k+2: sessions have an odd number of pairs, so one pair per session is
+//    held back and played against the next session's held-back pair. One
+//    pair is left at the very end and plays a pair that repeats a partnership.
+function partnerMatches(playerIds: string[]): Match[] {
   const n = playerIds.length
-  const allPairs: Pair[] = []
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) allPairs.push([playerIds[i], playerIds[j]])
+  const opponents = new Map<string, number>()
+  const oppCost = (a: Pair, b: Pair) => a.reduce((s, x) => s + b.reduce((t, y) => t + (opponents.get(key(x, y)) ?? 0), 0), 0)
+  const plays = new Map<string, number>(playerIds.map(id => [id, 0]))
+  const matches: Match[] = []
+  const play = (a: Pair, b: Pair) => {
+    matches.push([a, b])
+    for (const x of a) for (const y of b) opponents.set(key(x, y), (opponents.get(key(x, y)) ?? 0) + 1)
+    for (const id of [...a, ...b]) plays.set(id, (plays.get(id) ?? 0) + 1)
   }
-
-  const unused = new Set(allPairs.map(p => key(p[0], p[1])))
-  const playCount = new Map<string, number>(playerIds.map(id => [id, 0]))
-  const opponentCount = new Map<string, number>()
-
-  const subsets: number[][] = []
-  for (let a = 0; a < n; a++) {
-    for (let b = a + 1; b < n; b++) {
-      for (let c = b + 1; c < n; c++) {
-        for (let d = c + 1; d < n; d++) subsets.push([a, b, c, d])
+  // Split an even number of pairs into games, least-seen opponents first.
+  const split = (pairs: Pair[]) => {
+    const left = [...pairs]
+    while (left.length >= 2) {
+      let best: [number, number] = [0, 1]
+      let bestCost = Infinity
+      for (let i = 0; i < left.length; i++) {
+        for (let j = i + 1; j < left.length; j++) {
+          const c = oppCost(left[i], left[j])
+          if (c < bestCost) { bestCost = c; best = [i, j] }
+        }
       }
+      const [a, b] = [left[best[0]], left[best[1]]]
+      play(a, b)
+      left.splice(best[1], 1)
+      left.splice(best[0], 1)
     }
   }
+  const disjoint = (a: Pair, b: Pair) => !a.includes(b[0]) && !a.includes(b[1])
 
-  const fixtures: AmericanoFixture[] = []
-  let round = 1
+  const sessions = circleMethodPartnerSessions(n % 2 === 0 ? playerIds : [...playerIds, BYE])
+    .map(pairs => pairs.filter(p => !p.includes(BYE)))
 
-  while (unused.size > 0) {
-    let best: { teamA: Pair; teamB: Pair; score: number } | null = null
-
-    for (const [i, j, k, l] of subsets) {
-      const ids = [playerIds[i], playerIds[j], playerIds[k], playerIds[l]]
-      const pairings: [Pair, Pair][] = [
-        [[ids[0], ids[1]], [ids[2], ids[3]]],
-        [[ids[0], ids[2]], [ids[1], ids[3]]],
-        [[ids[0], ids[3]], [ids[1], ids[2]]],
-      ]
-      for (const [teamA, teamB] of pairings) {
-        const freshPenalty = (unused.has(key(teamA[0], teamA[1])) ? 0 : 5) + (unused.has(key(teamB[0], teamB[1])) ? 0 : 5)
-        const playPenalty = ids.reduce((s, id) => s + (playCount.get(id) ?? 0), 0)
-        const oppPenalty = teamA.reduce(
-          (s, a) => s + teamB.reduce((s2, b) => s2 + (opponentCount.get(key(a, b)) ?? 0), 0),
-          0
-        )
-        const score = freshPenalty * 100 + playPenalty * 10 + oppPenalty
-        if (!best || score < best.score) best = { teamA, teamB, score }
-      }
-    }
-
-    if (!best) break
-    const { teamA, teamB } = best
-    fixtures.push({
-      round: round++,
-      teamAPlayer1Id: teamA[0],
-      teamAPlayer2Id: teamA[1],
-      teamBPlayer1Id: teamB[0],
-      teamBPlayer2Id: teamB[1],
-    })
-    unused.delete(key(teamA[0], teamA[1]))
-    unused.delete(key(teamB[0], teamB[1]))
-    for (const id of [...teamA, ...teamB]) playCount.set(id, (playCount.get(id) ?? 0) + 1)
-    for (const a of teamA) for (const b of teamB) opponentCount.set(key(a, b), (opponentCount.get(key(a, b)) ?? 0) + 1)
+  let heldBack: Pair | null = null
+  for (const pairs of sessions) {
+    if (pairs.length % 2 === 0) { split(pairs); continue }
+    // Odd number of pairs (4k+2 players): hold one back. If one is already
+    // waiting, hold back a pair it can play, and play them together.
+    const waiting: Pair | null = heldBack
+    const candidates = waiting ? pairs.filter(p => disjoint(p, waiting)) : pairs
+    const pick: Pair = waiting ? candidates.reduce((b, p) => (oppCost(p, waiting) < oppCost(b, waiting) ? p : b)) : candidates[candidates.length - 1]
+    split(pairs.filter(p => p !== pick))
+    if (waiting) { play(waiting, pick); heldBack = null } else heldBack = pick
   }
-
-  return fixtures
+  if (heldBack) {
+    // The last held-back pair needs opponents: two other players who've played
+    // least, as a repeat partnership. Their extra game is left out of their
+    // points (see computeExcludedRounds).
+    const last: Pair = heldBack
+    const others = playerIds.filter(id => !last.includes(id)).sort((a, b) => (plays.get(a) ?? 0) - (plays.get(b) ?? 0))
+    play(last, [others[0], others[1]])
+  }
+  return matches
 }
 
-// When the player count doesn't divide evenly into rounds of 4, a few
-// players end up with one extra match (e.g. 7 players: 2 of them play 7
-// rounds, the other 5 play 6). To keep the leaderboard fair, that extra
-// match is excluded from those players' point totals — so this pushes each
-// such player's final (extra) appearance to the end of the schedule, and
-// renumbers rounds so "last match" and "excluded match" line up.
-function pushExtraMatchesToEnd(fixtures: AmericanoFixture[], playerIds: string[]): AmericanoFixture[] {
-  const playCount = new Map<string, number>(playerIds.map(id => [id, 0]))
-  for (const f of fixtures) {
-    for (const pid of [f.teamAPlayer1Id, f.teamAPlayer2Id, f.teamBPlayer1Id, f.teamBPlayer2Id]) {
-      playCount.set(pid, (playCount.get(pid) ?? 0) + 1)
+// Fills rounds with up to `courts` games whose players don't overlap, taking
+// games in order so sitting out stays spread evenly.
+function packIntoRounds(matches: Match[], courts: number): AmericanoFixture[] {
+  const queue = [...matches]
+  const out: AmericanoFixture[] = []
+  for (let round = 1; queue.length > 0; round++) {
+    const busy = new Set<string>()
+    let court = 0
+    for (let i = 0; i < queue.length && court < courts; ) {
+      const [a, b] = queue[i]
+      if ([...a, ...b].some(id => busy.has(id))) { i++; continue }
+      for (const id of [...a, ...b]) busy.add(id)
+      out.push({ round, court: ++court, teamAPlayer1Id: a[0], teamAPlayer2Id: a[1], teamBPlayer1Id: b[0], teamBPlayer2Id: b[1] })
+      queue.splice(i, 1)
     }
   }
-  const minPlays = Math.min(...Array.from(playCount.values()))
-  const extraPlayers = new Set(playerIds.filter(id => (playCount.get(id) ?? 0) > minPlays))
-  if (extraPlayers.size === 0) return fixtures
-
-  const lastRoundForExtra = new Map<string, number>()
-  for (const f of fixtures) {
-    for (const pid of [f.teamAPlayer1Id, f.teamAPlayer2Id, f.teamBPlayer1Id, f.teamBPlayer2Id]) {
-      if (extraPlayers.has(pid)) lastRoundForExtra.set(pid, f.round)
-    }
-  }
-  const deferredRounds = new Set(Array.from(lastRoundForExtra.values()))
-
-  const normal = fixtures.filter(f => !deferredRounds.has(f.round))
-  const deferred = fixtures.filter(f => deferredRounds.has(f.round)).sort((a, b) => a.round - b.round)
-
-  return [...normal, ...deferred].map((f, i) => ({ ...f, round: i + 1 }))
+  return out
 }
 
 // Fisher-Yates shuffle. Both scheduling methods are entirely deterministic
@@ -202,21 +143,18 @@ function shuffled(ids: string[]): string[] {
   return arr
 }
 
-export function generateAmericanoSchedule(playerIds: string[]): AmericanoFixture[] {
-  const shuffledIds = shuffled(playerIds)
-
-  let fixtures: AmericanoFixture[]
-  if (shuffledIds.length === 4 || shuffledIds.length === 8) fixtures = evenPlayerSchedule(shuffledIds)
-  else if (shuffledIds.length === 5 || shuffledIds.length === 7) fixtures = unevenPlayerSchedule(shuffledIds)
-  else throw new Error('Americano scheduling supports 4, 5, 7, or 8 players')
-
-  return pushExtraMatchesToEnd(fixtures, shuffledIds)
+export function generateAmericanoSchedule(playerIds: string[], courts = 1): AmericanoFixture[] {
+  if (!AMERICANO_SIZES.includes(playerIds.length)) {
+    throw new Error(`Americano needs ${AMERICANO_SIZES.join(', ')} players`)
+  }
+  const matches = partnerMatches(shuffled(playerIds))
+  return packIntoRounds(matches, Math.min(courts, americanoMaxCourts(playerIds.length)))
 }
 
-// For players who get one extra match (uneven player counts), returns the
-// round number that should NOT count toward that player's leaderboard
-// total — their final appearance, per pushExtraMatchesToEnd above. Players
-// with an even number of matches have no entry (nothing excluded for them).
+// For players who get one extra match (4k+2 players: the repeat partnership
+// at the end), returns the round that should NOT count toward that player's
+// leaderboard total — their last appearance, which is that extra game.
+// Players with no extra match have no entry (nothing excluded for them).
 export function computeExcludedRounds<
   M extends { round: number; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }
 >(matches: M[], playerIds: string[]): Map<string, number> {

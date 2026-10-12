@@ -1,11 +1,11 @@
 import { prisma } from './prisma'
-import { seedRound1, nextRoundFixtures, finalPlacements } from './snake-ladders'
+import { seedRound1, nextRoundFixtures, finalPlacements, courtNumber } from './snake-ladders'
 import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
 
 export interface SnakeLaddersMatchView {
   id: string
   round: number
-  court: 'top' | 'bottom'
+  court: number // 1 = top court
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
@@ -22,6 +22,7 @@ export interface SnakeLaddersEventView {
   scoreMode: 'points' | 'games'
   target: number
   totalRounds: number
+  courts: number
   ownerId: string
   playerIds: string[]
   matches: SnakeLaddersMatchView[]
@@ -34,6 +35,7 @@ export interface SnakeLaddersEventSummary {
   scoreMode: 'points' | 'games'
   target: number
   totalRounds: number
+  courts: number
   ownerId: string
   playerIds: string[]
   currentRound: number
@@ -50,7 +52,7 @@ function toMatchView(m: {
   return {
     id: m.id,
     round: m.round,
-    court: m.court as 'top' | 'bottom',
+    court: courtNumber(m.court),
     teamAPlayer1Id: m.teamAPlayer1Id,
     teamAPlayer2Id: m.teamAPlayer2Id,
     teamBPlayer1Id: m.teamBPlayer1Id,
@@ -66,14 +68,16 @@ export async function createSnakeLaddersEvent(
   scoreMode: 'points' | 'games',
   target: number,
   totalRounds: number,
-  ownerId: string
+  ownerId: string,
+  courts: number
 ): Promise<string> {
-  const fixtures = seedRound1(playerIdsByPtrDesc)
+  const fixtures = seedRound1(playerIdsByPtrDesc, courts)
   const event = await prisma.snakeLaddersEvent.create({
     data: {
       scoreMode,
       target,
       totalRounds,
+      courts,
       ownerId,
       playerIds: playerIdsByPtrDesc,
       matches: { create: fixtures.map(f => ({ ...f })) },
@@ -96,9 +100,10 @@ export async function getSnakeLaddersEvent(id: string): Promise<SnakeLaddersEven
     scoreMode: event.scoreMode as 'points' | 'games',
     target: event.target,
     totalRounds: event.totalRounds,
+    courts: event.courts,
     ownerId: event.ownerId,
     playerIds: event.playerIds,
-    matches: event.matches.map(toMatchView),
+    matches: event.matches.map(toMatchView).sort((a, b) => a.round - b.round || a.court - b.court),
   }
 }
 
@@ -112,7 +117,7 @@ export async function listSnakeLaddersEvents(actor: Actor): Promise<SnakeLadders
   return events.map(event => {
     const matchesComplete = event.matches.filter(m => m.status === 'complete').length
     const currentRound = event.matches.reduce((max, m) => Math.max(max, m.round), 1)
-    const placements = finalPlacements(event.matches, event.totalRounds)
+    const placements = finalPlacements(event.matches, event.totalRounds, event.courts)
 
     return {
       id: event.id,
@@ -121,11 +126,12 @@ export async function listSnakeLaddersEvents(actor: Actor): Promise<SnakeLadders
       scoreMode: event.scoreMode as 'points' | 'games',
       target: event.target,
       totalRounds: event.totalRounds,
-        ownerId: event.ownerId,
+      courts: event.courts,
+      ownerId: event.ownerId,
       playerIds: event.playerIds,
       currentRound,
       matchesComplete,
-      matchesTotal: event.totalRounds * 2,
+      matchesTotal: event.totalRounds * event.courts,
       firstPlaceIds: placements ? placements[0] : null,
     }
   })
@@ -166,19 +172,17 @@ export async function submitSnakeLaddersScore(
   if (saved.count === 0) return { error: 'Someone else already entered this score' }
 
   const roundMatches = await prisma.snakeLaddersMatch.findMany({ where: { eventId, round: match.round } })
-  const roundComplete = roundMatches.length === 2 && roundMatches.every(m => m.status === 'complete')
+  const roundComplete = roundMatches.length === event.courts && roundMatches.every(m => m.status === 'complete')
 
   if (roundComplete) {
     if (match.round >= event.totalRounds) {
       await finalizeSnakeLaddersEvent(eventId)
     } else {
-      const top = roundMatches.find(m => m.court === 'top')
-      const bottom = roundMatches.find(m => m.court === 'bottom')
-      if (top && bottom && top.teamAScore !== null && top.teamBScore !== null && bottom.teamAScore !== null && bottom.teamBScore !== null) {
+      const byCourt = [...roundMatches].sort((a, b) => courtNumber(a.court) - courtNumber(b.court))
+      if (byCourt.every(m => m.teamAScore !== null && m.teamBScore !== null)) {
         const fixtures = nextRoundFixtures(
           match.round + 1,
-          { ...top, teamAScore: top.teamAScore, teamBScore: top.teamBScore },
-          { ...bottom, teamAScore: bottom.teamAScore, teamBScore: bottom.teamBScore }
+          byCourt.map(m => ({ ...m, teamAScore: m.teamAScore!, teamBScore: m.teamBScore! }))
         )
         await prisma.snakeLaddersMatch.createMany({ data: fixtures.map(f => ({ eventId, ...f })), skipDuplicates: true })
       }

@@ -15,11 +15,15 @@ export default async function RoundRobinEventPage({ params }: { params: { id: st
   const playerIds = event.teams.flat()
   const [players, organiserName] = await Promise.all([getEventPlayers(playerIds), getUserName(event.ownerId)])
   const role = event.ownerId === session.userId ? 'organiser' : playerIds.includes(session.player.id) ? 'player' : 'viewer'
+  // Only the organiser and its players can see a league.
+  if (event.league && role === 'viewer') notFound()
 
   return (
     <>
-      <EventLiveBar live={event.status === 'in_progress'} organiserName={organiserName ?? 'someone'} role={role} />
-      <RoundRobinEventView event={event} players={players} />
+      {/* A league runs for weeks and players confirm each other's scores, so it
+          has no live bar (that's for an event being played right now). */}
+      {!event.league && <EventLiveBar live={event.status === 'in_progress'} organiserName={organiserName ?? 'someone'} role={role} />}
+      <RoundRobinEventView event={event} players={players} meId={session.player.id} canScore={role !== 'viewer'} />
     </>
   )
 }

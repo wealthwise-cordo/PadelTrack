@@ -7,7 +7,7 @@ Rankings for you and the people you play padel with. Next.js 14, Prisma, Postgre
   - A ranked match becomes ranked once **an opponent confirms the score** and **every guest in it has joined PadelTrack** through their invite link. Both can happen in either order within 48 hours.
   - After 48 hours: if a guest still hasn't joined, the match **becomes a friendly permanently**. If everyone's on PadelTrack but nobody confirmed, it **confirms itself** as ranked.
   - Match Centre shows both checks on each pending match, with an **Invite** button that shares the guest's join link.
-- **Events**: Americano, Round Robin, Snake and Ladders, One Point. These are separate from rankings and never change ratings. The organiser and any registered player in the event can enter scores, and every open event page syncs live.
+- **Events**: Americano, Round Robin, Snake and Ladders. These are separate from rankings and never change ratings. The organiser and any registered player in the event can enter scores, and every open event page syncs live.
 
 ## Local development
 

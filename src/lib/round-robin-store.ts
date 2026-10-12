@@ -1,18 +1,26 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
-import { generateRoundRobinSchedule } from './round-robin'
+import { generateRoundRobinSchedule, scoreLeagueResult, leagueStandings, leagueMatchActions, checkOneOffScore, type LeagueScoring, type OneOffScoring, type SetScore } from './round-robin'
 import { computeLeaderboardPoints } from './americano'
 import { canManageEvent, eventsVisibleTo, type Actor } from './event-access'
 
 export interface RoundRobinMatchView {
   id: string
   round: number
+  court: number | null
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
   teamBPlayer2Id: string
   teamAScore: number | null
   teamBScore: number | null
-  status: 'pending' | 'complete'
+  sets: SetScore[] | null
+  status: 'pending' | 'submitted' | 'complete'
+  // League: who entered the score (player id) and when, and whether it
+  // confirmed itself after 48 hours.
+  submittedById: string | null
+  submittedAt: string | null
+  autoConfirmed: boolean
 }
 
 export interface RoundRobinEventView {
@@ -20,6 +28,10 @@ export interface RoundRobinEventView {
   createdAt: string
   status: 'in_progress' | 'complete'
   target: number
+  courts: number
+  league: boolean
+  // League: games | set | match. One-off event: games | points.
+  scoring: LeagueScoring | OneOffScoring
   ownerId: string
   teams: [string, string][]
   matches: RoundRobinMatchView[]
@@ -30,6 +42,8 @@ export interface RoundRobinEventSummary {
   createdAt: string
   status: 'in_progress' | 'complete'
   target: number
+  courts: number
+  league: boolean
   ownerId: string
   teams: [string, string][]
   matchesComplete: number
@@ -57,13 +71,19 @@ function teamLeaderboard(
 export async function createRoundRobinEvent(
   teams: [string, string][],
   target: number,
-  ownerId: string
+  ownerId: string,
+  courts = 1,
+  league = false,
+  scoring: LeagueScoring | OneOffScoring = 'games'
 ): Promise<string> {
-  const fixtures = generateRoundRobinSchedule(teams)
+  const fixtures = generateRoundRobinSchedule(teams, courts, league)
   const event = await prisma.roundRobinEvent.create({
     data: {
       target,
       ownerId,
+      courts: league ? 1 : courts,
+      league,
+      scoring,
       teamPlayerIds: teams.flat(),
       matches: { create: fixtures.map(f => ({ ...f })) },
     },
@@ -72,9 +92,10 @@ export async function createRoundRobinEvent(
 }
 
 export async function getRoundRobinEvent(id: string): Promise<RoundRobinEventView | null> {
+  await settleLeagueScores({ eventId: id })
   const event = await prisma.roundRobinEvent.findUnique({
     where: { id },
-    include: { matches: { orderBy: { round: 'asc' } } },
+    include: { matches: { orderBy: [{ round: 'asc' }, { court: 'asc' }] } },
   })
   if (!event) return null
 
@@ -83,23 +104,32 @@ export async function getRoundRobinEvent(id: string): Promise<RoundRobinEventVie
     createdAt: event.createdAt.toISOString(),
     status: event.status as 'in_progress' | 'complete',
     target: event.target,
+    courts: event.courts,
+    league: event.league,
+    scoring: event.scoring as LeagueScoring | OneOffScoring,
     ownerId: event.ownerId,
     teams: chunkTeams(event.teamPlayerIds),
     matches: event.matches.map(m => ({
       id: m.id,
       round: m.round,
+      court: m.court,
       teamAPlayer1Id: m.teamAPlayer1Id,
       teamAPlayer2Id: m.teamAPlayer2Id,
       teamBPlayer1Id: m.teamBPlayer1Id,
       teamBPlayer2Id: m.teamBPlayer2Id,
       teamAScore: m.teamAScore,
       teamBScore: m.teamBScore,
-      status: m.status as 'pending' | 'complete',
+      sets: (m.sets as SetScore[] | null) ?? null,
+      status: m.status as RoundRobinMatchView['status'],
+      submittedById: m.submittedById,
+      submittedAt: m.submittedAt?.toISOString() ?? null,
+      autoConfirmed: m.autoConfirmed,
     })),
   }
 }
 
 export async function listRoundRobinEvents(actor: Actor): Promise<RoundRobinEventSummary[]> {
+  await settleLeagueScores({})
   const events = await prisma.roundRobinEvent.findMany({
     where: eventsVisibleTo(actor, 'teamPlayerIds'),
     include: { matches: true },
@@ -108,7 +138,10 @@ export async function listRoundRobinEvents(actor: Actor): Promise<RoundRobinEven
 
   return events.map(event => {
     const teams = chunkTeams(event.teamPlayerIds)
-    const points = computeLeaderboardPoints(event.matches, event.teamPlayerIds)
+    // Leagues rank by wins; one-off events by games won.
+    const leaderboard = event.league
+      ? leagueStandings(teams, event.matches.map(m => ({ ...m, sets: m.sets as SetScore[] | null }))).map(r => ({ teamIndex: r.teamIndex, playerIds: r.playerIds, points: r.won }))
+      : teamLeaderboard(teams, computeLeaderboardPoints(event.matches, event.teamPlayerIds))
     const matchesComplete = event.matches.filter(m => m.status === 'complete').length
 
     return {
@@ -116,11 +149,13 @@ export async function listRoundRobinEvents(actor: Actor): Promise<RoundRobinEven
       createdAt: event.createdAt.toISOString(),
       status: event.status as 'in_progress' | 'complete',
       target: event.target,
-        ownerId: event.ownerId,
+      courts: event.courts,
+      league: event.league,
+      ownerId: event.ownerId,
       teams,
       matchesComplete,
       matchesTotal: event.matches.length,
-      leaderboard: teamLeaderboard(teams, points),
+      leaderboard,
     }
   })
 }
@@ -134,18 +169,11 @@ export async function submitRoundRobinScore(
 ): Promise<{ ok: true } | { error: string }> {
   const event = await prisma.roundRobinEvent.findUnique({ where: { id: eventId } })
   if (!event) return { error: 'Event not found' }
+  if (event.league) return { error: 'League scores are entered by the players in each match' }
   if (!canManageEvent(event, actor)) return { error: 'Only the organiser or players in this event can enter scores' }
 
-  const target = event.target
-  if (!Number.isInteger(teamAScore) || !Number.isInteger(teamBScore) || teamAScore < 0 || teamBScore < 0) {
-    return { error: 'Scores must be non-negative whole numbers' }
-  }
-  if (teamAScore === teamBScore) return { error: 'Round Robin matches cannot end in a tie' }
-  const hi = Math.max(teamAScore, teamBScore)
-  const lo = Math.min(teamAScore, teamBScore)
-  if (hi !== target || lo >= target) {
-    return { error: `First to ${target} — the winner's score must be ${target}, the other team's must be lower` }
-  }
+  const invalid = checkOneOffScore(event.scoring as OneOffScoring, event.target, teamAScore, teamBScore)
+  if (invalid) return { error: invalid }
 
   const match = await prisma.roundRobinMatch.findUnique({ where: { id: matchId } })
   if (!match || match.eventId !== eventId) return { error: 'Match not found' }
@@ -159,7 +187,7 @@ export async function submitRoundRobinScore(
   })
   if (saved.count === 0) return { error: 'Someone else already entered this score' }
 
-  const remaining = await prisma.roundRobinMatch.count({ where: { eventId, status: 'pending' } })
+  const remaining = await prisma.roundRobinMatch.count({ where: { eventId, status: { not: 'complete' } } })
   if (remaining === 0) await finalizeRoundRobinEvent(eventId)
 
   return { ok: true }
@@ -180,3 +208,87 @@ export async function deleteRoundRobinEvent(id: string, actor: Actor): Promise<{
 async function finalizeRoundRobinEvent(eventId: string): Promise<void> {
   await prisma.roundRobinEvent.updateMany({ where: { id: eventId, status: 'in_progress' }, data: { status: 'complete' } })
 }
+
+// ---------------------------------------------------------------------------
+// Leagues — ranked-match rules without the rating change: only the players in
+// a match enter its score, the other pair confirms (or rejects) it, and an
+// unanswered score confirms itself after 48 hours.
+// ---------------------------------------------------------------------------
+
+const LEAGUE_CONFIRM_MS = 48 * 60 * 60 * 1000
+
+// Confirms scores nobody answered within 48 hours, then closes any league
+// that has nothing left to play or confirm. Runs whenever leagues are read.
+async function settleLeagueScores(where: { eventId?: string }) {
+  const expired = await prisma.roundRobinMatch.findMany({
+    where: { ...where, status: 'submitted', submittedAt: { lte: new Date(Date.now() - LEAGUE_CONFIRM_MS) }, event: { league: true } },
+    select: { id: true, eventId: true },
+  })
+  if (!expired.length) return
+  await prisma.roundRobinMatch.updateMany({
+    where: { id: { in: expired.map(m => m.id) }, status: 'submitted' },
+    data: { status: 'complete', confirmedAt: new Date(), autoConfirmed: true },
+  })
+  for (const eventId of Array.from(new Set(expired.map(m => m.eventId)))) await finalizeIfDone(eventId)
+}
+
+async function finalizeIfDone(eventId: string) {
+  const open = await prisma.roundRobinMatch.count({ where: { eventId, status: { not: 'complete' } } })
+  if (open === 0) await finalizeRoundRobinEvent(eventId)
+}
+
+async function loadLeagueMatch(actor: Actor, eventId: string, matchId: string) {
+  const match = await prisma.roundRobinMatch.findUnique({ where: { id: matchId }, include: { event: true } })
+  if (!match || match.eventId !== eventId) return { error: 'Match not found' } as const
+  if (!match.event.league) return { error: 'Not a league match' } as const
+  return { match, actions: leagueMatchActions(match, actor.playerId) } as const
+}
+
+export async function submitLeagueScore(actor: Actor, eventId: string, matchId: string, sets: unknown): Promise<{ ok: true } | { error: string }> {
+  const found = await loadLeagueMatch(actor, eventId, matchId)
+  if ('error' in found) return { error: found.error as string }
+  if (!found.actions.canSubmit) return { error: 'Only players in this match can enter its score, once' }
+  const result = scoreLeagueResult(found.match.event.scoring as LeagueScoring, sets)
+  if ('error' in result) return result
+  const saved = await prisma.roundRobinMatch.updateMany({
+    where: { id: matchId, status: 'pending' },
+    data: {
+      status: 'submitted',
+      teamAScore: result.teamAScore,
+      teamBScore: result.teamBScore,
+      sets: result.sets,
+      submittedById: actor.playerId,
+      submittedAt: new Date(),
+    },
+  })
+  if (saved.count === 0) return { error: 'Someone already entered this score' }
+  return { ok: true }
+}
+
+export async function confirmLeagueScore(actor: Actor, eventId: string, matchId: string): Promise<{ ok: true } | { error: string }> {
+  const found = await loadLeagueMatch(actor, eventId, matchId)
+  if ('error' in found) return { error: found.error as string }
+  if (!found.actions.canConfirm) return { error: 'Only the other pair in this match can confirm it' }
+  const saved = await prisma.roundRobinMatch.updateMany({
+    where: { id: matchId, status: 'submitted' },
+    data: { status: 'complete', confirmedAt: new Date() },
+  })
+  if (saved.count === 0) return { error: 'This score has already been confirmed or changed' }
+  await finalizeIfDone(eventId)
+  return { ok: true }
+}
+
+// Rejecting (other pair) or withdrawing (pair that entered it) clears the
+// score so it can be entered again.
+export async function clearLeagueScore(actor: Actor, eventId: string, matchId: string): Promise<{ ok: true } | { error: string }> {
+  const found = await loadLeagueMatch(actor, eventId, matchId)
+  if ('error' in found) return { error: found.error as string }
+  if (!found.actions.canClear) return { error: 'Only players in this match can reject or withdraw its score' }
+  const saved = await prisma.roundRobinMatch.updateMany({
+    where: { id: matchId, status: 'submitted' },
+    data: { status: 'pending', teamAScore: null, teamBScore: null, sets: Prisma.DbNull, submittedById: null, submittedAt: null },
+  })
+  if (saved.count === 0) return { error: 'This score has already been confirmed or changed' }
+  return { ok: true }
+}
+

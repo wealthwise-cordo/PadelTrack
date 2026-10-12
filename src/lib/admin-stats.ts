@@ -149,7 +149,6 @@ export async function getAdminStats(period: Period) {
     Promise.all([
       prisma.americanoEvent.count({ where: { createdAt: { gte: start } } }),
       prisma.roundRobinEvent.count({ where: { createdAt: { gte: start } } }),
-      prisma.onePointEvent.count({ where: { createdAt: { gte: start } } }),
       prisma.snakeLaddersEvent.count({ where: { createdAt: { gte: start } } }),
     ]),
     prisma.$queryRaw<{ bytes: bigint }[]>`SELECT pg_database_size(current_database()) AS bytes`.then(r => Number(r[0]?.bytes ?? 0)).catch(() => null),
@@ -340,8 +339,8 @@ export async function getAdminStats(period: Period) {
 
   // --- Feature usage ---
   const rankedShare = matchesIn.length ? rankedIn.length / matchesIn.length : null
-  const [americano, roundRobin, onePoint, snakes] = events
-  const eventTotal = americano + roundRobin + onePoint + snakes
+  const [americano, roundRobin, snakes] = events
+  const eventTotal = americano + roundRobin + snakes
 
   // --- Reliability & running costs ---
   const activeDaysIn = activeInWindow.length
@@ -378,7 +377,7 @@ export async function getAdminStats(period: Period) {
     ],
     features: [
       indicator('Ranked share of matches', rankedShare, T.rankedShare, fmtPct, `${rankedIn.length} ranked of ${matchesIn.length} matches recorded`),
-      indicator('Events created', eventTotal, null, v => String(v), `Americano ${americano} · round robin ${roundRobin} · one point ${onePoint} · snakes & ladders ${snakes} · context, no rating`),
+      indicator('Events created', eventTotal, null, v => String(v), `Americano ${americano} · round robin ${roundRobin} · snakes & ladders ${snakes} · context, no rating`),
     ],
     reliability: [
       indicator('Errors per active player-day', errorRate, T.errorsPerActiveDay, v => v.toFixed(3), `${errorCount} errors across ${activeDaysIn} player-days of use`),

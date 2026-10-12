@@ -21,6 +21,8 @@ interface Props {
   // Ask roughly what level a new guest is before adding them (used for
   // ranked matches; it only pre-fills their own choice when they sign up).
   askGuestLevel?: boolean
+  // false: registered players only — no guest suggestions or "add as guest".
+  allowGuests?: boolean
   onClose: () => void
   onSelect: (player: PlayerWithStats) => void
   // Lets the parent remember newly found/created players for later picks.
@@ -31,7 +33,7 @@ interface Props {
 // given), search everyone on PadelTrack, or type a name to add a guest.
 // Guests are never picked from a list — typing an existing guest's name
 // reuses them server-side.
-export default function PlayerPicker({ open, title = 'Select player', players, excludeIds = [], showRating = true, quickLabel = 'Your circle', guestHint = 'Not on PadelTrack — you can invite them to claim their profile later', askGuestLevel = false, onClose, onSelect, onDiscovered }: Props) {
+export default function PlayerPicker({ open, title = 'Select player', players, excludeIds = [], showRating = true, quickLabel = 'Your circle', guestHint = 'Not on PadelTrack — you can invite them to claim their profile later', askGuestLevel = false, allowGuests = true, onClose, onSelect, onDiscovered }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<PlayerWithStats[]>([])
   const [searching, setSearching] = useState(false)
@@ -67,7 +69,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
   const found = results.filter(p => !p.isGuest && !excluded.has(p.id) && !quickIds.has(p.id))
   // Guests you've already played with only appear once you type their name,
   // offered as "add as guest" so their existing profile is reused.
-  const knownGuests = q.length >= 2 ? players.filter(p => p.isGuest && !excluded.has(p.id) && p.name.toLowerCase().includes(q)) : []
+  const knownGuests = allowGuests && q.length >= 2 ? players.filter(p => p.isGuest && !excluded.has(p.id) && p.name.toLowerCase().includes(q)) : []
   // Offer a brand-new guest unless the name exactly matches someone already shown.
   const exactExists = [...circle, ...results, ...knownGuests].some(p => p.name.trim().toLowerCase() === q)
 
@@ -125,7 +127,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
             autoFocus
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search your circle, or type a guest’s name"
+            placeholder={allowGuests ? 'Search your circle, or type a guest’s name' : 'Search players on PadelTrack'}
             className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2.5 text-base sm:text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
           />
         </div>
@@ -184,7 +186,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
             </button>
           ))}
 
-          {q.length >= 1 && !exactExists && (
+          {allowGuests && q.length >= 1 && !exactExists && (
             <button
               onClick={startAddGuest}
               disabled={adding}
@@ -203,7 +205,7 @@ export default function PlayerPicker({ open, title = 'Select player', players, e
           {error && <p className="text-sm text-red-600 text-center">{error}</p>}
 
           {quick.length === 0 && found.length === 0 && !q && (
-            <p className="text-sm text-zinc-500 text-center py-6">Your circle is empty — search for a player, or type a guest’s name.</p>
+            <p className="text-sm text-zinc-500 text-center py-6">{allowGuests ? 'Your circle is empty — search for a player, or type a guest’s name.' : 'Your circle is empty — search for a player on PadelTrack.'}</p>
           )}
         </div>
         )}

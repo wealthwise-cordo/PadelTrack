@@ -15,11 +15,13 @@ interface Props {
   // Shown under the heading, e.g. "4, 5, 7 or 8 players".
   hint: string
   valid: boolean
+  // Leagues: registered PadelTrack players only.
+  usersOnly?: boolean
 }
 
 // Builds an event roster from users and guests. Events never affect
 // ratings, so ratings aren't shown here.
-export default function RosterBuilder({ players: initialPlayers, roster, onChange, max, hint, valid }: Props) {
+export default function RosterBuilder({ players: initialPlayers, roster, onChange, max, hint, valid, usersOnly = false }: Props) {
   const [players, setPlayers] = useState(initialPlayers)
   const [picking, setPicking] = useState(false)
   const full = roster.length >= max
@@ -44,7 +46,7 @@ export default function RosterBuilder({ players: initialPlayers, roster, onChang
             </span>
             <span className="flex-1 min-w-0">
               <span className="block text-xs font-semibold truncate">{p.name}</span>
-              {p.isGuest && <span className="block text-[10px] text-zinc-400">Guest</span>}
+              {p.isGuest && <span className={`block text-[10px] ${usersOnly ? 'text-red-600 font-semibold' : 'text-zinc-400'}`}>{usersOnly ? 'Guest — not allowed in a league' : 'Guest'}</span>}
             </span>
             <button onClick={() => onChange(roster.filter(r => r.id !== p.id))} className="h-5 w-5 rounded-full bg-zinc-100 flex items-center justify-center hover:bg-red-100 shrink-0" aria-label={`Remove ${p.name}`}>
               <X className="h-3 w-3 text-zinc-500" />
@@ -64,7 +66,8 @@ export default function RosterBuilder({ players: initialPlayers, roster, onChang
       <PlayerPicker
         open={picking}
         title="Add player"
-        players={players}
+        players={usersOnly ? players.filter(p => !p.isGuest) : players}
+        allowGuests={!usersOnly}
         excludeIds={roster.map(p => p.id)}
         showRating={false}
         onClose={() => setPicking(false)}

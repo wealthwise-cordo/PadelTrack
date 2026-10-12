@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Shuffle, Minus, Plus, MapPin, History, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Shuffle, Minus, Plus, MapPin, History, ChevronRight, ChevronDown } from 'lucide-react'
 import SwipeToDeleteRow from '@/components/shared/SwipeToDeleteRow'
 import RosterBuilder from '@/components/events/RosterBuilder'
 import type { PlayerWithStats } from '@/types'
 import type { AmericanoEventSummary } from '@/lib/americano-store'
+import { AMERICANO_SIZES, AMERICANO_MAX_COURTS, americanoMaxCourts, generateAmericanoSchedule } from '@/lib/americano'
 
 interface Props {
   players: PlayerWithStats[]
@@ -22,12 +23,12 @@ const MODE_CONFIG: Record<ScoreMode, { label: string; default: number; min: numb
   games: { label: 'Games', default: 6, min: 1, max: 12, step: 1 },
 }
 
-const ROSTER_SIZES = [4, 5, 7, 8]
-
 export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId }: Props) {
   const router = useRouter()
   const [mode, setMode] = useState<ScoreMode>('points')
   const [target, setTarget] = useState(MODE_CONFIG.points.default)
+  const [playerCount, setPlayerCount] = useState(8)
+  const [courts, setCourts] = useState(1)
   const [roster, setRoster] = useState<PlayerWithStats[]>(() => players.filter(p => p.id === meId))
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
@@ -42,7 +43,26 @@ export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId
   const adjust = (delta: number) => setTarget(t => Math.min(max, Math.max(min, t + delta)))
   const byId = new Map([...knownPlayers, ...players].map(p => [p.id, p]))
 
-  const rosterValid = ROSTER_SIZES.includes(roster.length)
+  const rosterValid = roster.length === playerCount
+  // More courts than players allow (4 a court) can't be used.
+  const maxCourts = americanoMaxCourts(playerCount)
+  const courtsInUse = Math.min(courts, maxCourts)
+  const rounds = useMemo(() => {
+    const ids = Array.from({ length: playerCount }, (_, i) => String(i))
+    return Math.max(...generateAmericanoSchedule(ids, courtsInUse).map(f => f.round))
+  }, [playerCount, courtsInUse])
+  const sitting = playerCount - courtsInUse * 4
+
+  // Steps through the allowed counts (4–24, skipping 7, 11, 15, 19 and 23).
+  // Fewer players drops anyone beyond the new size.
+  const changeCount = (dir: 1 | -1) => {
+    setPlayerCount(current => {
+      const i = AMERICANO_SIZES.indexOf(current) + dir
+      const next = AMERICANO_SIZES[Math.min(AMERICANO_SIZES.length - 1, Math.max(0, i))]
+      setRoster(r => r.slice(0, next))
+      return next
+    })
+  }
 
   const deleteEvent = async (id: string) => {
     setDeletingId(id)
@@ -61,7 +81,7 @@ export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId
       const res = await fetch('/api/events/americano', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerIds: roster.map(p => p.id), scoreMode: mode, target }),
+        body: JSON.stringify({ playerIds: roster.map(p => p.id), scoreMode: mode, target, courts: courtsInUse }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -91,14 +111,55 @@ export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId
         </div>
       </div>
 
-      {/* Court */}
-      <div className="glass rounded-2xl p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-neon-green/10 flex items-center justify-center shrink-0">
-          <MapPin className="h-5 w-5 text-neon-green" />
+      {/* Number of players, then courts */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Number of players</div>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={() => changeCount(-1)}
+            disabled={playerCount <= AMERICANO_SIZES[0]}
+            aria-label="Fewer players"
+            className="h-10 w-10 rounded-xl flex items-center justify-center bg-zinc-900/5 hover:bg-zinc-900/10 disabled:opacity-30 transition-all"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <div className="text-center">
+            <div className="text-xl font-black tabular-nums">{playerCount} players</div>
+            <div className="text-[11px] text-muted-foreground">Everyone partners everyone{playerCount % 4 === 2 ? ' (one pair twice)' : ''}</div>
+          </div>
+          <button
+            onClick={() => changeCount(1)}
+            disabled={playerCount >= AMERICANO_SIZES[AMERICANO_SIZES.length - 1]}
+            aria-label="More players"
+            className="h-10 w-10 rounded-xl flex items-center justify-center bg-zinc-900/5 hover:bg-zinc-900/10 disabled:opacity-30 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold">1 Court</div>
-          <div className="text-xs text-muted-foreground">All rounds played on a single court</div>
+      </div>
+
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Courts</div>
+        <label className="relative block">
+          <span className="sr-only">Courts</span>
+          <select
+            value={courtsInUse}
+            onChange={e => setCourts(Number(e.target.value))}
+            className="w-full appearance-none py-2.5 pl-3 pr-8 rounded-xl text-sm font-bold bg-neon-green text-white focus:outline-none"
+          >
+            {Array.from({ length: AMERICANO_MAX_COURTS }, (_, i) => i + 1).map(n => (
+              <option key={n} value={n} disabled={n > maxCourts} className="text-zinc-900">
+                {n} court{n > 1 ? 's' : ''}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white" />
+        </label>
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            {rounds} rounds · {courtsInUse * 4} playing each round{sitting > 0 ? `, ${sitting} sitting out (taking turns)` : ''}
+          </span>
         </div>
       </div>
 
@@ -146,7 +207,7 @@ export default function AmericanoSetup({ players, knownPlayers, pastEvents, meId
         </div>
       </div>
 
-      <RosterBuilder players={players} roster={roster} onChange={setRoster} max={8} hint="4, 5, 7 or 8" valid={rosterValid} />
+      <RosterBuilder players={players} roster={roster} onChange={setRoster} max={playerCount} hint={`${playerCount}`} valid={rosterValid} />
 
       {error && <div className="text-sm text-red-600 text-center">{error}</div>}
       <button

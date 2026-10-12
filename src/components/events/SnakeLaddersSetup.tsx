@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowUpDown, MapPin, Minus, Plus, History, ChevronRight, Trophy } from 'lucide-react'
+import { ArrowLeft, ArrowUpDown, MapPin, Minus, Plus, History, ChevronRight, ChevronDown, Trophy } from 'lucide-react'
 import SwipeToDeleteRow from '@/components/shared/SwipeToDeleteRow'
 import RosterBuilder from '@/components/events/RosterBuilder'
 import type { PlayerWithStats } from '@/types'
 import type { SnakeLaddersEventSummary } from '@/lib/snake-ladders-store'
+import { SNAKE_LADDERS_MAX_COURTS, snakeLaddersPlayers } from '@/lib/snake-ladders'
 
 interface Props {
   players: PlayerWithStats[]
@@ -26,6 +27,8 @@ const MODE_CONFIG: Record<ScoreMode, { label: string; default: number; min: numb
 const ROUNDS_CONFIG = { default: 4, min: 2, max: 8, step: 1 }
 
 export default function SnakeLaddersSetup({ players, knownPlayers, pastEvents, meId }: Props) {
+  // Courts set the number of players: 4 a court.
+  const [courts, setCourts] = useState(2)
   const [roster, setRoster] = useState<PlayerWithStats[]>(() => players.filter(p => p.id === meId))
   const router = useRouter()
   const [mode, setMode] = useState<ScoreMode>('points')
@@ -36,7 +39,14 @@ export default function SnakeLaddersSetup({ players, knownPlayers, pastEvents, m
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const byId = new Map([...knownPlayers, ...players].map(p => [p.id, p]))
-  const ready = roster.length === 8
+  const needed = snakeLaddersPlayers(courts)
+  const ready = roster.length === needed
+  const places = needed / 2
+  const ordinal = (n: number) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`
+  const changeCourts = (n: number) => {
+    setCourts(n)
+    setRoster(r => r.slice(0, snakeLaddersPlayers(n)))
+  }
 
   const changeMode = (next: ScoreMode) => {
     setMode(next)
@@ -65,7 +75,7 @@ export default function SnakeLaddersSetup({ players, knownPlayers, pastEvents, m
       const res = await fetch('/api/events/snake-ladders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerIds: roster.map(p => p.id), scoreMode: mode, target, totalRounds }),
+        body: JSON.stringify({ playerIds: roster.map(p => p.id), scoreMode: mode, target, totalRounds, courts }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -95,18 +105,31 @@ export default function SnakeLaddersSetup({ players, knownPlayers, pastEvents, m
         </div>
       </div>
 
-      {/* Court + format */}
-      <div className="glass rounded-2xl p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-zinc-600/10 flex items-center justify-center shrink-0">
-          <MapPin className="h-5 w-5 text-zinc-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold">1 Court</div>
-          <div className="text-xs text-muted-foreground">
-            Top and bottom court both play on it, one after another. Winners climb to the top
-            court, losers slide to the bottom — partners get reshuffled every round. Final round
-            decides 1st through 4th.
-          </div>
+      {/* Courts — sets the number of players */}
+      <div className="glass rounded-2xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Courts</div>
+        <label className="relative block">
+          <span className="sr-only">Courts</span>
+          <select
+            value={courts}
+            onChange={e => changeCourts(Number(e.target.value))}
+            className="w-full appearance-none py-2.5 pl-3 pr-8 rounded-xl text-sm font-bold bg-zinc-600 text-white focus:outline-none"
+          >
+            {Array.from({ length: SNAKE_LADDERS_MAX_COURTS }, (_, i) => i + 1).map(n => (
+              <option key={n} value={n} className="text-zinc-900">
+                {n} court{n > 1 ? 's' : ''} · {snakeLaddersPlayers(n)} players
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white" />
+        </label>
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            {courts === 1
+              ? 'One court of 4: partners swap every round. The final round decides 1st and 2nd.'
+              : `Court 1 is the top. Winners climb a court, losers slide down one — partners get reshuffled every round. The final round decides 1st through ${ordinal(places)}.`}
+          </span>
         </div>
       </div>
 
@@ -178,11 +201,11 @@ export default function SnakeLaddersSetup({ players, knownPlayers, pastEvents, m
           </button>
         </div>
         <div className="text-[10px] text-muted-foreground text-center">
-          Round {totalRounds} decides final placement — 1st through 4th
+          Round {totalRounds} decides final placement — 1st through {ordinal(places)}
         </div>
       </div>
 
-      <RosterBuilder players={players} roster={roster} onChange={setRoster} max={8} hint="exactly 8 — seeded by rating" valid={ready} />
+      <RosterBuilder players={players} roster={roster} onChange={setRoster} max={needed} hint={`${needed} · seeded by rating`} valid={ready} />
 
       {error && <div className="text-sm text-red-600 text-center">{error}</div>}
       <button
