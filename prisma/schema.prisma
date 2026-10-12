@@ -60,6 +60,10 @@ model Player {
   // pre-selects the guest's own choice when they sign up — guests have no
   // rating until then.
   suggestedLevel Float?
+  // Set when the player's account was deleted: the profile is anonymised and
+  // detached from its user, but stays in the matches it played so other
+  // players' records and ratings are unchanged.
+  deletedAt      DateTime?
 
   // Rating and career stats — only confirmed ranked matches move these.
   ptr                Float     @default(1000)

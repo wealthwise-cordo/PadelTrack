@@ -39,7 +39,8 @@ function toPlayerWithStats(p: PlayerWithHistory, rank = 0): PlayerWithStats {
     name: p.name,
     nickname: p.nickname,
     avatarColor: p.avatarColor,
-    isGuest: !p.userId,
+    isGuest: !p.userId && !p.deletedAt,
+    isDeleted: !!p.deletedAt,
     ptr: p.ptr,
     reliability: p.reliability,
     matchesPlayed: p.matchesPlayed,
@@ -82,7 +83,7 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
     scoreConfirmed: !!m.scoreConfirmedAt,
     becameFriendly: m.becameFriendly,
     guests: [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
-      .filter(p => !p.userId)
+      .filter(p => !p.userId && !p.deletedAt)
       .map(p => ({ id: p.id, name: p.name })),
     viewerDelta,
     teamAPlayer1Id: m.teamAPlayer1Id,
@@ -387,7 +388,7 @@ export async function getPickablePlayers(userId: string): Promise<PlayerWithStat
         { userId },
         { id: { in: circleIds } },
         { createdById: userId, userId: null },
-        { id: { in: playedWithIds }, userId: null },
+        { id: { in: playedWithIds }, userId: null, deletedAt: null },
       ],
     },
     orderBy: { name: 'asc' },
@@ -523,6 +524,45 @@ export async function changePassword(userId: string, current: string, next: stri
   return { ok: true }
 }
 
+// Deletes an account (confirmed with its password). Personal details are
+// erased rather than the rows removed: the user row is kept, stripped, so
+// matches it recorded and events it organised stay intact for everyone else.
+// The player is detached from the account but keeps its name in confirmed
+// matches, so other players' ratings and records don't change; with no user
+// it drops out of every circle, and its profile page is gone (isDeleted).
+// Pending matches it's in haven't touched any rating, so they're removed.
+// Detaching the player also ends any open sessions (getSession needs one).
+export async function deleteAccount(userId: string, password: string): Promise<{ ok: true } | { error: string }> {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) return { error: 'Account not found' }
+  if (!(await bcrypt.compare(password, user.password))) return { error: 'Password is incorrect' }
+  const me = await getPlayerForUser(userId)
+  const unusable = await bcrypt.hash(randomBytes(32).toString('base64url'), 10)
+  await prisma.$transaction(async tx => {
+    if (me) {
+      await tx.match.deleteMany({ where: { status: 'pending', ...involving(me.id) } })
+      await tx.player.update({
+        where: { id: me.id },
+        data: {
+          nickname: null,
+          userId: null, createdById: null, claimToken: null, suggestedLevel: null,
+          deletedAt: new Date(),
+        },
+      })
+    }
+    await tx.pushSubscription.deleteMany({ where: { userId } })
+    await tx.passwordReset.deleteMany({ where: { userId } })
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        email: `deleted-${userId}@deleted.invalid`, name: 'Deleted player', password: unusable,
+        gender: null, dateOfBirth: null, country: null,
+      },
+    })
+  })
+  return { ok: true }
+}
+
 export function canEditPlayer(p: Player, userId: string): boolean {
   return p.userId === userId || (!p.userId && p.createdById === userId)
 }
@@ -537,8 +577,9 @@ export async function getEventPlayers(ids: string[]): Promise<PlayerWithStats[]>
 // Matches
 // ---------------------------------------------------------------------------
 
-// withInvites adds guests' claim tokens to pending matches so the viewer can
-// send invite links — only pass it when playerId is the signed-in viewer.
+// withInvites adds guests' claim tokens to pending matches and friendlies so
+// the viewer can send invite links — only pass it when playerId is the
+// signed-in viewer.
 export async function getMatchesForPlayer(playerId: string, opts?: { withInvites?: boolean }): Promise<MatchWithPlayers[]> {
   const matches = await prisma.match.findMany({
     where: involving(playerId),
@@ -551,12 +592,10 @@ export async function getMatchesForPlayer(playerId: string, opts?: { withInvites
   })
   return matches.map(m => {
     const hydrated = hydrateMatch(m, m.ptrHistory[0]?.delta)
-    if (m.status === 'pending') {
-      hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
-      if (opts?.withInvites) {
-        const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p.claimToken]))
-        hydrated.guests = hydrated.guests.map(g => ({ ...g, claimToken: tokens.get(g.id) ?? undefined }))
-      }
+    if (m.status === 'pending') hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
+    if (opts?.withInvites && (m.status === 'pending' || !m.isRanked)) {
+      const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p.claimToken]))
+      hydrated.guests = hydrated.guests.map(g => ({ ...g, claimToken: tokens.get(g.id) ?? undefined }))
     }
     return hydrated
   })
@@ -681,9 +720,9 @@ export async function createMatch(userId: string, data: {
   // any guests have 48 hours to join PadelTrack (see finalizeIfReady and
   // autoConfirmExpired). Friendlies are saved straight away.
   const isRanked = data.isRanked !== false
-  const invites = isRanked
-    ? players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
-    : []
+  // Guests get an invite link either way: joining puts a friendly on their
+  // profile, and lets a ranked match count.
+  const invites = players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
 
   const saved = await prisma.$transaction(async tx => {
     const match = await tx.match.create({

@@ -212,7 +212,15 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           <>
             <CheckCircle2 className="h-14 w-14 text-orange-500" />
             <h2 className="text-xl font-black">Friendly saved</h2>
-            <p className="text-sm text-zinc-500 max-w-xs">It’s in Match Centre. Friendlies don’t change anyone’s rating.</p>
+            <p className="text-sm text-zinc-500 max-w-xs">
+              It’s in Match Centre. Friendlies don’t change anyone’s rating.
+              {saved.invites.length > 0 && ` Invite ${saved.invites.map(i => i.name.split(' ')[0]).join(' & ')} to see it on their profile.`}
+            </p>
+            {saved.invites.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-2 mt-1">
+                {saved.invites.map(i => <InviteButton key={i.claimToken} name={i.name} claimToken={i.claimToken} ranked={false} />)}
+              </div>
+            )}
           </>
         ) : (
           <>

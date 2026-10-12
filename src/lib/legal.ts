@@ -9,4 +9,4 @@ export const LEGAL = {
   country: 'England and Wales',
   lastUpdated: '12 October 2026',
 }
-export const LEGAL_VERSION = '2026-10-12'
+export const LEGAL_VERSION = '2026-10-12.2'

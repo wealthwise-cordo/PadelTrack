@@ -77,7 +77,7 @@ export default function TermsPage() {
       </Section>
 
       <Section title="9. Ending your account">
-        <p>You can stop using PadelTrack at any time and ask us to delete your account by emailing <a href={`mailto:${LEGAL.contactEmail}`} className="text-orange-600 underline">{LEGAL.contactEmail}</a>. We may suspend or close accounts that break these terms or put other players at risk.</p>
+        <p>You can stop using PadelTrack at any time and delete your account under Edit profile on your profile page, or by emailing <a href={`mailto:${LEGAL.contactEmail}`} className="text-orange-600 underline">{LEGAL.contactEmail}</a>. Your name stays on matches that were already confirmed, as our privacy notice explains. We may suspend or close accounts that break these terms or put other players at risk.</p>
       </Section>
 
       <Section title="10. Law">

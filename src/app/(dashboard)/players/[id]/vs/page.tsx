@@ -15,7 +15,7 @@ export default async function VersusPage({ params, searchParams }: { params: { i
   if (params.id === meId) redirect(`/players/${meId}`)
 
   const [them, myMatches] = await Promise.all([getPlayer(params.id), getMatchesForPlayer(meId)])
-  if (!them) notFound()
+  if (!them || them.isDeleted) notFound()
 
   const view = searchParams.view === 'partners' ? 'partners' : 'against'
   const shared = myMatches.filter(m => m.status === 'complete' && m.isRanked)

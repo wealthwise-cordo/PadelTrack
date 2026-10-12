@@ -11,7 +11,7 @@ import PushToggle from '@/components/shared/PushToggle'
 const tabs = [
   { href: '/', label: 'Ranking', icon: Trophy },
   { href: '/matches', label: 'Match Centre', icon: History },
-  { href: '/events', label: 'Events & Leagues', icon: LayoutGrid },
+  { href: '/events', label: 'Events', icon: LayoutGrid },
 ]
 
 function isActive(pathname: string, href: string) {
@@ -65,11 +65,11 @@ export default function Navbar({
               key={href}
               href={href}
               className={cn(
-                'relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                'relative flex items-center gap-2 px-4 py-2 rounded-lg text-base font-bold transition-colors',
                 isActive(pathname, href) ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'
               )}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-5 w-5" />
               {label}
               {href === '/matches' && pendingCount > 0 && <Badge count={pendingCount} />}
             </Link>
@@ -128,20 +128,26 @@ export default function Navbar({
         </div>
       </div>
 
-      {/* Tabs — mobile, part of the same sticky header */}
+      {/* Tabs — mobile, part of the same sticky header. Three equal tabs, icon
+          above label (like a native tab bar) so long labels and the pending
+          badge fit on small phones. */}
       <nav className="md:hidden flex border-t border-white/10">
         {tabs.map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
             className={cn(
-              'relative flex-auto flex items-center justify-center gap-1 px-1.5 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors',
+              'relative flex-1 basis-0 flex flex-col items-center justify-center gap-1 px-1 py-2.5 text-[13px] font-bold whitespace-nowrap border-b-2 transition-colors',
               isActive(pathname, href) ? 'border-orange-500 text-white' : 'border-transparent text-zinc-400'
             )}
           >
-            <Icon className="h-4 w-4" />
+            <span className="relative">
+              <Icon className="h-6 w-6" />
+              {href === '/matches' && pendingCount > 0 && (
+                <span className="absolute -top-1.5 left-4"><Badge count={pendingCount} /></span>
+              )}
+            </span>
             {label}
-            {href === '/matches' && pendingCount > 0 && <Badge count={pendingCount} />}
           </Link>
         ))}
       </nav>

@@ -48,7 +48,7 @@ export default function PrivacyPage() {
 
       <Section title="5. How long we keep it">
         <List>
-          <li>Account, profile and playing information: for as long as your account is open. If you ask us to delete your account we will delete or anonymise your personal information within 30 days. Results other players recorded with you may remain, with your details removed.</li>
+          <li>Account, profile and playing information: for as long as your account is open. You can delete your account at any time under Edit profile on your profile page, or by emailing us. When you do, we straight away erase your email address, password, nickname, gender, date of birth and country, and remove any of your matches still waiting to be confirmed. Your name stays on matches that were already confirmed, so other players’ results and ratings don’t change, but your profile can no longer be viewed and you are removed from other players’ circles.</li>
           <li>Error reports: up to 90 days.</li>
           <li>Password-reset links: they expire after 1 hour.</li>
           <li>Information we must keep for legal reasons: for as long as the law requires.</li>
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="7. Your rights">
-        <p>You have the right to ask for a copy of your information, to have it corrected, deleted or restricted, to object to how we use it, and to receive it in a portable format. To use any of these rights, email <a href={`mailto:${LEGAL.contactEmail}`} className="text-orange-600 underline">{LEGAL.contactEmail}</a>. We will reply within one month.</p>
+        <p>You have the right to ask for a copy of your information, to have it corrected, deleted or restricted, to object to how we use it, and to receive it in a portable format. You can delete your account yourself under Edit profile on your profile page. To use any of the other rights, email <a href={`mailto:${LEGAL.contactEmail}`} className="text-orange-600 underline">{LEGAL.contactEmail}</a>. We will reply within one month.</p>
         <p>If you are unhappy with how we handle your information, please contact us first. You also have the right to complain to the Information Commissioner’s Office (ICO): <a href="https://ico.org.uk/make-a-complaint/" className="text-orange-600 underline">ico.org.uk/make-a-complaint</a>, or 0303 123 1113.</p>
       </Section>
 

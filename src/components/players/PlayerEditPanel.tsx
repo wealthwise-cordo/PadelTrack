@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Pencil, Check, X, KeyRound } from 'lucide-react'
+import { signOut } from 'next-auth/react'
+import { Pencil, Check, X, KeyRound, Trash2 } from 'lucide-react'
 import { getInitials } from '@/lib/utils'
 
 const PALETTE = [
@@ -152,6 +153,7 @@ export default function PlayerEditPanel({ playerId, name, nickname, avatarColor,
           </div>
 
           {account && <ChangePassword email={account.email} />}
+          {account && <DeleteAccount email={account.email} />}
         </div>
       )}
     </div>
@@ -225,6 +227,71 @@ function ChangePassword({ email }: { email: string }) {
               {saving ? 'Updating…' : 'Update password'}
             </button>
             <button type="button" onClick={() => { setOpen(false); setError(''); setCurrent(''); setNext('') }} className="px-4 py-2 rounded-lg bg-zinc-900/5 text-sm text-muted-foreground hover:text-foreground">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  )
+}
+
+// Permanent: needs the password, then signs out. Confirmed results keep the
+// player's name (see deleteAccount).
+function DeleteAccount({ email }: { email: string }) {
+  const [open, setOpen] = useState(false)
+  const [password, setPassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setDeleting(true)
+    setError('')
+    try {
+      const res = await fetch('/api/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(d.error || 'Could not delete account')
+        setDeleting(false)
+      } else {
+        await signOut({ callbackUrl: '/login' })
+      }
+    } catch {
+      setError('Network error')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="pt-4 border-t border-zinc-900/10">
+      {!open ? (
+        <button onClick={() => setOpen(true)} className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700">
+          <Trash2 className="h-4 w-4" />
+          Delete account
+        </button>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <div className="text-sm font-semibold flex items-center gap-1.5 text-red-600"><Trash2 className="h-4 w-4" /> Delete account</div>
+          <p className="text-xs text-muted-foreground">
+            This permanently deletes your account and personal details and can’t be undone. Your name stays on matches already confirmed, but your profile is removed and you leave everyone’s circle. Pending matches you’re in are removed.
+          </p>
+          <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
+          <div>
+            <label htmlFor="delete-password" className="text-xs text-muted-foreground mb-1.5 block">Enter your password to confirm</label>
+            <input id="delete-password" name="password" type="password" autoComplete="current-password" required
+              value={password} onChange={e => setPassword(e.target.value)} className={fieldClass} />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button type="submit" disabled={deleting || !password} className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-bold disabled:opacity-40">
+              {deleting ? 'Deleting…' : 'Delete my account'}
+            </button>
+            <button type="button" onClick={() => { setOpen(false); setError(''); setPassword('') }} className="px-4 py-2 rounded-lg bg-zinc-900/5 text-sm text-muted-foreground hover:text-foreground">
               Cancel
             </button>
           </div>

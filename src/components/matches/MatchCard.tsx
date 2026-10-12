@@ -145,6 +145,22 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
         </div>
       )}
 
+      {/* Friendlies: guests can still join to get the match on their profile. */}
+      {!pending && match.guests.some(g => g.claimToken) && (
+        <div className="mt-3 space-y-1.5 text-[11px]">
+          {!match.becameFriendly && (
+            <div className={featured ? 'text-zinc-400' : 'text-zinc-500'}>
+              {match.guests.filter(g => g.claimToken).map(g => g.name.split(' ')[0]).join(' & ')} {match.guests.filter(g => g.claimToken).length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack yet
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            {match.guests.filter(g => g.claimToken).map(g => (
+              <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} ranked={false} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {canConfirm && (
         <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-2">
           <span className="text-xs text-zinc-600 flex-1">Is this result right?</span>

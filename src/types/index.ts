@@ -4,6 +4,8 @@ export interface PlayerWithStats {
   nickname: string | null
   avatarColor: string
   isGuest: boolean
+  // Account deleted: still named in past matches, but no profile page.
+  isDeleted: boolean
   ptr: number
   reliability: number
   matchesPlayed: number

@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { Share2, Check } from 'lucide-react'
 
 // Shares (or copies) a guest's join link. Joining through it hands them their
-// profile and lets pending ranked matches count.
-export default function InviteButton({ name, claimToken, dark }: { name: string; claimToken: string; dark?: boolean }) {
+// profile and lets pending ranked matches count. `ranked` false is for a
+// friendly, which has no deadline.
+export default function InviteButton({ name, claimToken, dark, ranked = true }: { name: string; claimToken: string; dark?: boolean; ranked?: boolean }) {
   const [copied, setCopied] = useState(false)
   const first = name.split(' ')[0]
 
@@ -13,7 +14,10 @@ export default function InviteButton({ name, claimToken, dark }: { name: string;
     const url = `${window.location.origin}/claim/${claimToken}`
     if (typeof navigator.share === 'function') {
       try {
-        await navigator.share({ title: 'Join me on PadelTrack', text: `I’ve recorded our match on PadelTrack — join within 48 hours so it counts as ranked.`, url })
+        const text = ranked
+          ? 'I’ve recorded our match on PadelTrack — join within 48 hours so it counts as ranked.'
+          : 'I’ve recorded our friendly on PadelTrack — join to see it on your profile.'
+        await navigator.share({ title: 'Join me on PadelTrack', text, url })
         return
       } catch {
         // Share sheet dismissed — fall through to copying.

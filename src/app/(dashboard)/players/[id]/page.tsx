@@ -88,7 +88,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
     getCircleRankings(session.player.id),
     params.id === session.player.id ? getAccount(session.userId) : null,
   ])
-  if (!player || !raw) notFound()
+  if (!player || !raw || raw.deletedAt) notFound()
 
   const isMe = player.id === session.player.id
   const canEdit = canEditPlayer(raw, session.userId)
