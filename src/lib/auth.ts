@@ -2,6 +2,7 @@ import NextAuth from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { findUserByEmail } from '@/lib/store'
+import { recordSignIn } from '@/lib/analytics'
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: 'jwt' },
@@ -21,6 +22,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const valid = user.password ? await bcrypt.compare(credentials.password as string, user.password) : false
         if (!valid) return null
+
+        await recordSignIn(user.id)
 
         return { id: user.id, email: user.email, name: user.name }
       },

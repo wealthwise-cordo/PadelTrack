@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { Trophy, History, LayoutGrid, Plus, LogOut, User } from 'lucide-react'
+import { Trophy, History, LayoutGrid, Plus, LogOut, User, BarChart3 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 
 const tabs = [
@@ -22,9 +22,11 @@ function isActive(pathname: string, href: string) {
 export default function Navbar({
   me,
   pendingCount,
+  isAdmin = false,
 }: {
   me: { playerId: string; name: string; avatarColor: string }
   pendingCount: number
+  isAdmin?: boolean
 }) {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -97,6 +99,11 @@ export default function Navbar({
               <Link href={`/players/${me.playerId}`} className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
                 <User className="h-4 w-4 text-zinc-500" /> My profile
               </Link>
+              {isAdmin && (
+                <Link href="/admin" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
+                  <BarChart3 className="h-4 w-4 text-zinc-500" /> Analytics
+                </Link>
+              )}
               <button
                 onClick={() => signOut({ callbackUrl: '/login' })}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-50 text-left"

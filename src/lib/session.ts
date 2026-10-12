@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { autoConfirmExpired, getPlayerForUser } from '@/lib/store'
+import { recordActiveDay } from '@/lib/analytics'
 
 // The signed-in user and their player profile, or null.
 export async function getSession() {
@@ -12,6 +13,7 @@ export async function getSession() {
   await autoConfirmExpired()
   const player = await getPlayerForUser(userId)
   if (!player) return null
+  await recordActiveDay(userId)
   return { userId, player, name: session.user?.name ?? player.name }
 }
 

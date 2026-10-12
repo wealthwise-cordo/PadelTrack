@@ -21,6 +21,8 @@ model User {
   updatedAt   DateTime  @updatedAt
   player      Player?   @relation("UserPlayer")
   passwordResets PasswordReset[]
+  signIns        SignIn[]
+  activeDays     ActiveDay[]
 
   guestsCreated      Player[]            @relation("GuestCreator")
   matchesRecorded    Match[]             @relation("MatchRecorder")
@@ -319,4 +321,43 @@ model PasswordReset {
   createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Analytics (admin page). Recorded from the deploy that added them onwards.
+// ---------------------------------------------------------------------------
+
+// Each successful sign-in with email and password.
+model SignIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// One row per user per day they opened a signed-in page. Sessions last for
+// weeks, so this — not sign-ins — is the measure of active use.
+model ActiveDay {
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day    DateTime @db.Date
+
+  @@id([userId, day])
+  @@index([day])
+}
+
+// Errors caught on the server (API routes) and in the browser (error
+// boundaries). Kept 90 days.
+model ErrorLog {
+  id        String   @id @default(cuid())
+  source    String // server | client
+  message   String
+  stack     String?
+  path      String?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
