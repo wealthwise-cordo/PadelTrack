@@ -21,8 +21,8 @@ const yearOf = (d: Date) => Number(d.toLocaleDateString('en-GB', { year: 'numeri
 
 // The rating chart and stat tiles for a profile, filtered by the chosen time
 // range. `matches` are this player's confirmed matches, oldest first;
-// `adjustments` are manual rating changes (oldest first), which move the line
-// and the net rating change but not the match stats.
+// `adjustments` are manual rating changes (oldest first): they shift the line
+// (as a dotted step) but count in none of the stats.
 export default function ProfileStats({ matches, currentRating, adjustments = [] }: { matches: ProfileMatch[]; currentRating: number; adjustments?: { at: string; delta: number }[] }) {
   const [range, setRange] = useState<Range>('all')
 
@@ -52,8 +52,8 @@ export default function ProfileStats({ matches, currentRating, adjustments = [] 
   // change.
   const points = useMemo<RatingPoint[]>(() => {
     const timeline = [
-      ...inRange.map(m => ({ at: m.playedAt, delta: m.delta, title: `${longDate(m.playedAt)} · ${m.won ? 'beat' : 'lost to'} ${m.opponents}` })),
-      ...adjInRange.map(a => ({ at: a.at, delta: a.delta, title: `${longDate(a.at)} · Rating adjustment` })),
+      ...inRange.map(m => ({ at: m.playedAt, delta: m.delta, isAdjustment: false, title: `${longDate(m.playedAt)} · ${m.won ? 'beat' : 'lost to'} ${m.opponents}` })),
+      ...adjInRange.map(a => ({ at: a.at, delta: a.delta, title: `${longDate(a.at)} · Rating recalibrated`, isAdjustment: true })),
     ].sort((a, b) => a.at.localeCompare(b.at))
     if (timeline.length === 0) return []
     const net = timeline.reduce((s, e) => s + e.delta, 0)
@@ -64,14 +64,15 @@ export default function ProfileStats({ matches, currentRating, adjustments = [] 
     }]
     for (const e of timeline) {
       rating += e.delta
-      out.push({ title: e.title, rating, delta: e.delta })
+      out.push({ title: e.title, rating, delta: e.delta, isAdjustment: e.isAdjustment })
     }
     return out
   }, [inRange, adjInRange, currentRating, range])
 
   const wins = inRange.filter(m => m.won).length
   const losses = inRange.length - wins
-  const net = inRange.reduce((s, m) => s + m.delta, 0) + adjInRange.reduce((s, a) => s + a.delta, 0)
+  // Matches only — adjustments recalibrate the rating, they aren't movement.
+  const net = inRange.reduce((s, m) => s + m.delta, 0)
   const gains = inRange.filter(m => m.delta > 0)
   const drops = inRange.filter(m => m.delta < 0)
   const avgGain = gains.length ? gains.reduce((s, m) => s + m.delta, 0) / gains.length : 0

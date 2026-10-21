@@ -62,9 +62,10 @@ function toPlayerWithStats(p: PlayerWithHistory, rank = 0): PlayerWithStats {
       reliability: h.reliability,
       createdAt: h.createdAt.toISOString(),
       matchId: h.matchId,
+      isAdjustment: !!h.adjustmentId,
     } satisfies PTRHistoryPoint)),
     rank,
-    ptrDelta: history.length > 0 ? history[history.length - 1].delta : 0,
+    ptrDelta: history.filter(h => !h.adjustmentId).at(-1)?.delta ?? 0,
   }
 }
 

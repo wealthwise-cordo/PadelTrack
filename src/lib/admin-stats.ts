@@ -109,7 +109,7 @@ export async function getAdminStats(period: Period) {
         teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true,
       },
     }),
-    prisma.pTRHistory.findMany({ select: { playerId: true, ptrBefore: true, ptrAfter: true, createdAt: true }, orderBy: { createdAt: 'asc' } }),
+    prisma.pTRHistory.findMany({ select: { playerId: true, ptrBefore: true, ptrAfter: true, createdAt: true, adjustmentId: true }, orderBy: { createdAt: 'asc' } }),
     prisma.errorLog.count(),
   ])
 
@@ -335,7 +335,8 @@ export async function getAdminStats(period: Period) {
   // --- Rating integrity ---
   // Self-rating: the level picked at sign-up against the level after 10 ranked matches.
   const historyByPlayer = new Map<string, typeof history>()
-  for (const h of history) historyByPlayer.set(h.playerId, [...(historyByPlayer.get(h.playerId) ?? []), h])
+  // Matches only: manual adjustments aren't results.
+  for (const h of history) if (!h.adjustmentId) historyByPlayer.set(h.playerId, [...(historyByPlayer.get(h.playerId) ?? []), h])
   const drifts = registered
     .filter(p => p.startingLevel !== null && (historyByPlayer.get(p.id)?.length ?? 0) >= 10)
     .map(p => levelFromInternal(historyByPlayer.get(p.id)![9].ptrAfter) - p.startingLevel!)

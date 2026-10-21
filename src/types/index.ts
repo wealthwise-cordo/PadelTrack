@@ -21,7 +21,7 @@ export interface PlayerWithStats {
   bestStreak: number
   ptrHistory: PTRHistoryPoint[]
   rank?: number
-  ptrDelta?: number // change since last match
+  ptrDelta?: number // change from their last match (adjustments don't count)
 }
 
 export interface PTRHistoryPoint {
@@ -32,6 +32,9 @@ export interface PTRHistoryPoint {
   reliability: number
   createdAt: string
   matchId?: string | null
+  // A manual rating adjustment rather than a match: it recalibrates the
+  // rating but isn't movement, so stats and "last change" figures skip it.
+  isAdjustment?: boolean
 }
 
 export interface MatchSet {

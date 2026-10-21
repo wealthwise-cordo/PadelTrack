@@ -106,7 +106,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   const showAdjustments = adjustments.applied.length > 0 && (isMe || canAdjustRatings(role))
   const showReasons = canAdjustRatings(role)
   const rank = circle.find(p => p.id === player.id)?.rank
-  const lastDelta = player.ptrHistory.length > 0 ? player.ptrHistory[player.ptrHistory.length - 1].delta : 0
+  const lastDelta = player.ptrDelta ?? 0
   const winRate = getWinRate(player.wins, player.matchesPlayed)
   const h2h = headToHead(matches, player.id)
   const vs = isMe ? null : versusMe(matches, session.player.id, player.id)
