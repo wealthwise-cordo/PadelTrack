@@ -8,10 +8,14 @@ import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import CompleteProfileCard from '@/components/players/CompleteProfileCard'
 import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
-import { getInitials, formatRating, getWinRate } from '@/lib/utils'
+import { getInitials, formatRating, getWinRate, formatRatingDelta } from '@/lib/utils'
 import { Trophy, Swords, Handshake, ChevronRight, Info } from 'lucide-react'
 import type { MatchWithPlayers, ProfileMatch } from '@/types'
 import { currentReliability } from '@/lib/ptr-algorithm'
+import { getRole, canAdjustRatings } from '@/lib/roles'
+import { getPlayerAdjustments } from '@/lib/rating-adjustments'
+import AdjustRatingPanel from '@/components/players/AdjustRatingPanel'
+import { levelDelta } from '@/lib/lta'
 
 export const revalidate = 0
 
@@ -81,17 +85,26 @@ function versusMe(matches: MatchWithPlayers[], meId: string, themId: string) {
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
   const session = await requireSession()
-  const [player, raw, matches, circle, account] = await Promise.all([
+  const [player, raw, matches, circle, account, role, adjustments] = await Promise.all([
     getPlayer(params.id),
     getPlayerRaw(params.id),
     getMatchesForPlayer(params.id),
     getCircleRankings(session.player.id),
     params.id === session.player.id ? getAccount(session.userId) : null,
+    getRole(session.userId),
+    getPlayerAdjustments(params.id),
   ])
   if (!player || !raw || raw.deletedAt) notFound()
 
   const isMe = player.id === session.player.id
   const canEdit = canEditPlayer(raw, session.userId)
+  // Levellers can't adjust a super user (nobody could review it).
+  const canAdjust = canAdjustRatings(role) && !isMe && !player.isGuest &&
+    (role === 'superuser' || !raw.userId || (await getRole(raw.userId)) !== 'superuser')
+  // The player sees that their rating was adjusted; only levellers and the
+  // super user see why.
+  const showAdjustments = adjustments.applied.length > 0 && (isMe || canAdjustRatings(role))
+  const showReasons = canAdjustRatings(role)
   const rank = circle.find(p => p.id === player.id)?.rank
   const lastDelta = player.ptrHistory.length > 0 ? player.ptrHistory[player.ptrHistory.length - 1].delta : 0
   const winRate = getWinRate(player.wins, player.matchesPlayed)
@@ -151,6 +164,22 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             )}
           </div>
         </div>
+        {canAdjust && (
+          <div className="mt-3">
+            <AdjustRatingPanel
+              playerId={player.id}
+              firstName={player.name.split(' ')[0]}
+              ptr={player.ptr}
+              isSuperUser={role === 'superuser'}
+              coolingOffUntil={adjustments.coolingOffUntil}
+              pending={adjustments.pending && {
+                levels: levelDelta(adjustments.pending.delta),
+                reason: adjustments.pending.reason,
+                requestedBy: adjustments.pending.requestedBy?.name ?? null,
+              }}
+            />
+          </div>
+        )}
         {canEdit && (
           <div className="mt-3">
             <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} account={isMe ? account : null} />
@@ -183,7 +212,24 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
         </div>
       )}
 
-      <ProfileStats matches={toProfileMatches(matches, player.id)} currentRating={player.ptr} />
+      <ProfileStats matches={toProfileMatches(matches, player.id)} currentRating={player.ptr} adjustments={adjustments.applied} />
+
+      {showAdjustments && (
+        <div className="glass rounded-xl p-4">
+          <h2 className="text-sm font-semibold mb-2">Rating adjustments</h2>
+          <ul className="space-y-2">
+            {[...adjustments.applied].reverse().map(a => (
+              <li key={a.id} className="flex gap-3 text-sm">
+                <span className={`font-mono font-semibold w-14 shrink-0 ${a.delta > 0 ? 'text-emerald-700' : 'text-red-600'}`}>{formatRatingDelta(a.delta)}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="text-zinc-800">{showReasons ? a.reason : 'Adjusted by a leveller'}</span>
+                  <span className="block text-[11px] text-zinc-400">{new Date(a.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' })}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {recent.length > 0 && (
         <section className="space-y-3">

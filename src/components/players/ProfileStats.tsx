@@ -20,8 +20,10 @@ const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { da
 const yearOf = (d: Date) => Number(d.toLocaleDateString('en-GB', { year: 'numeric', timeZone: TZ }))
 
 // The rating chart and stat tiles for a profile, filtered by the chosen time
-// range. `matches` are this player's confirmed matches, oldest first.
-export default function ProfileStats({ matches, currentRating }: { matches: ProfileMatch[]; currentRating: number }) {
+// range. `matches` are this player's confirmed matches, oldest first;
+// `adjustments` are manual rating changes (oldest first), which move the line
+// and the net rating change but not the match stats.
+export default function ProfileStats({ matches, currentRating, adjustments = [] }: { matches: ProfileMatch[]; currentRating: number; adjustments?: { at: string; delta: number }[] }) {
   const [range, setRange] = useState<Range>('all')
 
   const inRange = useMemo(() => {
@@ -34,26 +36,42 @@ export default function ProfileStats({ matches, currentRating }: { matches: Prof
     return matches
   }, [matches, range])
 
-  // Every range includes the most recent match, so the line ends at the
-  // current rating and is walked backwards through each match's change.
+  // Adjustments since the range began: for "last N", since its first match.
+  const adjInRange = useMemo(() => {
+    if (range === 'all') return adjustments
+    if (range === 'ytd') {
+      const year = yearOf(new Date())
+      return adjustments.filter(a => yearOf(new Date(a.at)) === year)
+    }
+    const from = inRange[0]?.playedAt
+    return from ? adjustments.filter(a => a.at >= from) : []
+  }, [adjustments, inRange, range])
+
+  // Every range includes the latest change, so the line ends at the current
+  // rating and is walked backwards through each match's (or adjustment's)
+  // change.
   const points = useMemo<RatingPoint[]>(() => {
-    if (inRange.length === 0) return []
-    const net = inRange.reduce((s, m) => s + m.delta, 0)
+    const timeline = [
+      ...inRange.map(m => ({ at: m.playedAt, delta: m.delta, title: `${longDate(m.playedAt)} · ${m.won ? 'beat' : 'lost to'} ${m.opponents}` })),
+      ...adjInRange.map(a => ({ at: a.at, delta: a.delta, title: `${longDate(a.at)} · Rating adjustment` })),
+    ].sort((a, b) => a.at.localeCompare(b.at))
+    if (timeline.length === 0) return []
+    const net = timeline.reduce((s, e) => s + e.delta, 0)
     let rating = currentRating - net
     const out: RatingPoint[] = [{
-      title: range === 'all' ? 'Starting rating' : `Before ${longDate(inRange[0].playedAt)}`,
+      title: range === 'all' ? 'Starting rating' : `Before ${longDate(timeline[0].at)}`,
       rating,
     }]
-    for (const m of inRange) {
-      rating += m.delta
-      out.push({ title: `${longDate(m.playedAt)} · ${m.won ? 'beat' : 'lost to'} ${m.opponents}`, rating, delta: m.delta })
+    for (const e of timeline) {
+      rating += e.delta
+      out.push({ title: e.title, rating, delta: e.delta })
     }
     return out
-  }, [inRange, currentRating, range])
+  }, [inRange, adjInRange, currentRating, range])
 
   const wins = inRange.filter(m => m.won).length
   const losses = inRange.length - wins
-  const net = inRange.reduce((s, m) => s + m.delta, 0)
+  const net = inRange.reduce((s, m) => s + m.delta, 0) + adjInRange.reduce((s, a) => s + a.delta, 0)
   const gains = inRange.filter(m => m.delta > 0)
   const drops = inRange.filter(m => m.delta < 0)
   const avgGain = gains.length ? gains.reduce((s, m) => s + m.delta, 0) / gains.length : 0
@@ -106,7 +124,7 @@ export default function ProfileStats({ matches, currentRating }: { matches: Prof
           <PTRLineChart points={points} color="#f97316" />
         ) : (
           <div className="h-[200px] flex items-center justify-center text-sm text-zinc-400">
-            {matches.length === 0 ? 'No ranked matches yet' : 'No ranked matches in this period'}
+            {matches.length === 0 && adjustments.length === 0 ? 'No ranked matches yet' : 'No ranked matches in this period'}
           </div>
         )}
       </div>

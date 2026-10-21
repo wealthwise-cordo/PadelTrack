@@ -61,6 +61,7 @@ async function main() {
     // then other players, then other users (their resets, sign-ins and
     // active days cascade), then the standalone analytics tables.
     await tx.match.deleteMany({})
+    await tx.ratingAdjustment.deleteMany({}) // and the history rows they made
     await tx.americanoEvent.deleteMany({})
     await tx.roundRobinEvent.deleteMany({})
     await tx.snakeLaddersEvent.deleteMany({})

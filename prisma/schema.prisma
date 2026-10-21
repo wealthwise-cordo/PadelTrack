@@ -21,6 +21,10 @@ model User {
   // sign-up, and which version (see src/lib/legal.ts).
   termsAcceptedAt DateTime?
   termsVersion    String?
+  // member | leveller | superuser. Levellers can propose rating adjustments
+  // for the super user to review; the super user (also anyone in
+  // ADMIN_EMAILS) sees analytics and adjusts ratings without review.
+  role            String          @default("member")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   player          Player?         @relation("UserPlayer")
@@ -34,6 +38,9 @@ model User {
   roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
   PushSubscription   PushSubscription[]
+
+  adjustmentsRequested RatingAdjustment[] @relation("AdjustmentRequester")
+  adjustmentsReviewed  RatingAdjustment[] @relation("AdjustmentReviewer")
 }
 
 // A person who plays. Registered users have exactly one Player (userId set).
@@ -42,17 +49,17 @@ model User {
 // their claimToken invite link, which attaches it to the new user's account
 // along with its rating and match history.
 model Player {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   name           String
   nickname       String?
-  avatarColor    String   @default("#f97316")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  userId         String?  @unique
-  user           User?    @relation("UserPlayer", fields: [userId], references: [id], onDelete: SetNull)
+  avatarColor    String    @default("#f97316")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  userId         String?   @unique
+  user           User?     @relation("UserPlayer", fields: [userId], references: [id], onDelete: SetNull)
   createdById    String?
-  createdBy      User?    @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  claimToken     String?  @unique
+  createdBy      User?     @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  claimToken     String?   @unique
   // The LTA level (1.0–7.0) a player picked when they signed up; their
   // rating starts there.
   startingLevel  Float?
@@ -84,11 +91,12 @@ model Player {
   currentStreak      Int       @default(0)
   bestStreak         Int       @default(0)
 
-  ptrHistory PTRHistory[]
-  teamA1     Match[]      @relation("TeamA1")
-  teamA2     Match[]      @relation("TeamA2")
-  teamB1     Match[]      @relation("TeamB1")
-  teamB2     Match[]      @relation("TeamB2")
+  ptrHistory  PTRHistory[]
+  adjustments RatingAdjustment[]
+  teamA1      Match[]            @relation("TeamA1")
+  teamA2      Match[]            @relation("TeamA2")
+  teamB1      Match[]            @relation("TeamB1")
+  teamB2      Match[]            @relation("TeamB2")
 
   @@index([createdById])
 }
@@ -162,18 +170,50 @@ model MatchSet {
   @@id([matchId, setNumber])
 }
 
+// One rating change: from a ranked match (matchId) or a manual adjustment
+// (adjustmentId).
 model PTRHistory {
-  id          String   @id @default(cuid())
-  playerId    String
-  matchId     String
-  ptrBefore   Float
-  ptrAfter    Float
-  delta       Float
-  reliability Float
-  createdAt   DateTime @default(now())
-  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  id           String            @id @default(cuid())
+  playerId     String
+  matchId      String?
+  adjustmentId String?           @unique
+  ptrBefore    Float
+  ptrAfter     Float
+  delta        Float
+  reliability  Float
+  createdAt    DateTime          @default(now())
+  player       Player            @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  match        Match?            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  adjustment   RatingAdjustment? @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
 
+  @@index([playerId])
+}
+
+// A manual change to a player's rating, with the reason for it. At most one
+// LTA level either way (see rating-adjustments.ts). The super user's own
+// adjustments apply at once; a leveller's wait as "pending" until the super
+// user approves (applied then, as a change from the rating at that moment) or
+// rejects them.
+model RatingAdjustment {
+  id            String      @id @default(cuid())
+  playerId      String
+  player        Player      @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  requestedById String?
+  requestedBy   User?       @relation("AdjustmentRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  // Internal rating points (200 = one LTA level).
+  delta         Float
+  reason        String
+  status        String      @default("pending") // pending | approved | rejected
+  // The rating when it was requested, so the reviewer sees what was asked.
+  ptrAtRequest  Float
+  reviewedById  String?
+  reviewedBy    User?       @relation("AdjustmentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime    @default(now())
+  history       PTRHistory?
+
+  @@index([status, createdAt])
   @@index([playerId])
 }
 

@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
-import { getAccount } from '@/lib/store'
-import { isAdminEmail } from '@/lib/analytics'
+import { getRole } from '@/lib/roles'
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle } from 'lucide-react'
 import Link from 'next/link'
 import { getAdminStats, parsePeriod, PERIODS, type KciStatus, type Period, type Indicator } from '@/lib/admin-stats'
@@ -9,12 +8,11 @@ import { WeeklyBars, MatchBars, WeeklyLine, CircleBars } from '@/components/admi
 
 export const revalidate = 0
 
-// Owner analytics. Only emails in ADMIN_EMAILS can open it; everyone else
+// Owner analytics. Only the super user can open it; everyone else
 // gets a 404 so the page isn't discoverable.
 export default async function AdminPage({ searchParams }: { searchParams: { period?: string } }) {
   const session = await requireSession()
-  const account = await getAccount(session.userId)
-  if (!isAdminEmail(account?.email)) notFound()
+  if ((await getRole(session.userId)) !== 'superuser') notFound()
 
   const period = parsePeriod(searchParams.period)
   const s = await getAdminStats(period)

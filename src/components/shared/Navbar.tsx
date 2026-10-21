@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { Trophy, History, LayoutGrid, Plus, LogOut, User, BarChart3, FileText } from 'lucide-react'
+import { Trophy, History, LayoutGrid, Plus, LogOut, User, BarChart3, FileText, SlidersHorizontal } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import PushToggle from '@/components/shared/PushToggle'
 import Logo from '@/components/shared/Logo'
+import type { Role } from '@/lib/roles'
 
 const tabs = [
   { href: '/', label: 'Ranking', icon: Trophy },
@@ -24,12 +25,15 @@ function isActive(pathname: string, href: string) {
 export default function Navbar({
   me,
   pendingCount,
-  isAdmin = false,
+  role = 'member',
+  reviewCount = 0,
   profileIncomplete = false,
 }: {
   me: { playerId: string; name: string; avatarColor: string }
   pendingCount: number
-  isAdmin?: boolean
+  role?: Role
+  // Super user: leveller adjustments waiting for review.
+  reviewCount?: number
   // Invite-link sign-ups missing profile details: a dot on the avatar and a
   // menu link to their profile until they complete it.
   profileIncomplete?: boolean
@@ -91,8 +95,8 @@ export default function Navbar({
             aria-label="Account menu"
           >
             {getInitials(me.name)}
-            {profileIncomplete && (
-              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-orange-500 ring-2 ring-zinc-900" aria-label="Profile incomplete" />
+            {(profileIncomplete || reviewCount > 0) && (
+              <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-orange-500 ring-2 ring-zinc-900" aria-label={profileIncomplete ? 'Profile incomplete' : 'Adjustments to review'} />
             )}
           </button>
           {menuOpen && (
@@ -104,9 +108,15 @@ export default function Navbar({
                 <User className="h-4 w-4 text-zinc-500" /> My profile
                 {profileIncomplete && <span className="ml-auto text-[10px] font-semibold text-orange-600">Complete it</span>}
               </Link>
-              {isAdmin && (
+              {role === 'superuser' && (
                 <Link href="/admin" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
                   <BarChart3 className="h-4 w-4 text-zinc-500" /> Analytics
+                </Link>
+              )}
+              {role !== 'member' && (
+                <Link href="/admin/ratings" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
+                  <SlidersHorizontal className="h-4 w-4 text-zinc-500" /> Rating adjustments
+                  {reviewCount > 0 && <span className="ml-auto text-[10px] font-semibold text-orange-600">{reviewCount} to review</span>}
                 </Link>
               )}
               <PushToggle variant="menu" />
