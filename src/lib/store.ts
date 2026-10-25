@@ -8,6 +8,7 @@ import { prisma } from './prisma'
 import { calculatePTRChanges, currentReliability, reliabilityAfterMatch } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
 import { isCountryCode } from './countries'
+import { setWinner } from './utils'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -16,13 +17,7 @@ import type { Player, PTRHistory, Prisma } from '@prisma/client'
 // ---------------------------------------------------------------------------
 
 type PlayerWithHistory = Player & { ptrHistory?: PTRHistory[] }
-type MatchFull = Prisma.MatchGetPayload<{
-  include: {
-    teamAPlayer1: true; teamAPlayer2: true
-    teamBPlayer1: true; teamBPlayer2: true
-    sets: { orderBy: { setNumber: 'asc' } }
-  }
-}>
+type MatchFull = Prisma.MatchGetPayload<{ include: typeof MATCH_INCLUDE }>
 
 // Pending matches confirm themselves if no opponent acts within this window.
 export const AUTO_CONFIRM_HOURS = 48
@@ -73,12 +68,26 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
   return {
     id: m.id,
     playedAt: m.playedAt.toISOString(),
-    status: m.status as 'pending' | 'complete',
+    status: m.status as 'scheduled' | 'pending' | 'complete',
     isRanked: m.isRanked,
-    winner: m.winner as 'A' | 'B',
+    organiserId: m.organiserId,
+    disputed: m.disputed,
+    // Score entries for a scheduled match (empty for one recorded after play).
+    scoreReports: m.scoreReports.map(r => ({
+      id: r.id,
+      submittedBy: r.submittedBy.name,
+      side: r.submittedBy.player ? sideOf(m, r.submittedBy.player.id) : null,
+      sets: (r.sets as { teamAGames: number; teamBGames: number }[]).map((x, i) => ({ setNumber: i + 1, ...x })),
+      winner: r.winner as 'A' | 'B' | null,
+      incomplete: r.incomplete,
+      status: r.status as 'open' | 'accepted' | 'rejected',
+    })),
+    incomplete: m.incomplete,
+    winner: m.winner as 'A' | 'B' | null,
     recordedById: m.recordedById,
     submittedAt: m.submittedAt.toISOString(),
     location: m.location,
+    clubId: m.clubId,
     autoConfirmAt: new Date(m.submittedAt.getTime() + AUTO_CONFIRM_MS).toISOString(),
     autoConfirmed: m.autoConfirmed,
     scoreConfirmed: !!m.scoreConfirmedAt,
@@ -111,13 +120,14 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
   }
 }
 
-const MATCH_INCLUDE = {
+export const MATCH_INCLUDE = {
   teamAPlayer1: true, teamAPlayer2: true,
   teamBPlayer1: true, teamBPlayer2: true,
   sets: { orderBy: { setNumber: 'asc' as const } },
+  scoreReports: { orderBy: { createdAt: 'asc' as const }, include: { submittedBy: { select: { name: true, player: { select: { id: true } } } } } },
 } satisfies Prisma.MatchInclude
 
-function involving(playerId: string): Prisma.MatchWhereInput {
+export function involving(playerId: string): Prisma.MatchWhereInput {
   return {
     OR: [
       { teamAPlayer1Id: playerId }, { teamAPlayer2Id: playerId },
@@ -616,7 +626,7 @@ export async function getMatchById(id: string): Promise<MatchWithPlayers | null>
 
 type Side = 'A' | 'B'
 
-function sideOf(m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }, playerId: string): Side | null {
+export function sideOf(m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }, playerId: string): Side | null {
   if (m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId) return 'A'
   if (m.teamBPlayer1Id === playerId || m.teamBPlayer2Id === playerId) return 'B'
   return null
@@ -634,8 +644,10 @@ export async function matchPermissions(matchId: string, userId: string) {
   const recorder = await getPlayerForUser(m.recordedById)
   const recorderSide = recorder ? sideOf(m, recorder.id) : null
   return {
-    canConfirm: m.status === 'pending' && !m.scoreConfirmedAt && recorderSide !== null && mySide !== recorderSide,
-    canDelete: m.status === 'pending',
+    // A disputed score is resolved by picking an entry (confirmReport).
+    canConfirm: m.status === 'pending' && !m.disputed && !m.scoreConfirmedAt && recorderSide !== null && mySide !== recorderSide,
+    // A scheduled match is cancelled by its organiser instead (see deleteMatch).
+    canDelete: m.status === 'pending' && !m.organiserId,
   }
 }
 
@@ -650,6 +662,11 @@ export async function getPendingForUser(userId: string): Promise<MatchWithPlayer
   })
   return pending
     .filter(m => {
+      // Disputed: I can settle it if someone on the other pair entered a score.
+      if (m.disputed) {
+        const mySide = sideOf(m, me.id)
+        return m.scoreReports.some(r => r.status === 'open' && r.submittedBy.player && sideOf(m, r.submittedBy.player.id) !== mySide)
+      }
       const recorderPlayer = m.recordedBy.player
       if (!recorderPlayer) return false
       const recorderSide = sideOf(m, recorderPlayer.id)
@@ -682,13 +699,42 @@ function validateSets(sets: { teamAGames: number; teamBGames: number }[]): strin
   return null
 }
 
+// A score as entered: sets, plus a winner unless it didn't finish.
+export function validateScore(sets: { teamAGames: number; teamBGames: number }[], winner: Side | null | undefined, incomplete: boolean): string | null {
+  const setError = validateSets(sets)
+  if (setError) return setError
+  if (incomplete) {
+    if (winner !== null && winner !== undefined) return 'An incomplete match has no winner'
+    if (!sets.some(s => s.teamAGames + s.teamBGames > 0)) return 'Enter the games played so far'
+    const won = (side: Side) => sets.filter(s => setWinner(s.teamAGames, s.teamBGames) === side).length
+    if (won('A') >= 2 || won('B') >= 2) return 'One pair has won two sets — save it as a finished match'
+  } else if (winner !== 'A' && winner !== 'B') {
+    return 'Pick a winner'
+  }
+  return null
+}
+
+// A scheduled match's start: an ISO timestamp from the form (the browser
+// turns its local date and time into one). Up to a year ahead.
+export function resolveStartsAt(startsAt: unknown): Date | null {
+  if (typeof startsAt !== 'string') return null
+  const d = new Date(startsAt)
+  if (Number.isNaN(d.getTime())) return null
+  if (d.getTime() > Date.now() + 366 * 864e5) return null
+  return d
+}
+
 export async function createMatch(userId: string, data: {
   teamAPlayer1Id: string
   teamAPlayer2Id: string
   teamBPlayer1Id: string
   teamBPlayer2Id: string
   sets: { teamAGames: number; teamBGames: number }[]
-  winner: Side
+  // Null for an incomplete match.
+  winner: Side | null
+  // Play stopped before either pair won 2 sets: saved with no winner and
+  // never affects ratings (see the Match model).
+  incomplete?: boolean
   // 'YYYY-MM-DD'. Defaults to now; past dates allowed, future dates aren't.
   playedOn?: string
   location?: string
@@ -696,15 +742,23 @@ export async function createMatch(userId: string, data: {
   clubId?: string
   // Friendly matches skip confirmation and never change ratings.
   isRanked?: boolean
-}): Promise<{ matchId: string; status: 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string }[] } | { error: string }> {
+  // A start time in the future makes it a scheduled match: no score yet.
+  startsAt?: string
+}): Promise<{ matchId: string; status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string }[] } | { error: string }> {
   const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
-  const playedAt = resolvePlayedAt(data.playedOn)
+  const startsAt = data.startsAt !== undefined ? resolveStartsAt(data.startsAt) : null
+  if (data.startsAt !== undefined && !startsAt) return { error: 'Pick a valid date and time' }
+  const scheduled = !!startsAt && startsAt.getTime() > Date.now()
+  // A start time already passed is when it was played (it needs a score).
+  const playedAt = startsAt ?? resolvePlayedAt(data.playedOn)
   if (!playedAt) return { error: 'Pick a valid date that isn’t in the future' }
   const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
   if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
-  if (winner !== 'A' && winner !== 'B') return { error: 'Pick a winner' }
-  const setError = validateSets(sets)
-  if (setError) return { error: setError }
+  const incomplete = !scheduled && data.incomplete === true
+  if (!scheduled) {
+    const scoreError = validateScore(sets, winner, incomplete)
+    if (scoreError) return { error: scoreError }
+  }
 
   const me = await getPlayerForUser(userId)
   if (!me) return { error: 'Your profile was not found' }
@@ -725,11 +779,35 @@ export async function createMatch(userId: string, data: {
   // profile, and lets a ranked match count.
   const invites = players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
 
+  if (scheduled) {
+    const match = await prisma.match.create({
+      data: {
+        status: 'scheduled',
+        playedAt,
+        isRanked,
+        location: club ? clubLabel(club) : data.location?.trim().slice(0, 60) || null,
+        clubId: club?.id ?? null,
+        recordedById: userId,
+        organiserId: userId,
+        teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id,
+      },
+    })
+    const others = players.filter(p => p.userId && p.userId !== userId)
+    await sendPush(others.map(p => p.userId), {
+      title: 'You’ve been added to a match',
+      body: `${firstName(me.name)} added you to a ${isRanked ? 'ranked match' : 'friendly'}: ${whenLabel(playedAt)}${match.location ? ` at ${match.location}` : ''}`,
+      url: '/matches',
+      tag: `match-${match.id}`,
+    })
+    return { matchId: match.id, status: 'scheduled', ptrDelta: 0, isUpset: false, invites }
+  }
+
   const saved = await prisma.$transaction(async tx => {
     const match = await tx.match.create({
       data: {
         status: 'pending',
-        winner,
+        winner: incomplete ? null : winner,
+        incomplete,
         playedAt,
         isRanked,
         location: club ? clubLabel(club) : data.location?.trim().slice(0, 60) || null,
@@ -760,16 +838,26 @@ export async function createMatch(userId: string, data: {
   return saved
 }
 
-const firstName = (name: string) => name.split(' ')[0]
+export const firstName = (name: string) => name.split(' ')[0]
+
+// "Sat 2 Nov, 18:00" in UK time (where the clubs are), for notifications.
+export function whenLabel(d: Date): string {
+  const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/London' })
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
+  return `${day}, ${time}`
+}
 
 // "Morgan & Riley beat Alex & Taylor 6–3 6–4" (winner's games first).
-function resultLine(
-  m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string; winner: string; sets: { teamAGames: number; teamBGames: number }[] },
+export function resultLine(
+  m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string; winner: string | null; sets: { teamAGames: number; teamBGames: number }[] },
   byId: Map<string, { name: string }>
 ): string {
   const pair = (a: string, b: string) => `${firstName(byId.get(a)?.name ?? '?')} & ${firstName(byId.get(b)?.name ?? '?')}`
   const A = pair(m.teamAPlayer1Id, m.teamAPlayer2Id)
   const B = pair(m.teamBPlayer1Id, m.teamBPlayer2Id)
+  if (m.winner !== 'A' && m.winner !== 'B') {
+    return `${A} v ${B} ${m.sets.map(s => `${s.teamAGames}–${s.teamBGames}`).join(' ')} (didn’t finish)`
+  }
   const aWon = m.winner === 'A'
   const score = m.sets.map(s => (aWon ? `${s.teamAGames}–${s.teamBGames}` : `${s.teamBGames}–${s.teamAGames}`)).join(' ')
   return aWon ? `${A} beat ${B} ${score}` : `${B} beat ${A} ${score}`
@@ -794,6 +882,8 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
     data: { scoreConfirmedAt: new Date() },
   })
   if (marked.count === 0) return { error: 'This score has already been confirmed' }
+  // A scheduled match's single score entry is now accepted.
+  await prisma.matchScoreReport.updateMany({ where: { matchId, status: 'open' }, data: { status: 'accepted' } })
   const result = await finalizeIfReady(matchId)
   {
     const m = await prisma.match.findUnique({ where: { id: matchId }, include: { sets: { orderBy: { setNumber: 'asc' } }, teamAPlayer1: true, teamAPlayer2: true, teamBPlayer1: true, teamBPlayer2: true } })
@@ -813,7 +903,7 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
 
 // Makes a pending match ranked once its score is confirmed and everyone in it
 // is on PadelTrack. Safe to call any time; returns null if it isn't ready.
-async function finalizeIfReady(matchId: string): Promise<{ ptrDelta: number } | null> {
+export async function finalizeIfReady(matchId: string): Promise<{ ptrDelta: number } | null> {
   const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
   if (!m || m.status !== 'pending' || !m.scoreConfirmedAt) return null
   const everyoneJoined = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].every(p => p.userId)
@@ -835,7 +925,8 @@ async function settleMatchesFor(playerId: string): Promise<void> {
 // (see getSession), which keeps it working on any host with no extra setup.
 export async function autoConfirmExpired(): Promise<number> {
   const expired = await prisma.match.findMany({
-    where: { status: 'pending', submittedAt: { lte: new Date(Date.now() - AUTO_CONFIRM_MS) } },
+    // Disputed scores never confirm themselves.
+    where: { status: 'pending', disputed: false, submittedAt: { lte: new Date(Date.now() - AUTO_CONFIRM_MS) } },
     orderBy: { submittedAt: 'asc' },
     include: { teamAPlayer1: true, teamAPlayer2: true, teamBPlayer1: true, teamBPlayer2: true },
   })
@@ -875,7 +966,8 @@ async function claimAndApply(matchId: string, auto: boolean): Promise<{ ptrDelta
       data: { status: 'complete', autoConfirmed: auto },
     })
     if (claimed.count === 0) return null
-    return applyPTR(tx, matchId)
+    const { incomplete } = await tx.match.findUniqueOrThrow({ where: { id: matchId }, select: { incomplete: true } })
+    return incomplete ? applySetStats(tx, matchId) : applyPTR(tx, matchId)
   })
 }
 
@@ -884,8 +976,9 @@ async function claimAndApply(matchId: string, auto: boolean): Promise<{ ptrDelta
 // match is confirmed — or saved as a friendly — it stays in the record and
 // can't be deleted.
 export async function deleteMatch(matchId: string, userId: string): Promise<{ ok: true } | { error: string }> {
-  const existing = await prisma.match.findUnique({ where: { id: matchId }, select: { status: true } })
+  const existing = await prisma.match.findUnique({ where: { id: matchId }, select: { status: true, organiserId: true } })
   if (!existing) return { error: 'Match not found' }
+  if (existing.organiserId) return cancelScheduledMatch(matchId, userId)
   if (existing.status !== 'pending') return { error: 'Confirmed matches can’t be deleted — only pending ones can be removed' }
   const perms = await matchPermissions(matchId, userId)
   if (!perms.canDelete) return { error: 'Only players in this match can remove it' }
@@ -922,6 +1015,27 @@ export async function deleteMatch(matchId: string, userId: string): Promise<{ ok
   })
 }
 
+// The organiser calls off a match they set up in advance — before it's
+// played, or after while no score has been confirmed. Everyone else in it is
+// told.
+export async function cancelScheduledMatch(matchId: string, userId: string): Promise<{ ok: true } | { error: string }> {
+  const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
+  if (!m || !m.organiserId) return { error: 'Match not found' }
+  if (m.organiserId !== userId) return { error: 'Only the person who set up this match can cancel it' }
+  if (m.status === 'complete' || m.scoreConfirmedAt) return { error: 'This match has a confirmed score, so it can’t be cancelled' }
+  const gone = await prisma.match.deleteMany({ where: { id: matchId, status: { in: ['scheduled', 'pending'] }, scoreConfirmedAt: null } })
+  if (gone.count === 0) return { error: 'This match has a confirmed score, so it can’t be cancelled' }
+  const organiser = await getPlayerForUser(userId)
+  const others = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => p.userId).filter(id => id && id !== userId)
+  await sendPush(others, {
+    title: 'Match cancelled',
+    body: `${firstName(organiser?.name ?? 'The organiser')} cancelled the match on ${whenLabel(m.playedAt)}.`,
+    url: '/matches',
+    tag: `match-${matchId}`,
+  })
+  return { ok: true }
+}
+
 // ---------------------------------------------------------------------------
 // Internal rating application (runs inside a transaction)
 // ---------------------------------------------------------------------------
@@ -933,14 +1047,44 @@ function tallySets(sets: { teamAGames: number; teamBGames: number }[]) {
   const tbWonA = sets.filter(s => s.teamAGames === 7 && s.teamBGames === 6).length
   const tbWonB = sets.filter(s => s.teamBGames === 7 && s.teamAGames === 6).length
   return {
-    setsA: played.filter(s => s.teamAGames > s.teamBGames).length,
-    setsB: played.filter(s => s.teamBGames > s.teamAGames).length,
+    // Only finished sets count as won (an incomplete match's last set may be
+    // part-played); every game counts.
+    setsA: played.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length,
+    setsB: played.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length,
     gamesA: played.reduce((acc, s) => acc + s.teamAGames, 0),
     gamesB: played.reduce((acc, s) => acc + s.teamBGames, 0),
     tbWonA,
     tbWonB,
     tbTotal: tbWonA + tbWonB,
   }
+}
+
+// An incomplete ranked match, once confirmed: counts as a match played and
+// adds its finished sets, all its games and any tie-breaks to the four
+// players' stats. Ratings, reliability, wins/losses and streaks are untouched.
+async function applySetStats(tx: TxClient, matchId: string): Promise<{ ptrDelta: number }> {
+  const match = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { sets: true } })
+  const t = tallySets(match.sets)
+  const sides: [string, boolean][] = [
+    [match.teamAPlayer1Id, true], [match.teamAPlayer2Id, true],
+    [match.teamBPlayer1Id, false], [match.teamBPlayer2Id, false],
+  ]
+  await Promise.all([
+    ...sides.map(([id, onA]) => tx.player.update({
+      where: { id },
+      data: {
+        matchesPlayed: { increment: 1 },
+        setsWon: { increment: onA ? t.setsA : t.setsB },
+        setsLost: { increment: onA ? t.setsB : t.setsA },
+        gamesWon: { increment: onA ? t.gamesA : t.gamesB },
+        gamesLost: { increment: onA ? t.gamesB : t.gamesA },
+        tiebreaksWon: { increment: onA ? t.tbWonA : t.tbWonB },
+        tiebreaksPlayed: { increment: t.tbTotal },
+      },
+    })),
+    tx.match.update({ where: { id: matchId }, data: { status: 'complete', confirmedAt: new Date() } }),
+  ])
+  return { ptrDelta: 0 }
 }
 
 // Applies a match's result to all four players using their ratings at the
@@ -1061,7 +1205,7 @@ export async function getUserName(userId: string): Promise<string | null> {
 // poll it and only re-render when it differs.
 export async function getSyncFingerprint(): Promise<string> {
   const [matches, players] = await Promise.all([
-    prisma.match.aggregate({ _count: true, _max: { submittedAt: true, confirmedAt: true, scoreConfirmedAt: true } }),
+    prisma.match.aggregate({ _count: true, _max: { submittedAt: true, confirmedAt: true, scoreConfirmedAt: true, updatedAt: true } }),
     prisma.player.aggregate({ _count: true, _max: { updatedAt: true } }),
   ])
   return [
@@ -1069,6 +1213,7 @@ export async function getSyncFingerprint(): Promise<string> {
     matches._max.submittedAt?.getTime() ?? 0,
     matches._max.confirmedAt?.getTime() ?? 0,
     matches._max.scoreConfirmedAt?.getTime() ?? 0,
+    matches._max.updatedAt?.getTime() ?? 0,
     players._count,
     players._max.updatedAt?.getTime() ?? 0,
   ].join('.')

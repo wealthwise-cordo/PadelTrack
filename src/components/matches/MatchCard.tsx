@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, formatDistanceToNow } from 'date-fns'
-import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle } from 'lucide-react'
+import Link from 'next/link'
+import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle, CalendarDays, Pencil, PenLine, AlertTriangle } from 'lucide-react'
 import { getInitials, getFullScore, setWinner, formatRatingDelta } from '@/lib/utils'
 import InviteButton from '@/components/players/InviteButton'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
@@ -14,6 +15,9 @@ interface Props {
   canDelete?: boolean
   // Larger layout used for the most recent match at the top of Match Centre.
   featured?: boolean
+  // The viewer, for matches set up in advance: whether they organised it, and
+  // which disputed score they may pick.
+  viewer?: { playerId: string; userId: string }
 }
 
 function hoursLeft(iso: string): string {
@@ -24,7 +28,7 @@ function hoursLeft(iso: string): string {
   return `${Math.max(1, Math.round(ms / 60_000))}m`
 }
 
-export default function MatchCard({ match, canConfirm, canDelete, featured }: Props) {
+export default function MatchCard({ match, canConfirm, canDelete, featured, viewer }: Props) {
   const router = useRouter()
   const [busy, setBusy] = useState<'confirm' | 'delete' | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -35,14 +39,17 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
   useEffect(() => setMounted(true), [])
   const teamA = [match.teamAPlayer1, match.teamAPlayer2]
   const teamB = [match.teamBPlayer1, match.teamBPlayer2]
+  // Incomplete matches have no winner: neither side is dimmed or marked.
   const aWon = match.winner === 'A'
+  const bWon = match.winner === 'B'
   const pending = match.status === 'pending'
 
-  const act = async (kind: 'confirm' | 'delete') => {
+  const act = async (kind: 'confirm' | 'delete', reportId?: string) => {
     setBusy(kind)
     setError('')
     const res = await fetch(kind === 'confirm' ? `/api/matches/${match.id}/confirm` : `/api/matches/${match.id}`, {
       method: kind === 'confirm' ? 'POST' : 'DELETE',
+      ...(reportId && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reportId }) }),
     })
     if (!res.ok) {
       const d = await res.json().catch(() => ({}))
@@ -70,6 +77,11 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
           <Clock className="h-2.5 w-2.5" /> PENDING
         </span>
       )}
+      {match.incomplete && (
+        <span className="text-[10px] bg-zinc-200 text-zinc-700 rounded px-1.5 py-0.5 font-semibold whitespace-nowrap" title="Didn’t finish — no winner, doesn’t affect ratings">
+          INCOMPLETE
+        </span>
+      )}
       {!match.isRanked && (
         <span className="text-[10px] bg-sky-100 text-sky-800 rounded px-1.5 py-0.5 font-semibold whitespace-nowrap" title="Doesn’t affect ratings">
           FRIENDLY
@@ -86,7 +98,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
         </span>
       )}
       {/* Only pending matches can be removed; confirmed ones stay on record. */}
-      {canDelete && pending && !canConfirm && (
+      {canDelete && pending && !canConfirm && (!match.organiserId || viewer?.userId === match.organiserId) && (
         <button
           onClick={() => setConfirmingDelete(v => !v)}
           className={`transition-colors ${featured ? 'text-zinc-500 hover:text-red-400' : 'text-zinc-400 hover:text-red-600'}`}
@@ -100,7 +112,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
 
   const Footer = () => (
     <>
-      {pending && (() => {
+      {pending && !match.disputed && (() => {
         // Two things make a pending match ranked: the score confirmed by an
         // opponent, and every guest joining PadelTrack.
         const guestNames = match.guests.map(g => g.name.split(' ')[0])
@@ -161,12 +173,21 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
         </div>
       )}
 
-      {canConfirm && (
+      {pending && match.disputed && <Dispute />}
+
+      {canConfirm && !match.disputed && (
         <div className="mt-3 pt-3 border-t border-amber-200 flex items-center gap-2">
           <span className="text-xs text-zinc-600 flex-1">Is this result right?</span>
+          {/* Set up in advance: a wrong score is answered with the right one. */}
+          {match.organiserId ? (
+            <Link href={`/matches/${match.id}/score`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-zinc-300 bg-white hover:bg-zinc-50">
+              <PenLine className="h-3.5 w-3.5" /> Different score
+            </Link>
+          ) : (
           <button onClick={() => act('delete')} disabled={!!busy} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border border-zinc-300 bg-white hover:bg-zinc-50 disabled:opacity-50">
             <X className="h-3.5 w-3.5" /> {busy === 'delete' ? 'Rejecting…' : 'Reject'}
           </button>
+          )}
           <button onClick={() => act('confirm')} disabled={!!busy} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50">
             <Check className="h-3.5 w-3.5" /> {busy === 'confirm' ? 'Confirming…' : 'Confirm'}
           </button>
@@ -189,6 +210,100 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
     </>
   )
 
+  // No result yet (scheduled) or none at all (incomplete): neither side dimmed.
+  const noResult = match.status === 'scheduled' || match.incomplete || match.disputed
+  const Team = ({ players, won, align }: { players: PlayerWithStats[]; won: boolean; align: 'left' | 'right' }) => (
+    <div className={`flex-1 min-w-0 ${align === 'right' ? 'text-right' : ''} ${won || noResult ? '' : 'opacity-60'}`}>
+      <div className={`flex items-center gap-1.5 mb-1 ${align === 'right' ? 'justify-end' : ''}`}>
+        {align === 'right' && won && <span className="text-[10px] text-orange-600 font-bold mr-1">WIN</span>}
+        {players.map(p => <Avatar key={p.id} p={p} size="sm" />)}
+        {align === 'left' && won && <span className="text-[10px] text-orange-600 font-bold ml-1">WIN</span>}
+      </div>
+      <div className="text-xs text-zinc-600 truncate">{players.map(p => p.name.split(' ')[0]).join(' & ')}</div>
+    </div>
+  )
+
+  // Two different scores: each player on the other pair from a submitter can
+  // say that one's right.
+  const Dispute = () => {
+    const mySide = viewer ? ([match.teamAPlayer1Id, match.teamAPlayer2Id].includes(viewer.playerId) ? 'A' : [match.teamBPlayer1Id, match.teamBPlayer2Id].includes(viewer.playerId) ? 'B' : null) : null
+    const open = match.scoreReports.filter(r => r.status === 'open')
+    // In the card's order: the left pair's games first.
+    const score = (r: (typeof open)[number]) => r.sets.map(x => `${x.teamAGames}-${x.teamBGames}`).join('  ')
+    return (
+      <div className={`mt-3 pt-3 border-t space-y-2 ${featured ? 'border-white/10' : 'border-amber-200'}`}>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+          <AlertTriangle className="h-3.5 w-3.5" /> The scores entered don’t match — which is right?
+        </div>
+        {open.map(r => (
+          <div key={r.id} className="flex items-center gap-2 rounded-lg bg-white border border-zinc-200 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <div className="font-mono text-sm font-bold">{score(r)}{r.incomplete && <span className="ml-1.5 text-[10px] font-sans text-zinc-500">didn’t finish</span>}</div>
+              <div className="text-[11px] text-zinc-500">Entered by {r.submittedBy.split(' ')[0]}</div>
+            </div>
+            {mySide && r.side !== mySide && (
+              <button onClick={() => act('confirm', r.id)} disabled={!!busy} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 shrink-0">
+                <Check className="h-3.5 w-3.5" /> This one
+              </button>
+            )}
+          </div>
+        ))}
+        <p className="text-[11px] text-zinc-500">Someone from the other pair to whoever entered a score picks it. It won’t confirm on its own.</p>
+      </div>
+    )
+  }
+
+  // Set up in advance and not scored yet: when and where, who's playing, and
+  // for the organiser an edit link. Once it has started, "Add score".
+  if (match.status === 'scheduled') {
+    const start = new Date(match.playedAt)
+    const started = mounted && start.getTime() <= Date.now()
+    const isOrganiser = !!viewer && match.organiserId === viewer.userId
+    return (
+      <div className={`ptr-card ${started ? '!border-orange-300 !bg-orange-50/50' : ''}`}>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5 min-w-0">
+            <CalendarDays className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+            {mounted ? format(start, 'EEE d MMM, HH:mm') : '\u00a0'}
+            {match.location && <span className="inline-flex items-center gap-0.5 ml-1 font-normal text-zinc-400 truncate"><MapPin className="h-3 w-3 shrink-0" />{match.location}</span>}
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {!match.isRanked && <span className="text-[10px] bg-sky-100 text-sky-800 rounded px-1.5 py-0.5 font-semibold">FRIENDLY</span>}
+            {isOrganiser && !started && (
+              <Link href={`/matches/${match.id}/edit`} className="text-zinc-400 hover:text-zinc-700" aria-label="Edit match"><Pencil className="h-3.5 w-3.5" /></Link>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Team players={teamA} won={false} align="left" />
+          <div className="text-[10px] font-black text-zinc-300 shrink-0">VS</div>
+          <Team players={teamB} won={false} align="right" />
+        </div>
+        {started ? (
+          <div className="mt-3 pt-3 border-t border-orange-200 flex items-center gap-2">
+            <span className="text-xs text-zinc-600 flex-1">How did it go?</span>
+            <Link href={`/matches/${match.id}/score`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-500 text-white hover:bg-orange-600">
+              <PenLine className="h-3.5 w-3.5" /> Add score
+            </Link>
+          </div>
+        ) : (
+          <div className="mt-2 text-[11px] text-zinc-500">{match.guests.length ? `${match.guests.map(g => g.name.split(' ')[0]).join(' & ')} ${match.guests.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack, so won’t get reminders.` : 'Everyone gets a reminder the day before.'}</div>
+        )}
+        {isOrganiser && started && (
+          <button onClick={() => setConfirmingDelete(v => !v)} className="mt-2 text-[11px] text-zinc-400 hover:text-red-600">Didn’t happen? Cancel it</button>
+        )}
+        {confirmingDelete && (
+          <div className="mt-3 pt-3 border-t border-zinc-200 flex items-center gap-2">
+            <span className="text-xs flex-1 text-zinc-600">Cancel this match? Everyone in it will be told.</span>
+            <button onClick={() => setConfirmingDelete(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-zinc-300 bg-white">Keep</button>
+            <button onClick={() => act('delete')} disabled={!!busy} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white disabled:opacity-50">{busy === 'delete' ? 'Cancelling…' : 'Cancel match'}</button>
+          </div>
+        )}
+        {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
+      </div>
+    )
+  }
+
   if (featured) {
     const sets = match.sets.filter(s => s.teamAGames + s.teamBGames > 0)
     return (
@@ -204,9 +319,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
 
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           {[teamA, teamB].map((team, i) => {
-            const won = (i === 0) === aWon
+            const won = i === 0 ? aWon : bWon
             return (
-              <div key={i} className={`flex flex-col items-center text-center gap-2 ${i === 1 ? 'order-3' : ''} ${won ? '' : 'opacity-60'}`}>
+              <div key={i} className={`flex flex-col items-center text-center gap-2 ${i === 1 ? 'order-3' : ''} ${won || match.incomplete ? '' : 'opacity-60'}`}>
                 <div className="flex -space-x-2">
                   {team.map(p => <Avatar key={p.id} p={p} size="lg" />)}
                 </div>
@@ -242,17 +357,6 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
     )
   }
 
-  const Team = ({ players, won, align }: { players: PlayerWithStats[]; won: boolean; align: 'left' | 'right' }) => (
-    <div className={`flex-1 min-w-0 ${align === 'right' ? 'text-right' : ''} ${won ? '' : 'opacity-60'}`}>
-      <div className={`flex items-center gap-1.5 mb-1 ${align === 'right' ? 'justify-end' : ''}`}>
-        {align === 'right' && won && <span className="text-[10px] text-orange-600 font-bold mr-1">WIN</span>}
-        {players.map(p => <Avatar key={p.id} p={p} size="sm" />)}
-        {align === 'left' && won && <span className="text-[10px] text-orange-600 font-bold ml-1">WIN</span>}
-      </div>
-      <div className="text-xs text-zinc-600 truncate">{players.map(p => p.name.split(' ')[0]).join(' & ')}</div>
-    </div>
-  )
-
   return (
     <div className={`ptr-card ${pending ? '!border-amber-300 !bg-amber-50/50' : ''}`}>
       <div className="flex items-center justify-between mb-3">
@@ -271,9 +375,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured }: Pr
       </div>
 
       <div className="flex items-center gap-3">
-        <Team players={teamA} won={aWon} align="left" />
-        <div className="font-mono font-bold text-sm text-zinc-900 shrink-0">{getFullScore(match.sets)}</div>
-        <Team players={teamB} won={!aWon} align="right" />
+        <Team players={teamA} won={aWon && !match.disputed} align="left" />
+        <div className="font-mono font-bold text-sm text-zinc-900 shrink-0">{match.disputed ? <span className="text-xs text-amber-700">Disputed</span> : getFullScore(match.sets)}</div>
+        <Team players={teamB} won={bWon && !match.disputed} align="right" />
       </div>
 
       <Footer />

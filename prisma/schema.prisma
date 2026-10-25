@@ -34,6 +34,8 @@ model User {
 
   guestsCreated      Player[]            @relation("GuestCreator")
   matchesRecorded    Match[]             @relation("MatchRecorder")
+  matchesOrganised   Match[]             @relation("MatchOrganiser")
+  scoreReports       MatchScoreReport[]
   americanoEvents    AmericanoEvent[]    @relation("AmericanoEventOwner")
   roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
@@ -107,57 +109,96 @@ model Player {
 // hours: if a guest still hasn't joined it becomes a friendly permanently;
 // otherwise it confirms itself.
 model Match {
-  id               String       @id @default(cuid())
-  playedAt         DateTime     @default(now())
-  submittedAt      DateTime     @default(now())
-  confirmedAt      DateTime?
+  id                String             @id @default(cuid())
+  playedAt          DateTime           @default(now())
+  submittedAt       DateTime           @default(now())
+  confirmedAt       DateTime?
   // True when nobody confirmed within the 48-hour window and it confirmed itself.
-  autoConfirmed    Boolean      @default(false)
+  autoConfirmed     Boolean            @default(false)
   // When an opponent confirmed the score. A ranked match with guests in it
   // also needs every guest to join PadelTrack before it becomes ranked.
-  scoreConfirmedAt DateTime?
+  scoreConfirmedAt  DateTime?
   // A ranked match whose guest(s) didn't join within 48 hours is turned into
   // a friendly for good.
-  becameFriendly   Boolean      @default(false)
-  status           String       @default("pending") // pending | complete
+  becameFriendly    Boolean            @default(false)
+  status            String             @default("pending") // scheduled | pending | complete
   // Friendly matches are saved straight away and never touch ratings,
   // circles or stats.
-  isRanked         Boolean      @default(true)
-  winner           String // "A" | "B"
-  recordedById     String
-  recordedBy       User         @relation("MatchRecorder", fields: [recordedById], references: [id], onDelete: Cascade)
-  teamAPlayer1Id   String
-  teamAPlayer2Id   String
-  teamBPlayer1Id   String
-  teamBPlayer2Id   String
-  teamAPlayer1     Player       @relation("TeamA1", fields: [teamAPlayer1Id], references: [id])
-  teamAPlayer2     Player       @relation("TeamA2", fields: [teamAPlayer2Id], references: [id])
-  teamBPlayer1     Player       @relation("TeamB1", fields: [teamBPlayer1Id], references: [id])
-  teamBPlayer2     Player       @relation("TeamB2", fields: [teamBPlayer2Id], references: [id])
+  isRanked          Boolean            @default(true)
+  // Play stopped before either pair won 2 sets. No winner; never changes
+  // ratings, reliability, wins/losses or head-to-head. A ranked one is still
+  // confirmed like any ranked match, then counts as a match played, adds its
+  // finished sets and all its games to stats and joins its players' circles.
+  incomplete        Boolean            @default(false)
+  winner            String? // "A" | "B"; null when incomplete
+  recordedById      String
+  recordedBy        User               @relation("MatchRecorder", fields: [recordedById], references: [id], onDelete: Cascade)
+  teamAPlayer1Id    String
+  teamAPlayer2Id    String
+  teamBPlayer1Id    String
+  teamBPlayer2Id    String
+  teamAPlayer1      Player             @relation("TeamA1", fields: [teamAPlayer1Id], references: [id])
+  teamAPlayer2      Player             @relation("TeamA2", fields: [teamAPlayer2Id], references: [id])
+  teamBPlayer1      Player             @relation("TeamB1", fields: [teamBPlayer1Id], references: [id])
+  teamBPlayer2      Player             @relation("TeamB2", fields: [teamBPlayer2Id], references: [id])
   // Filled in when the match is confirmed and ratings are applied.
-  teamAPTRBefore   Float        @default(0)
-  teamBPTRBefore   Float        @default(0)
-  teamAPTRAfter    Float        @default(0)
-  teamBPTRAfter    Float        @default(0)
-  ptrDelta         Float        @default(0)
-  scoreMultiplier  Float        @default(1)
-  isUpset          Boolean      @default(false)
-  matchQuality     Float        @default(0)
+  teamAPTRBefore    Float              @default(0)
+  teamBPTRBefore    Float              @default(0)
+  teamAPTRAfter     Float              @default(0)
+  teamBPTRAfter     Float              @default(0)
+  ptrDelta          Float              @default(0)
+  scoreMultiplier   Float              @default(1)
+  isUpset           Boolean            @default(false)
+  matchQuality      Float              @default(0)
+  // Scheduled matches: set up ahead of time with no score (status
+  // "scheduled", playedAt = start time). The organiser can edit or cancel it
+  // until a score is in. Players get a reminder 25 hours before
+  // (reminderSentAt) and a prompt to add the score 2 hours after the start
+  // (scorePromptSentAt). Any player can then enter the score; each entry is a
+  // MatchScoreReport. Two matching entries from opposite pairs confirm it;
+  // different entries make it `disputed` until an opponent of one submitter
+  // picks the right one. Disputed matches never auto-confirm.
+  organiserId       String?
+  organiser         User?              @relation("MatchOrganiser", fields: [organiserId], references: [id], onDelete: SetNull)
+  reminderSentAt    DateTime?
+  scorePromptSentAt DateTime?
+  disputed          Boolean            @default(false)
+  disputeRemindedAt DateTime?
+  scoreReports      MatchScoreReport[]
+  updatedAt         DateTime           @default(now()) @updatedAt
   // Where it was played, free text (e.g. "Padel Club Cartagena"). When a
   // listed club was picked, `clubId` links it and `location` holds its label.
-  location         String?
-  clubId           String?
-  club             Club?        @relation(fields: [clubId], references: [id], onDelete: SetNull)
-  notes            String?
-  sets             MatchSet[]
-  ptrHistory       PTRHistory[]
+  location          String?
+  clubId            String?
+  club              Club?              @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  notes             String?
+  sets              MatchSet[]
+  ptrHistory        PTRHistory[]
 
   @@index([teamAPlayer1Id])
   @@index([teamAPlayer2Id])
   @@index([teamBPlayer1Id])
   @@index([teamBPlayer2Id])
   @@index([status, submittedAt])
+  @@index([status, playedAt])
   @@index([clubId])
+}
+
+// One player's entry of a scheduled match's score.
+model MatchScoreReport {
+  id            String   @id @default(cuid())
+  matchId       String
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  submittedById String
+  submittedBy   User     @relation(fields: [submittedById], references: [id], onDelete: Cascade)
+  // [{ teamAGames, teamBGames }, …]
+  sets          Json
+  winner        String? // "A" | "B"; null when incomplete
+  incomplete    Boolean  @default(false)
+  status        String   @default("open") // open | accepted | rejected
+  createdAt     DateTime @default(now())
+
+  @@index([matchId])
 }
 
 model MatchSet {

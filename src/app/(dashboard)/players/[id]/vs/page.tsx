@@ -18,7 +18,8 @@ export default async function VersusPage({ params, searchParams }: { params: { i
   if (!them || them.isDeleted) notFound()
 
   const view = searchParams.view === 'partners' ? 'partners' : 'against'
-  const shared = myMatches.filter(m => m.status === 'complete' && m.isRanked)
+  // Incomplete matches have no result, so they're left out of head-to-head.
+  const shared = myMatches.filter(m => m.status === 'complete' && m.isRanked && !m.incomplete)
   const sideOf = (m: (typeof shared)[number], id: string) =>
     [m.teamAPlayer1Id, m.teamAPlayer2Id].includes(id) ? 'A' : [m.teamBPlayer1Id, m.teamBPlayer2Id].includes(id) ? 'B' : null
   const against = shared.filter(m => { const t = sideOf(m, them.id); return t && t !== sideOf(m, meId) })

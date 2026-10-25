@@ -8,7 +8,7 @@ import PlayerEditPanel from '@/components/players/PlayerEditPanel'
 import CompleteProfileCard from '@/components/players/CompleteProfileCard'
 import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
-import { getInitials, formatRating, getWinRate, formatRatingDelta } from '@/lib/utils'
+import { getInitials, formatRating, getWinRate, formatRatingDelta, setWinner } from '@/lib/utils'
 import { Trophy, Swords, Handshake, ChevronRight, Info } from 'lucide-react'
 import type { MatchWithPlayers, ProfileMatch } from '@/types'
 import { currentReliability } from '@/lib/ptr-algorithm'
@@ -22,7 +22,8 @@ export const revalidate = 0
 function headToHead(matches: MatchWithPlayers[], playerId: string) {
   const h2h: Record<string, { wins: number; losses: number; name: string; color: string }> = {}
   for (const m of matches) {
-    if (m.status !== 'complete' || !m.isRanked) continue
+    // Incomplete matches have no result, so they don't count head-to-head.
+    if (m.status !== 'complete' || !m.isRanked || m.incomplete) continue
     const onTeamA = m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId
     const opponents = onTeamA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
     const won = (onTeamA && m.winner === 'A') || (!onTeamA && m.winner === 'B')
@@ -37,15 +38,17 @@ function headToHead(matches: MatchWithPlayers[], playerId: string) {
     .sort((a, b) => b.wins + b.losses - (a.wins + a.losses))
 }
 
-// This player's confirmed matches from their side of the net, oldest first.
+// This player's confirmed ranked matches from their side of the net, oldest
+// first. Incomplete ones are included (flagged) for their set and game stats.
 function toProfileMatches(matches: MatchWithPlayers[], playerId: string): ProfileMatch[] {
   return matches
     .filter(m => m.status === 'complete' && m.isRanked)
     .map(m => {
       const onA = m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId
       const played = m.sets.filter(s => s.teamAGames + s.teamBGames > 0)
-      const setsA = played.filter(s => s.teamAGames > s.teamBGames).length
-      const setsB = played.filter(s => s.teamBGames > s.teamAGames).length
+      // Only finished sets count; an incomplete match's last set may be part-played.
+      const setsA = played.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'A').length
+      const setsB = played.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
       const gamesA = played.reduce((n, s) => n + s.teamAGames, 0)
       const gamesB = played.reduce((n, s) => n + s.teamBGames, 0)
       const opps = onA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
@@ -53,6 +56,7 @@ function toProfileMatches(matches: MatchWithPlayers[], playerId: string): Profil
         id: m.id,
         playedAt: m.playedAt,
         won: m.winner === (onA ? 'A' : 'B'),
+        incomplete: m.incomplete,
         setsFor: onA ? setsA : setsB,
         setsAgainst: onA ? setsB : setsA,
         gamesFor: onA ? gamesA : gamesB,
@@ -69,7 +73,7 @@ function versusMe(matches: MatchWithPlayers[], meId: string, themId: string) {
   let against = { wins: 0, losses: 0 }
   let together = { wins: 0, losses: 0 }
   for (const m of matches) {
-    if (m.status !== 'complete' || !m.isRanked) continue
+    if (m.status !== 'complete' || !m.isRanked || m.incomplete) continue
     const a = [m.teamAPlayer1Id, m.teamAPlayer2Id]
     const b = [m.teamBPlayer1Id, m.teamBPlayer2Id]
     const meSide = a.includes(meId) ? 'A' : b.includes(meId) ? 'B' : null
@@ -107,7 +111,8 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   const showReasons = canAdjustRatings(role)
   const rank = circle.find(p => p.id === player.id)?.rank
   const lastDelta = player.ptrDelta ?? 0
-  const winRate = getWinRate(player.wins, player.matchesPlayed)
+  // Of matches with a result: incomplete ones count as played but have none.
+  const winRate = getWinRate(player.wins, player.wins + player.losses)
   const h2h = headToHead(matches, player.id)
   const vs = isMe ? null : versusMe(matches, session.player.id, player.id)
   // Their latest confirmed matches. On someone else's profile the rating

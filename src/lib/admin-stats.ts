@@ -101,7 +101,9 @@ export async function getAdminStats(period: Period) {
   const [users, players, matches, history, errorsAll] = await Promise.all([
     prisma.user.findMany({ select: { id: true, createdAt: true } }),
     prisma.player.findMany({ select: { id: true, name: true, userId: true, createdById: true, createdAt: true, ptr: true, startingLevel: true, user: { select: { createdAt: true } } } }),
+    // Matches set up in advance count from when they're played and scored.
     prisma.match.findMany({
+      where: { status: { not: 'scheduled' } },
       select: {
         submittedAt: true, playedAt: true, status: true, isRanked: true, becameFriendly: true, location: true,
         autoConfirmed: true, scoreConfirmedAt: true, isUpset: true,

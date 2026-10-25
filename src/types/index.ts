@@ -43,14 +43,32 @@ export interface MatchSet {
   teamBGames: number
 }
 
+export interface ScoreReport {
+  id: string
+  submittedBy: string
+  // The submitter's pair.
+  side: 'A' | 'B' | null
+  sets: MatchSet[]
+  winner: 'A' | 'B' | null
+  incomplete: boolean
+  status: 'open' | 'accepted' | 'rejected'
+}
+
 export interface MatchWithPlayers {
   id: string
+  // For a scheduled match: its start time.
   playedAt: string
-  status: 'pending' | 'complete'
+  status: 'scheduled' | 'pending' | 'complete'
+  // Set up in advance by this user (scheduled matches only).
+  organiserId: string | null
+  // Two different scores were entered; waiting for a player to pick one.
+  disputed: boolean
+  scoreReports: ScoreReport[]
   isRanked: boolean
   recordedById: string
   submittedAt: string
   location: string | null
+  clubId: string | null
   // When a pending match will confirm itself if no opponent acts.
   autoConfirmAt: string
   autoConfirmed: boolean
@@ -71,7 +89,9 @@ export interface MatchWithPlayers {
   teamAPlayer2: PlayerWithStats
   teamBPlayer1: PlayerWithStats
   teamBPlayer2: PlayerWithStats
-  winner: 'A' | 'B'
+  // Null when the match didn't finish (incomplete).
+  winner: 'A' | 'B' | null
+  incomplete: boolean
   teamAPTRBefore: number
   teamBPTRBefore: number
   teamAPTRAfter: number
@@ -114,4 +134,6 @@ export interface ProfileMatch {
   gamesAgainst: number
   delta: number
   opponents: string
+  // Didn't finish: counts towards sets and games only.
+  incomplete?: boolean
 }

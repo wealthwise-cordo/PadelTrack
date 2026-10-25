@@ -4,10 +4,11 @@ import { requireSession } from '@/lib/session'
 import { getPendingForUser, getSyncFingerprint, getAccount } from '@/lib/store'
 import { getRole } from '@/lib/roles'
 import { countPendingAdjustments } from '@/lib/rating-adjustments'
+import { countAwaitingScore } from '@/lib/scheduled-matches'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession()
-  const [pending, fingerprint, account, role] = await Promise.all([getPendingForUser(session.userId), getSyncFingerprint(), getAccount(session.userId), getRole(session.userId)])
+  const [pending, fingerprint, account, role, toScore] = await Promise.all([getPendingForUser(session.userId), getSyncFingerprint(), getAccount(session.userId), getRole(session.userId), countAwaitingScore(session.player.id)])
   const reviewCount = role === 'superuser' ? await countPendingAdjustments() : 0
 
   return (
@@ -15,7 +16,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <AutoSync initial={fingerprint} />
       <Navbar
         me={{ playerId: session.player.id, name: session.player.name, avatarColor: session.player.avatarColor }}
-        pendingCount={pending.length}
+        pendingCount={pending.length + toScore}
         role={role}
         reviewCount={reviewCount}
         profileIncomplete={!!account?.profileIncomplete}

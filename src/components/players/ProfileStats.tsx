@@ -23,8 +23,12 @@ const yearOf = (d: Date) => Number(d.toLocaleDateString('en-GB', { year: 'numeri
 // range. `matches` are this player's confirmed matches, oldest first;
 // `adjustments` are manual rating changes (oldest first): they shift the line
 // (as a dotted step) but count in none of the stats.
-export default function ProfileStats({ matches, currentRating, adjustments = [] }: { matches: ProfileMatch[]; currentRating: number; adjustments?: { at: string; delta: number }[] }) {
+export default function ProfileStats({ matches: all, currentRating, adjustments = [] }: { matches: ProfileMatch[]; currentRating: number; adjustments?: { at: string; delta: number }[] }) {
   const [range, setRange] = useState<Range>('all')
+  // Results drive everything except the set and game tiles; incomplete
+  // matches (no result) only add their sets and games.
+  const matches = useMemo(() => all.filter(m => !m.incomplete), [all])
+  const unfinished = useMemo(() => all.filter(m => m.incomplete), [all])
 
   const inRange = useMemo(() => {
     if (range === 'last5') return matches.slice(-5)
@@ -36,16 +40,19 @@ export default function ProfileStats({ matches, currentRating, adjustments = [] 
     return matches
   }, [matches, range])
 
-  // Adjustments since the range began: for "last N", since its first match.
-  const adjInRange = useMemo(() => {
-    if (range === 'all') return adjustments
+  // Adjustments and incomplete matches since the range began: for "last N",
+  // since its first match.
+  const sinceRangeStart = useMemo(() => <T,>(list: T[], at: (x: T) => string): T[] => {
+    if (range === 'all') return list
     if (range === 'ytd') {
       const year = yearOf(new Date())
-      return adjustments.filter(a => yearOf(new Date(a.at)) === year)
+      return list.filter(x => yearOf(new Date(at(x))) === year)
     }
     const from = inRange[0]?.playedAt
-    return from ? adjustments.filter(a => a.at >= from) : []
-  }, [adjustments, inRange, range])
+    return from ? list.filter(x => at(x) >= from) : []
+  }, [inRange, range])
+  const adjInRange = useMemo(() => sinceRangeStart(adjustments, a => a.at), [sinceRangeStart, adjustments])
+  const unfinishedInRange = useMemo(() => sinceRangeStart(unfinished, m => m.playedAt), [sinceRangeStart, unfinished])
 
   // Every range includes the latest change, so the line ends at the current
   // rating and is walked backwards through each match's (or adjustment's)
@@ -83,7 +90,7 @@ export default function ProfileStats({ matches, currentRating, adjustments = [] 
     run = m.won ? run + 1 : 0
     bestStreak = Math.max(bestStreak, run)
   }
-  const sum = (k: 'setsFor' | 'setsAgainst' | 'gamesFor' | 'gamesAgainst') => inRange.reduce((s, m) => s + m[k], 0)
+  const sum = (k: 'setsFor' | 'setsAgainst' | 'gamesFor' | 'gamesAgainst') => [...inRange, ...unfinishedInRange].reduce((s, m) => s + m[k], 0)
 
   // Top row: results. Bottom row: form and rating movement.
   const tiles = [

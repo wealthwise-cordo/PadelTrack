@@ -14,13 +14,17 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
   try {
-    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, playedOn, location, clubId, isRanked } = await req.json()
+    const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner, playedOn, location, clubId, isRanked, incomplete, startsAt } = await req.json()
     const result = await createMatch(session.userId, {
-      teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner,
+      teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets,
+      winner: winner ?? null,
+      incomplete: incomplete === true,
       playedOn: typeof playedOn === 'string' ? playedOn : undefined,
       location: typeof location === 'string' ? location : undefined,
       clubId: typeof clubId === 'string' ? clubId : undefined,
       isRanked: isRanked !== false,
+      // A future start time saves it as a scheduled match, with no score.
+      startsAt: typeof startsAt === 'string' ? startsAt : undefined,
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
     return NextResponse.json({ success: true, ...result })

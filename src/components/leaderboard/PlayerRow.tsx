@@ -49,7 +49,7 @@ export default function PlayerRow({ player, index, isMostInForm, isMe }: Props) 
             )}
           </div>
           <div className="text-xs text-muted-foreground">
-            {player.nickname ? `${player.nickname} · ` : ''}{player.wins}W {player.losses}L · {getWinRate(player.wins, player.matchesPlayed)}%
+            {player.nickname ? `${player.nickname} · ` : ''}{player.wins}W {player.losses}L · {getWinRate(player.wins, player.wins + player.losses)}%
           </div>
         </div>
 
