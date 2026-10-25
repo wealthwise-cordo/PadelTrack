@@ -1,6 +1,6 @@
 import type { MatchWithPlayers } from '@/types'
 
-// A scheduled match as the match form needs it: you first, then your partner,
+// A match as the match form needs it (to score or edit): you first, then your partner,
 // then the opponents — with `flipped` set when you're on the match's B side,
 // so the form can turn your-side scores back into A v B.
 export function formExisting(m: MatchWithPlayers, myPlayerId: string) {
@@ -15,5 +15,9 @@ export function formExisting(m: MatchWithPlayers, myPlayerId: string) {
     startsAt: m.playedAt,
     location: m.location ? { clubId: m.clubId, label: m.location } : null,
     isRanked: m.isRanked,
+    status: m.status,
+    // The score so far, your games first.
+    sets: m.sets.map(x => (onB ? { us: x.teamBGames, them: x.teamAGames } : { us: x.teamAGames, them: x.teamBGames })),
+    incomplete: m.incomplete,
   }
 }

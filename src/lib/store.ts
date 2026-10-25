@@ -1015,6 +1015,80 @@ export async function deleteMatch(matchId: string, userId: string): Promise<{ ok
   })
 }
 
+// Whoever entered the score changing a match before it's confirmed: players,
+// score, date, venue, ranked or friendly. It's updated in place (same match,
+// same guests), so links already sent — invites, notifications — still work.
+// The confirmation window restarts and the opponents are asked to check it.
+export async function updatePendingMatch(userId: string, matchId: string, data: {
+  teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string
+  sets: { teamAGames: number; teamBGames: number }[]; winner: Side | null; incomplete?: boolean
+  playedOn?: string; startsAt?: string; location?: string; clubId?: string; isRanked?: boolean
+}): Promise<{ ok: true } | { error: string }> {
+  const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
+  if (!m) return { error: 'Match not found' }
+  if (m.status !== 'pending' || m.scoreConfirmedAt) return { error: 'This match’s score has been confirmed, so it can’t be changed' }
+  if (m.recordedById !== userId) return { error: 'Only the person who entered the score can change it' }
+  if (m.disputed) return { error: 'Two different scores were entered — pick the right one instead' }
+  if (m.scoreReports.some(r => r.status === 'open' && r.submittedById !== userId)) return { error: 'Someone else has entered this score too, so it can’t be changed' }
+
+  const ids = [data.teamAPlayer1Id, data.teamAPlayer2Id, data.teamBPlayer1Id, data.teamBPlayer2Id]
+  if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
+  const me = await getPlayerForUser(userId)
+  if (!me || !ids.includes(me.id)) return { error: 'You must be one of the four players' }
+  const players = await prisma.player.findMany({ where: { id: { in: ids }, deletedAt: null } })
+  if (players.length !== 4) return { error: 'One or more players were not found' }
+
+  const incomplete = data.incomplete === true
+  const winner = incomplete ? null : data.winner
+  const scoreError = validateScore(data.sets, winner, incomplete)
+  if (scoreError) return { error: scoreError }
+  const startsAt = data.startsAt !== undefined ? resolveStartsAt(data.startsAt) : null
+  if (startsAt && startsAt.getTime() > Date.now()) return { error: 'A match with a score can’t be in the future' }
+  const playedAt = startsAt ?? resolvePlayedAt(data.playedOn)
+  if (!playedAt) return { error: 'Pick a valid date that isn’t in the future' }
+  const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
+  if (data.clubId && !club) return { error: 'That club was not found' }
+  const isRanked = data.isRanked !== false
+  const sets = data.sets.map(x => ({ teamAGames: x.teamAGames, teamBGames: x.teamBGames }))
+
+  const saved = await prisma.$transaction(async tx => {
+    const claimed = await tx.match.updateMany({
+      where: { id: matchId, status: 'pending', scoreConfirmedAt: null, disputed: false },
+      data: {
+        teamAPlayer1Id: ids[0], teamAPlayer2Id: ids[1], teamBPlayer1Id: ids[2], teamBPlayer2Id: ids[3],
+        winner, incomplete, playedAt, isRanked,
+        location: club ? clubLabel(club) : data.location?.trim().slice(0, 60) || null,
+        clubId: club?.id ?? null,
+        // A fresh 48 hours to check the new version; a friendly is done now.
+        submittedAt: new Date(),
+        ...(!isRanked && { status: 'complete', confirmedAt: new Date() }),
+      },
+    })
+    if (claimed.count === 0) return false
+    await tx.matchSet.deleteMany({ where: { matchId } })
+    await tx.matchSet.createMany({ data: sets.map((x, i) => ({ matchId, setNumber: i + 1, ...x })) })
+    await tx.matchScoreReport.updateMany({
+      where: { matchId, submittedById: userId, status: 'open' },
+      data: { sets, winner, incomplete, ...(!isRanked && { status: 'accepted' }) },
+    })
+    return true
+  })
+  // Confirmed or disputed while you were editing.
+  if (!saved) return { error: 'This match changed while you were editing — refresh and try again' }
+  const after = (await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE }))!
+
+  const byId = new Map(players.map(p => [p.id, p]))
+  const mySide = sideOf(after, me.id)
+  const theirs = (mySide === 'A' ? [ids[2], ids[3]] : [ids[0], ids[1]]).map(id => byId.get(id)?.userId)
+  const line = resultLine({ ...after, sets }, byId)
+  if (isRanked) {
+    await sendPush(theirs, { title: 'Match updated — please confirm', body: `${firstName(me.name)} changed the match: ${line}`, url: '/matches', tag: `match-${matchId}` })
+  } else {
+    await sendPush(players.map(p => p.userId).filter(id => id !== userId), { title: 'Match updated', body: `${firstName(me.name)} saved it as a friendly: ${line}`, url: '/matches', tag: `match-${matchId}` })
+  }
+  return { ok: true }
+}
+
 // The organiser calls off a match they set up in advance — before it's
 // played, or after while no score has been confirmed. Everyone else in it is
 // told.

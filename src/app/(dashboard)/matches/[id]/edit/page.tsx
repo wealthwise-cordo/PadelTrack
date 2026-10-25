@@ -6,8 +6,8 @@ import { formExisting } from '@/lib/scheduled-form'
 
 export const revalidate = 0
 
-// The organiser changing (or cancelling) a match they set up in advance,
-// until a score is entered.
+// Changing (or deleting) a match before its score is confirmed: the organiser
+// of a scheduled match, or whoever entered the score of a pending one.
 export default async function EditMatchPage({ params }: { params: { id: string } }) {
   const session = await requireSession()
   const meId = session.player.id
@@ -15,7 +15,13 @@ export default async function EditMatchPage({ params }: { params: { id: string }
     getMatchById(params.id), getPlayer(meId), getPickablePlayers(session.userId), getRecentLocations(meId), getClubs(),
   ])
   if (!m || !me) notFound()
-  if (m.organiserId !== session.userId || m.status !== 'scheduled') redirect('/matches')
+  const canEditScheduled = m.status === 'scheduled' && m.organiserId === session.userId
+  // Not once someone else has entered a score too (that's theirs to stand by).
+  const canEditPending = m.status === 'pending' && !m.scoreConfirmed && !m.disputed && m.recordedById === session.userId &&
+    m.scoreReports.filter(r => r.status === 'open').length <= 1
+  if (!canEditScheduled && !canEditPending) redirect('/matches')
+  // A match set up in advance can only be deleted (cancelled) by its organiser.
+  const canDelete = !m.organiserId || m.organiserId === session.userId
 
   // Everyone already in it stays pickable, even if they're not in your circle.
   const lineup = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
@@ -24,7 +30,7 @@ export default async function EditMatchPage({ params }: { params: { id: string }
   return (
     <MatchEntryForm
       me={me} players={players} lineups={[]} recentLocations={locations} clubs={clubs}
-      mode="edit" existing={formExisting(m, meId)}
+      mode="edit" existing={{ ...formExisting(m, meId), canDelete }}
     />
   )
 }

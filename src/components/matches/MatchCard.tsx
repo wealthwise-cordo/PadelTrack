@@ -43,6 +43,10 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
   const aWon = match.winner === 'A'
   const bWon = match.winner === 'B'
   const pending = match.status === 'pending'
+  // Editable until the score's confirmed, by whoever entered it — and not
+  // once a second score is in (a partner's match, or a dispute).
+  const canEdit = pending && !!viewer && match.recordedById === viewer.userId && !match.scoreConfirmed && !match.disputed &&
+    match.scoreReports.filter(r => r.status === 'open').length <= 1
 
   const act = async (kind: 'confirm' | 'delete', reportId?: string) => {
     setBusy(kind)
@@ -71,7 +75,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
   )
 
   const Badges = () => (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 shrink-0">
       {pending && (
         <span className="text-[10px] bg-amber-100 text-amber-800 rounded px-1.5 py-0.5 font-semibold flex items-center gap-1 whitespace-nowrap">
           <Clock className="h-2.5 w-2.5" /> PENDING
@@ -96,6 +100,16 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
         <span className="text-[10px] bg-orange-100 text-orange-700 rounded px-1.5 py-0.5 font-semibold flex items-center gap-1">
           <Zap className="h-2.5 w-2.5" /> UPSET
         </span>
+      )}
+      {/* Before it's confirmed, whoever entered the score can change it. */}
+      {canEdit && (
+        <Link
+          href={`/matches/${match.id}/edit`}
+          className={`transition-colors ${featured ? 'text-zinc-500 hover:text-white' : 'text-zinc-400 hover:text-zinc-700'}`}
+          aria-label="Edit match"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Link>
       )}
       {/* Only pending matches can be removed; confirmed ones stay on record. */}
       {canDelete && pending && !canConfirm && (!match.organiserId || viewer?.userId === match.organiserId) && (
@@ -261,16 +275,23 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
     const isOrganiser = !!viewer && match.organiserId === viewer.userId
     return (
       <div className={`ptr-card ${started ? '!border-orange-300 !bg-orange-50/50' : ''}`}>
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5 min-w-0">
+        <div className="flex items-center mb-3 gap-2">
+          <span className="flex-1 text-xs font-semibold text-zinc-700 flex items-center gap-1.5 min-w-0">
             <CalendarDays className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-            {mounted ? format(start, 'EEE d MMM, HH:mm') : '\u00a0'}
-            {match.location && <span className="inline-flex items-center gap-0.5 ml-1 font-normal text-zinc-400 truncate"><MapPin className="h-3 w-3 shrink-0" />{match.location}</span>}
+            <span className="shrink-0 whitespace-nowrap">{mounted ? format(start, 'EEE d MMM, HH:mm') : '\u00a0'}</span>
+            {match.location && (
+              <span className="min-w-0 flex items-center gap-0.5 ml-1 font-normal text-zinc-400" title={match.location}>
+                <MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{match.location}</span>
+              </span>
+            )}
           </span>
           <div className="flex items-center gap-2 shrink-0">
             {!match.isRanked && <span className="text-[10px] bg-sky-100 text-sky-800 rounded px-1.5 py-0.5 font-semibold">FRIENDLY</span>}
             {isOrganiser && !started && (
-              <Link href={`/matches/${match.id}/edit`} className="text-zinc-400 hover:text-zinc-700" aria-label="Edit match"><Pencil className="h-3.5 w-3.5" /></Link>
+              <>
+                <Link href={`/matches/${match.id}/edit`} className="text-zinc-400 hover:text-zinc-700" aria-label="Edit match"><Pencil className="h-3.5 w-3.5" /></Link>
+                <button onClick={() => setConfirmingDelete(v => !v)} className="text-zinc-400 hover:text-red-600" aria-label="Delete match"><Trash2 className="h-3.5 w-3.5" /></button>
+              </>
             )}
           </div>
         </div>
@@ -308,11 +329,11 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
     const sets = match.sets.filter(s => s.teamAGames + s.teamBGames > 0)
     return (
       <div className="rounded-2xl bg-zinc-900 text-white p-5 shadow-md">
-        <div className="flex items-center justify-between mb-4">
-          <div>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-wider text-orange-500 font-bold">Latest match</div>
             <div className="text-xs text-zinc-400">{mounted ? format(new Date(match.playedAt), new Date(match.playedAt).getFullYear() === new Date().getFullYear() ? 'EEEE d MMMM' : 'EEEE d MMMM yyyy') : '\u00a0'}</div>
-            {match.location && <div className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3" />{match.location}</div>}
+            {match.location && <div className="text-xs text-zinc-400 flex items-center gap-1 mt-0.5 min-w-0" title={match.location}><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{match.location}</span></div>}
           </div>
           <Badges />
         </div>
@@ -359,12 +380,17 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
 
   return (
     <div className={`ptr-card ${pending ? '!border-amber-300 !bg-amber-50/50' : ''}`}>
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-zinc-500">
-          {mounted ? formatDistanceToNow(new Date(match.playedAt), { addSuffix: true }) : '\u00a0'}
-          {match.location && <span className="inline-flex items-center gap-0.5 ml-2 text-zinc-400"><MapPin className="h-3 w-3" />{match.location}</span>}
+      {/* One row: when, then the venue cut short with "…" before the badges. */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="flex-1 min-w-0 flex items-center gap-2 text-xs text-zinc-500">
+          <span className="shrink-0 whitespace-nowrap">{mounted ? formatDistanceToNow(new Date(match.playedAt), { addSuffix: true }) : '\u00a0'}</span>
+          {match.location && (
+            <span className="min-w-0 flex items-center gap-0.5 text-zinc-400" title={match.location}>
+              <MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{match.location}</span>
+            </span>
+          )}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {!pending && match.viewerDelta !== undefined && (
             <span className={`text-[11px] font-mono font-bold ${match.viewerDelta >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
               {formatRatingDelta(match.viewerDelta)}

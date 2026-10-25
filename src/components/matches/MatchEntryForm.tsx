@@ -25,8 +25,10 @@ interface Props {
   // Every listed club, A–Z.
   clubs: LocationOption[]
   // 'new' (default): record a played match, or set one up for a future date.
-  // 'edit': the organiser changing a scheduled match. 'score': entering the
-  // score of a scheduled match that has started (line-up and date fixed).
+  // 'edit': changing a match before its score is confirmed — a scheduled one
+  // (the organiser) or a pending one (whoever entered the score, scores
+  // included). 'score': entering the score of a scheduled match that has
+  // started (line-up and date fixed).
   mode?: 'new' | 'edit' | 'score'
   existing?: {
     matchId: string
@@ -37,6 +39,12 @@ interface Props {
     startsAt: string
     location: LocationOption | null
     isRanked: boolean
+    status: 'scheduled' | 'pending' | 'complete'
+    // A pending match's score, from your side (your games first).
+    sets?: { us: number; them: number }[]
+    incomplete?: boolean
+    // Whether the edit page offers Delete.
+    canDelete?: boolean
   }
 }
 
@@ -67,6 +75,8 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const [players, setPlayers] = useState(initialPlayers)
   const [slots, setSlots] = useState<Slots>(existing?.slots ?? [me.id, '', '', ''])
   const fixedLineup = mode === 'score'
+  // Editing a match that already has a score (not a scheduled one).
+  const editingScore = mode === 'edit' && existing?.status === 'pending'
   const [sets, setSets] = useState<SetInput[]>(EMPTY_SETS)
   // Score boxes in order: set 1 us, set 1 them, set 2 us, ... for auto-advance.
   const scoreRefs = useRef<(HTMLInputElement | null)[]>([])
@@ -97,6 +107,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
       const d = new Date(existing.startsAt)
       setPlayedOn(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
       setTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)
+      if (existing.sets?.length) {
+        setSets(EMPTY_SETS.map((blank, i) => (existing.sets![i] ? { us: String(existing.sets![i].us), them: String(existing.sets![i].them) } : blank)))
+        setIncomplete(!!existing.incomplete)
+      }
     } else {
       setPlayedOn(t)
     }
@@ -107,7 +121,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   // A start in the future makes it a match set up ahead: no score yet.
   const startsAt = playedOn && time ? new Date(`${playedOn}T${time}`) : null
   const futureDay = !!today && playedOn > today
-  const isFuture = mode === 'edit' || (mode === 'new' && (futureDay || (!!startsAt && playedOn === today && startsAt.getTime() > now)))
+  const isFuture = (mode === 'edit' && !editingScore) || (mode === 'new' && (futureDay || (!!startsAt && playedOn === today && startsAt.getTime() > now)))
   const startOk = !!startsAt && startsAt.getTime() > Date.now()
 
   const byId = useMemo(() => new Map(players.map(p => [p.id, p])), [players])
@@ -209,9 +223,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
     setError('')
   }
 
-  // Edit mode: the organiser calls the match off.
+  // Edit mode: delete the match (for a scheduled one, its organiser calls it
+  // off and everyone is told).
   const cancelMatch = async () => {
-    if (!existing || !confirm('Cancel this match? Everyone in it will be told.')) return
+    if (!existing || !confirm(existing.status === 'scheduled' ? 'Delete this match? Everyone in it will be told.' : 'Delete this match?')) return
     setSubmitting(true)
     const res = await fetch(`/api/matches/${existing.matchId}`, { method: 'DELETE' })
     setSubmitting(false)
@@ -231,6 +246,28 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
     setSubmitting(true)
     setError('')
     try {
+      if (editingScore && existing) {
+        // You're always the first slot, so your side is A.
+        const res = await fetch(`/api/matches/${existing.matchId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamAPlayer1Id: slots[0], teamAPlayer2Id: slots[1], teamBPlayer1Id: slots[2], teamBPlayer2Id: slots[3],
+            sets: savingIncomplete
+              ? entered.map(x => ({ teamAGames: x.us, teamBGames: x.them }))
+              : counted.filter(Boolean).map(x => ({ teamAGames: x!.us, teamBGames: x!.them })),
+            winner: savingIncomplete ? null : winner,
+            incomplete: savingIncomplete,
+            playedOn: playedOn || undefined,
+            ...(startsAt && playedOn === today && { startsAt: startsAt.toISOString() }),
+            location: location?.label, clubId: location?.clubId ?? undefined, isRanked,
+          }),
+        })
+        const d = await res.json()
+        if (!res.ok) setError(d.error || 'Could not save the changes')
+        else { router.push('/matches'); router.refresh() }
+        return
+      }
       if (mode === 'edit' && existing) {
         const res = await fetch(`/api/matches/${existing.matchId}`, {
           method: 'PATCH',
@@ -420,9 +457,11 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black tracking-tight">{mode === 'edit' ? 'Edit match' : mode === 'score' ? 'Add score' : 'New match'}</h1>
           {mode === 'edit' ? (
-            <button onClick={cancelMatch} disabled={submitting} className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-red-600 px-2 py-1 -mr-2">
-              <Trash2 className="h-3.5 w-3.5" /> Cancel match
-            </button>
+            existing?.canDelete !== false && (
+              <button onClick={cancelMatch} disabled={submitting} className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-red-600 px-2 py-1 -mr-2">
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </button>
+            )
           ) : (
             <button onClick={discard} className="flex items-center gap-1 text-xs font-semibold text-zinc-400 hover:text-red-600 px-2 py-1 -mr-2">
               <Trash2 className="h-3.5 w-3.5" /> Discard
@@ -444,19 +483,19 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             <input autoComplete="off"
               type="date"
               value={playedOn}
-              max={today ? localDate(365) : undefined}
-              min={mode === 'edit' ? today : '2000-01-01'}
+              max={today ? (editingScore ? today : localDate(365)) : undefined}
+              min={mode === 'edit' && !editingScore ? today : '2000-01-01'}
               onChange={e => setPlayedOn(e.target.value || today)}
               className="absolute inset-0 opacity-0 cursor-pointer"
               aria-label="Date"
             />
           </label>
           {/* Start time: needed for a future date; on today, a later time sets it up ahead. */}
-          {(playedOn >= today || mode === 'edit') && (
+          {(playedOn >= today || (mode === 'edit' && !editingScore)) && (
             <label className={`relative flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full text-sm font-semibold cursor-pointer shrink-0 ${futureDay && !time ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-300' : 'bg-zinc-100'}`}>
               <Clock className="h-4 w-4 text-orange-500" />
               {/* Today with no time picked means "played now": enter the score. */}
-              {time || (futureDay || mode === 'edit' ? 'Add time' : 'Now')}
+              {time || (futureDay || (mode === 'edit' && !editingScore) ? 'Add time' : 'Now')}
               <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
               <input
                 type="time" value={time} step={300}
