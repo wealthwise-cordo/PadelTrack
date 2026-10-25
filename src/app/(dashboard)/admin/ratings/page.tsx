@@ -33,10 +33,9 @@ export default async function RatingsAdminPage() {
   ])
 
   return (
-    <div className="py-6 space-y-8">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-black">Rating adjustments</h1>
-        <p className="text-sm text-zinc-500 mt-1">
+        <p className="text-sm text-zinc-500">
           Adjust a rating from the player’s profile — up to one level either way, with a reason.
           {isSuper ? ' Yours apply straight away; levellers’ wait for your review here.' : ' Each one goes to the super user for approval before it applies.'}
         </p>

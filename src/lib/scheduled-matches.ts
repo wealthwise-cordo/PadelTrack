@@ -178,7 +178,7 @@ export async function submitScore(
 // Makes one entry the match's score: copies it onto the match, accepts every
 // entry with the same score and rejects the rest, then lets the match become
 // ranked if everyone's on PadelTrack.
-async function acceptReport(m: MatchRow, reportId: string, score: { sets: Sets; winner: string | null; incomplete: boolean }, recordedById: string): Promise<Result> {
+export async function acceptReport(m: MatchRow, reportId: string, score: { sets: Sets; winner: string | null; incomplete: boolean }, recordedById: string): Promise<Result> {
   const ok = await prisma.$transaction(async tx => {
     const claimed = await tx.match.updateMany({
       where: { id: m.id, status: 'pending', scoreConfirmedAt: null },

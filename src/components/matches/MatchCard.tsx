@@ -18,6 +18,8 @@ interface Props {
   // The viewer, for matches set up in advance: whether they organised it, and
   // which disputed score they may pick.
   viewer?: { playerId: string; userId: string }
+  // Shown in Admin: no player actions (add score, edit, cancel).
+  readOnly?: boolean
 }
 
 function hoursLeft(iso: string): string {
@@ -28,7 +30,7 @@ function hoursLeft(iso: string): string {
   return `${Math.max(1, Math.round(ms / 60_000))}m`
 }
 
-export default function MatchCard({ match, canConfirm, canDelete, featured, viewer }: Props) {
+export default function MatchCard({ match, canConfirm, canDelete, featured, viewer, readOnly }: Props) {
   const router = useRouter()
   const [busy, setBusy] = useState<'confirm' | 'delete' | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -137,7 +139,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
             ? 'Waiting for you to confirm the score'
             : confirmers.length
               ? `Waiting for ${confirmers.join(' or ')} to confirm the score`
-              : `${guestNames.join(' or ')} confirms the score after joining`
+              : guestNames.length
+                ? `${guestNames.join(' or ')} confirms the score after joining`
+                : 'Waiting for the other pair to confirm the score'
         const left = mounted ? hoursLeft(match.autoConfirmAt) : '…'
         const muted = featured ? 'text-zinc-400' : 'text-zinc-500'
         return (
@@ -300,7 +304,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
           <div className="text-[10px] font-black text-zinc-300 shrink-0">VS</div>
           <Team players={teamB} won={false} align="right" />
         </div>
-        {started ? (
+        {started && readOnly ? (
+          <div className="mt-2 text-[11px] text-zinc-500">Started — no score entered yet.</div>
+        ) : started ? (
           <div className="mt-3 pt-3 border-t border-orange-200 flex items-center gap-2">
             <span className="text-xs text-zinc-600 flex-1">How did it go?</span>
             <Link href={`/matches/${match.id}/score`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-500 text-white hover:bg-orange-600">

@@ -41,6 +41,7 @@ model User {
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
   PushSubscription   PushSubscription[]
 
+  adminMatchActions    AdminMatchAction[]
   adjustmentsRequested RatingAdjustment[] @relation("AdjustmentRequester")
   adjustmentsReviewed  RatingAdjustment[] @relation("AdjustmentReviewer")
 }
@@ -482,4 +483,21 @@ model PushSubscription {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// The super user stepping in on a match that isn't confirmed yet: confirming
+// it, settling a disputed score, or voiding it (which deletes it). Always
+// with a reason; the players are told. `summary` describes the match as it
+// was, since a voided one is gone.
+model AdminMatchAction {
+  id        String   @id @default(cuid())
+  matchId   String
+  action    String // confirm | settle | void
+  reason    String
+  summary   String
+  byId      String?
+  by        User?    @relation(fields: [byId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
