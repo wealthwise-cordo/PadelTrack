@@ -405,7 +405,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
                   : 'PadelTrack admin will confirm the score.'}
               {guestsInLineup.length > 0
                 ? ` ${guestsInLineup.map(g => g.name.split(' ')[0]).join(' & ')} ${guestsInLineup.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack yet — invite them within 48 hours or it becomes a friendly.`
-                : opponents.length > 0 && ' If nobody responds within 48 hours, it confirms automatically.'}
+                : confirmers.length > 0 && ' If nobody responds within 48 hours, it confirms automatically.'}
               {savedIncomplete && ' As it didn’t finish, it won’t change anyone’s rating — only sets and games count.'}
             </p>
             {saved.invites.length > 0 && (

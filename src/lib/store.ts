@@ -152,11 +152,11 @@ export function confirmerIds(m: Seated, byPlayerId: string): string[] {
   return mine.filter(p => p.userId && p.id !== byPlayerId).map(p => p.id)
 }
 
-// Only a score an opponent could have confirmed confirms itself after 48
-// hours; a partner, or the super user, has to confirm it themselves.
+// A score confirms itself after 48 hours if someone could have confirmed it
+// (an opponent, or the partner); with three guests it waits for the super
+// user.
 function confirmsItself(m: Seated, byPlayerId: string): boolean {
-  const theirs = [m.teamAPlayer1, m.teamAPlayer2].some(p => p.id === byPlayerId) ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
-  return theirs.some(p => p.userId)
+  return confirmerIds(m, byPlayerId).length > 0
 }
 
 // A guest who hasn't joined and isn't a ranked guest: a ranked match with one
@@ -1012,7 +1012,7 @@ export async function autoConfirmExpired(): Promise<number> {
         })
       }
     } else if (recorder && confirmsItself(m, recorder.id) && await claimAndApply(m.id, true)) {
-      // With guests as both opponents it waits for a partner or the super user.
+      // With three guests it waits for the super user.
       settled++
     }
   }

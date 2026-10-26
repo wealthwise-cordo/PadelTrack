@@ -116,7 +116,7 @@ model Player {
 // ranked guest. If both opponents are guests the registered partner confirms;
 // with three guests only the super user can. After 48 hours: if a guest still
 // hasn't joined it becomes a friendly permanently; otherwise it confirms
-// itself, unless nobody on the other pair could have confirmed it.
+// itself, unless nobody could have confirmed it (three guests).
 model Match {
   id                String             @id @default(cuid())
   playedAt          DateTime           @default(now())
