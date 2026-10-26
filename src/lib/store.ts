@@ -190,7 +190,7 @@ export async function getPlayerForUser(userId: string): Promise<Player | null> {
 
 // Creates an account and its player profile, rated from the LTA level the
 // person picked. With a claimToken, the new account takes over that guest
-// profile: the guest's rating starts from the lower of their own pick and the
+// profile: the guest's rating starts from a blend of their own pick and the
 // level whoever added them suggested, then any of their pending matches that
 // are ready become ranked on top of it.
 export async function signUp(data: {
@@ -229,7 +229,7 @@ export async function signUp(data: {
     if (guest) {
       // Guests have no rating until they join. (Older guests who already
       // have ranked matches keep the rating they earned.)
-      const start = startingLevelFor(data.level, guest.suggestedLevel)
+      const start = startingLevelFor(data.level, guest)
       await tx.player.update({
         where: { id: guest.id },
         data: {
@@ -265,7 +265,7 @@ export async function signUp(data: {
   }
   // Confirmation email. A failed email never undoes the sign-up.
   try {
-    await sendAccountCreatedEmail(email, name, guest ? Math.min(data.level, guest.suggestedLevel ?? data.level) : data.level)
+    await sendAccountCreatedEmail(email, name, guest && guest.matchesPlayed === 0 ? startingLevelFor(data.level, guest) : data.level)
   } catch (error) {
     await logError({ source: 'server', error, path: 'signUp → account created email', userId: result.userId })
   }
@@ -277,14 +277,16 @@ export async function signUp(data: {
 async function sendAccountCreatedEmail(email: string, name: string, level: number) {
   const first = name.split(' ')[0]
   const link = appUrl('')
+  // A blended level can have two decimals (3.13); a picked one shows as 3.5.
+  const shown = String(Number(level.toFixed(2)))
   await sendEmail({
     to: email,
     subject: 'Welcome to PadelTrack — your account is ready',
-    text: `Hi ${first},\n\nYour PadelTrack account has been created for ${email}. Your starting level is ${level.toFixed(1)}.\n\nOpen PadelTrack: ${link}\n\nIf you didn't create this account, email ${LEGAL.contactEmail} and we'll remove it.`,
+    text: `Hi ${first},\n\nYour PadelTrack account has been created for ${email}. Your starting level is ${shown}.\n\nOpen PadelTrack: ${link}\n\nIf you didn't create this account, email ${LEGAL.contactEmail} and we'll remove it.`,
     html: `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#18181b">
   <p style="font-size:20px;font-weight:800;margin:0 0 20px">Padel<span style="color:#f97316">Track</span></p>
   <p>Hi ${escapeHtml(first)},</p>
-  <p>Your PadelTrack account has been created for <strong>${escapeHtml(email)}</strong>. Your starting level is <strong>${level.toFixed(1)}</strong>.</p>
+  <p>Your PadelTrack account has been created for <strong>${escapeHtml(email)}</strong>. Your starting level is <strong>${shown}</strong>.</p>
   <p style="margin:28px 0"><a href="${link}" style="background:#f97316;color:#fff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:12px;display:inline-block">Open PadelTrack</a></p>
   <p style="font-size:13px;color:#71717a">If you didn’t create this account, email <a href="mailto:${LEGAL.contactEmail}" style="color:#71717a">${LEGAL.contactEmail}</a> and we’ll remove it.</p>
 </div>`,
@@ -318,10 +320,20 @@ function validateProfileDetails(
   return out
 }
 
-// When a guest joins, they start at the lower of their own pick and the
-// level suggested by whoever added them.
-function startingLevelFor(ownPick: number, suggested: number | null): number {
-  return suggested !== null ? Math.min(ownPick, suggested) : ownPick
+// When a guest joins, they start from every level given for them: their own
+// pick, the level suggested by whoever added them, and the level set when
+// they were verified as a ranked guest. It's the average less a tenth of the
+// spread — with two levels, 40% of the way from the lower to the higher.
+export function startingLevelFor(ownPick: number, guest: { suggestedLevel: number | null; startingLevel: number | null; rankedGuestAt: Date | null }): number {
+  // A guest's startingLevel is only ever set by verification.
+  return blendLevels([ownPick, guest.suggestedLevel, guest.rankedGuestAt ? guest.startingLevel : null])
+}
+
+export function blendLevels(given: (number | null)[]): number {
+  const levels = given.filter((l): l is number => l !== null)
+  const mean = levels.reduce((a, b) => a + b, 0) / levels.length
+  const spread = Math.max(...levels) - Math.min(...levels)
+  return Math.round((mean - 0.1 * spread) * 100) / 100
 }
 
 // An already-signed-in user claiming a guest profile. Only allowed while
@@ -343,10 +355,10 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
         userId,
         claimToken: null,
         name: user?.name ?? guest.name,
-        // They already picked a level for their own profile; it carries over,
-        // capped by the level whoever added them suggested.
+        // They already picked a level for their own profile; it's blended
+        // with the levels others gave (startingLevelFor).
         ...(own && guest.matchesPlayed === 0 && (() => {
-          const start = startingLevelFor(own.startingLevel ?? levelFromInternal(own.ptr), guest.suggestedLevel)
+          const start = startingLevelFor(own.startingLevel ?? levelFromInternal(own.ptr), guest)
           return { ptr: internalFromLevel(start), startingLevel: start }
         })()),
       },
@@ -414,26 +426,31 @@ export async function getCircleRankings(playerId: string): Promise<PlayerWithSta
 }
 
 // Players a user can quickly pick when recording a match or setting up an
-// event: themselves, their circle, guests they've added, and guests they've
-// played with.
+// event: themselves, their circle, and guests that they or anyone in their
+// circle added or played with — so a guest is only added twice when two
+// people with no circle in common add them.
 export async function getPickablePlayers(userId: string): Promise<PlayerWithStats[]> {
   const me = await getPlayerForUser(userId)
   const circleIds = me ? await getCircleIds(me.id) : []
-  // Guests you've played with in any match (they never join circles), so
-  // typing their name can reuse their profile.
-  const myMatches = me
+  // Guests never join circles, so they're found through matches: any match
+  // you or a circle member played in, friendlies and pending ones included.
+  const near = me ? [me.id, ...circleIds] : []
+  const nearMatches = near.length
     ? await prisma.match.findMany({
-        where: involving(me.id),
+        where: { OR: [{ teamAPlayer1Id: { in: near } }, { teamAPlayer2Id: { in: near } }, { teamBPlayer1Id: { in: near } }, { teamBPlayer2Id: { in: near } }] },
         select: { teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
       })
     : []
-  const playedWithIds = Array.from(new Set(myMatches.flatMap(m => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])))
+  const playedWithIds = Array.from(new Set(nearMatches.flatMap(m => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])))
+  const circleUserIds = circleIds.length
+    ? (await prisma.player.findMany({ where: { id: { in: circleIds } }, select: { userId: true } })).map(p => p.userId!).filter(Boolean)
+    : []
   const rows = await prisma.player.findMany({
     where: {
       OR: [
         { userId },
         { id: { in: circleIds } },
-        { createdById: userId, userId: null },
+        { createdById: { in: [userId, ...circleUserIds] }, userId: null, deletedAt: null },
         { id: { in: playedWithIds }, userId: null, deletedAt: null },
       ],
     },

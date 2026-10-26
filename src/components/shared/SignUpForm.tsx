@@ -12,7 +12,7 @@ import PushToggle from '@/components/shared/PushToggle'
 // Creates an account and signs straight in. The LTA level picked here sets
 // the starting rating. With claimToken, the account takes over that guest
 // profile; suggestedLevel (from whoever added them) is pre-selected, and the
-// server starts them at the lower of the two.
+// server blends the levels given for them (startingLevelFor).
 // `heading` and `footer` show while signing up and are hidden on the
 // notifications step that follows a direct sign-up.
 export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false, heading, footer }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean; heading?: string; footer?: React.ReactNode }) {

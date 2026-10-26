@@ -509,3 +509,15 @@ model AdminMatchAction {
 
   @@index([createdAt])
 }
+
+// Two players the super user marked as different people in Admin → Users,
+// so the duplicate check stops suggesting them. playerAId < playerBId.
+model DuplicateDismissal {
+  id        String   @id @default(cuid())
+  playerAId String
+  playerBId String
+  byId      String?
+  createdAt DateTime @default(now())
+
+  @@unique([playerAId, playerBId])
+}

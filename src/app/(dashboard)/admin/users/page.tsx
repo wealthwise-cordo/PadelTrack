@@ -2,8 +2,9 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { getRole } from '@/lib/roles'
-import { getGuestsAwaitingJoin, getRankedGuests } from '@/lib/admin-users'
+import { getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests } from '@/lib/admin-users'
 import VerifyGuest from '@/components/admin/VerifyGuest'
+import DuplicatePair from '@/components/admin/DuplicatePair'
 import { formatRating } from '@/lib/utils'
 
 export const revalidate = 0
@@ -12,11 +13,12 @@ const date = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month:
 const when = (d: Date) => d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
 
 // Admin → Users (super user): guests holding up ranked matches, who can be
-// verified as ranked guests, and the guests already verified.
+// verified as ranked guests, the guests already verified, and players whose
+// names are at least 90% alike, to merge or dismiss.
 export default async function AdminUsersPage() {
   const session = await requireSession()
   if ((await getRole(session.userId)) !== 'superuser') notFound()
-  const [waiting, ranked] = await Promise.all([getGuestsAwaitingJoin(), getRankedGuests()])
+  const [waiting, ranked, duplicates] = await Promise.all([getGuestsAwaitingJoin(), getRankedGuests(), getDuplicateCandidates()])
 
   return (
     <div className="space-y-8">
@@ -65,6 +67,16 @@ export default async function AdminUsersPage() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold">Possible duplicates {duplicates.length > 0 && <span className="text-orange-600">({duplicates.length})</span>}</h3>
+        <p className="text-[11px] text-zinc-500">
+          Players whose names are at least 90% alike, where at least one is a guest. Keep one and the other guest is merged into it: their matches and events move across, and if only the merged guest has ranked results, the one you keep takes over that rating. The merged guest’s invite link stops working.
+        </p>
+        {duplicates.length === 0 ? (
+          <p className="text-sm text-zinc-500">None found.</p>
+        ) : duplicates.map(d => <DuplicatePair key={`${d.a.id}-${d.b.id}`} {...d} />)}
       </section>
     </div>
   )
