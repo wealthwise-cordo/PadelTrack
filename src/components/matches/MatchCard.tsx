@@ -129,9 +129,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
   const Footer = () => (
     <>
       {pending && !match.disputed && (() => {
-        // Two things make a pending match ranked: the score confirmed by an
-        // opponent, and every guest joining PadelTrack.
-        const guestNames = match.guests.map(g => g.name.split(' ')[0])
+        // Two things make a pending match ranked: the score confirmed, and
+        // every guest joining PadelTrack (ranked guests don't need to).
+        const guestNames = match.guests.filter(g => !g.ranked).map(g => g.name.split(' ')[0])
         const confirmers = match.awaitingConfirmationFrom ?? []
         const scoreText = match.scoreConfirmed
           ? 'Score confirmed'
@@ -141,7 +141,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
               ? `Waiting for ${confirmers.join(' or ')} to confirm the score`
               : guestNames.length
                 ? `${guestNames.join(' or ')} confirms the score after joining`
-                : 'Waiting for the other pair to confirm the score'
+                : match.autoConfirms
+                  ? 'Waiting for the other pair to confirm the score'
+                  : 'Waiting for PadelTrack admin to confirm the score'
         const left = mounted ? hoursLeft(match.autoConfirmAt) : '…'
         const muted = featured ? 'text-zinc-400' : 'text-zinc-500'
         return (
@@ -161,9 +163,11 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
               <Timer className="h-3 w-3 shrink-0" />
               {guestNames.length > 0
                 ? <>Becomes a friendly in {left} unless {guestNames.join(' & ')} {guestNames.length > 1 ? 'join' : 'joins'}</>
-                : canConfirm
-                  ? <>Confirms automatically in {left} if you don&apos;t respond</>
-                  : <>Confirms automatically in {left}</>}
+                : !match.autoConfirms
+                  ? <>Needs confirming — it won&apos;t confirm itself</>
+                  : canConfirm
+                    ? <>Confirms automatically in {left} if you don&apos;t respond</>
+                    : <>Confirms automatically in {left}</>}
             </div>
           </div>
         )

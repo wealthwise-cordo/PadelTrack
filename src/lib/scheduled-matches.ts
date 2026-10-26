@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import {
-  MATCH_INCLUDE, autoConfirmExpired, finalizeIfReady, firstName, getMatchById, getPlayerForUser, involving,
+  MATCH_INCLUDE, autoConfirmExpired, confirmerIds, finalizeIfReady, firstName, getMatchById, getPlayerForUser, involving,
   resolveStartsAt, resultLine, sideOf, validateScore, whenLabel,
 } from '@/lib/store'
 import type { MatchWithPlayers } from '@/types'
@@ -139,7 +139,7 @@ export async function submitScore(
       await sendPush(userIdsOf(m, userId), { title: 'Score added', body: `${firstName(me.name)} added the score: ${line}`, url: '/matches', tag: `match-${matchId}` })
       return { ok: true, outcome: 'complete' }
     }
-    const theirs = (mySide === 'A' ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]).map(p => p.userId)
+    const theirs = playersOf(m).filter(p => confirmerIds(m, me.id).includes(p.id)).map(p => p.userId)
     await sendPush(theirs, { title: 'Confirm your match', body: `${firstName(me.name)} entered: ${line}`, url: '/matches', tag: `match-${matchId}` })
     return { ok: true, outcome: 'pending' }
   }
@@ -147,14 +147,14 @@ export async function submitScore(
   // A score is already in and waiting.
   const open = m.scoreReports.filter(r => r.status === 'open')
   if (open.some(r => r.submittedById === userId)) return { error: 'You’ve already entered a score for this match' }
-  const sideOfReport = (r: (typeof open)[number]) => (r.submittedBy.player ? sideOf(m, r.submittedBy.player.id) : null)
   const agreeing = open.filter(r => sameScore(r, mine))
 
   if (agreeing.length) {
     const report = await prisma.matchScoreReport.create({ data: { matchId, submittedById: userId, sets, winner, incomplete } })
-    const fromOtherPair = agreeing.find(r => sideOfReport(r) !== mySide)
+    // An entry from someone who could confirm mine (usually the other pair).
+    const fromOtherPair = agreeing.find(r => r.submittedBy.player && confirmerIds(m, r.submittedBy.player.id).includes(me.id))
     if (!fromOtherPair) return { ok: true, outcome: 'partner' }
-    // Both pairs agree: that's the confirmation.
+    // Both agree: that's the confirmation.
     const accepted = await acceptReport(m, report.id, mine, fromOtherPair.submittedById)
     if ('error' in accepted) return accepted
     await sendPush(userIdsOf(m, userId), { title: 'Match confirmed', body: `Both pairs entered the same score: ${line}`, url: '/matches', tag: `match-${matchId}` })
@@ -209,8 +209,7 @@ export async function confirmReport(userId: string, matchId: string, reportId: s
   if (m.status !== 'pending' || m.scoreConfirmedAt) return { error: 'This match’s score has already been confirmed' }
   const report = m.scoreReports.find(r => r.id === reportId && r.status === 'open')
   if (!report) return { error: 'That score is no longer open' }
-  const theirSide = report.submittedBy.player ? sideOf(m, report.submittedBy.player.id) : null
-  if (theirSide === mySide) return { error: 'Someone from the other pair has to confirm this score' }
+  if (!report.submittedBy.player || !confirmerIds(m, report.submittedBy.player.id).includes(me.id)) return { error: 'Someone from the other pair has to confirm this score' }
 
   const score = { sets: report.sets as Sets, winner: report.winner, incomplete: report.incomplete }
   const accepted = await acceptReport(m, report.id, score, report.submittedById)

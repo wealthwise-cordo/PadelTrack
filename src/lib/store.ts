@@ -35,6 +35,7 @@ function toPlayerWithStats(p: PlayerWithHistory, rank = 0): PlayerWithStats {
     nickname: p.nickname,
     avatarColor: p.avatarColor,
     isGuest: !p.userId && !p.deletedAt,
+    isRankedGuest: !p.userId && !p.deletedAt && !!p.rankedGuestAt,
     isDeleted: !!p.deletedAt,
     ptr: p.ptr,
     reliability: p.reliability,
@@ -94,7 +95,11 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
     becameFriendly: m.becameFriendly,
     guests: [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
       .filter(p => !p.userId && !p.deletedAt)
-      .map(p => ({ id: p.id, name: p.name })),
+      .map(p => ({ id: p.id, name: p.name, ranked: !!p.rankedGuestAt })),
+    autoConfirms: (() => {
+      const recorder = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].find(p => p.userId === m.recordedById)
+      return !!recorder && confirmsItself(m, recorder.id)
+    })(),
     viewerDelta,
     teamAPlayer1Id: m.teamAPlayer1Id,
     teamAPlayer2Id: m.teamAPlayer2Id,
@@ -126,6 +131,35 @@ export const MATCH_INCLUDE = {
   sets: { orderBy: { setNumber: 'asc' as const } },
   scoreReports: { orderBy: { createdAt: 'asc' as const }, include: { submittedBy: { select: { name: true, player: { select: { id: true } } } } } },
 } satisfies Prisma.MatchInclude
+
+type Seat = { id: string; userId: string | null }
+type Seated = { teamAPlayer1: Seat; teamAPlayer2: Seat; teamBPlayer1: Seat; teamBPlayer2: Seat }
+
+// Who confirms a score entered by byPlayerId: registered players on the other
+// pair. While ranked guests are allowed, if both opponents are guests the
+// registered partner confirms instead; with no other registered player (three
+// guests) nobody can, and it waits for the super user in Admin → Matches.
+export function confirmerIds(m: Seated, byPlayerId: string): string[] {
+  const a = [m.teamAPlayer1, m.teamAPlayer2]
+  const b = [m.teamBPlayer1, m.teamBPlayer2]
+  const mine = a.some(p => p.id === byPlayerId) ? a : b.some(p => p.id === byPlayerId) ? b : null
+  if (!mine) return []
+  const theirs = mine === a ? b : a
+  const opponents = theirs.filter(p => p.userId)
+  if (opponents.length) return opponents.map(p => p.id)
+  return mine.filter(p => p.userId && p.id !== byPlayerId).map(p => p.id)
+}
+
+// Only a score an opponent could have confirmed confirms itself after 48
+// hours; a partner, or the super user, has to confirm it themselves.
+function confirmsItself(m: Seated, byPlayerId: string): boolean {
+  const theirs = [m.teamAPlayer1, m.teamAPlayer2].some(p => p.id === byPlayerId) ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
+  return theirs.some(p => p.userId)
+}
+
+// A guest who hasn't joined and isn't a ranked guest: a ranked match with one
+// in it waits for them to join, or becomes a friendly.
+const awaitingJoin = (p: { userId: string | null; rankedGuestAt: Date | null }) => !p.userId && !p.rankedGuestAt
 
 export function involving(playerId: string): Prisma.MatchWhereInput {
   return {
@@ -201,7 +235,8 @@ export async function signUp(data: {
           name,
           claimToken: null,
           startingLevel: start,
-          ...(guest.matchesPlayed === 0 && { ptr: internalFromLevel(start) }),
+          // A ranked guest keeps the level the super user set.
+          ...(guest.matchesPlayed === 0 && !guest.rankedGuestAt && { ptr: internalFromLevel(start) }),
         },
       })
     } else {
@@ -309,7 +344,7 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
         name: user?.name ?? guest.name,
         // They already picked a level for their own profile; it carries over,
         // capped by the level whoever added them suggested.
-        ...(own && guest.matchesPlayed === 0 && (() => {
+        ...(own && guest.matchesPlayed === 0 && !guest.rankedGuestAt && (() => {
           const start = startingLevelFor(own.startingLevel ?? levelFromInternal(own.ptr), guest.suggestedLevel)
           return { ptr: internalFromLevel(start), startingLevel: start }
         })()),
@@ -348,8 +383,7 @@ export async function getPlayerRaw(id: string): Promise<Player | null> {
 }
 
 // Everyone on PadelTrack this player has shared a ranked match with — as
-// partner or opponent. Guests can't be in a ranked match under the current
-// rules; filtering them out also guards against older data.
+// partner or opponent. Guests, ranked guests included, aren't in circles.
 export async function getCircleIds(playerId: string): Promise<string[]> {
   const matches = await prisma.match.findMany({
     where: { status: 'complete', isRanked: true, ...involving(playerId) },
@@ -612,11 +646,11 @@ export async function getMatchesForPlayer(playerId: string, opts?: { withInvites
   })
 }
 
-// Registered players on the team that didn't record the match.
+// Who can confirm the recorder's score (see confirmerIds), by first name.
 function confirmerNames(m: MatchFull, recorderPlayerId: string | undefined): string[] {
-  const recorderSide = recorderPlayerId ? sideOf(m, recorderPlayerId) : null
-  const other = recorderSide === 'A' ? [m.teamBPlayer1, m.teamBPlayer2] : recorderSide === 'B' ? [m.teamAPlayer1, m.teamAPlayer2] : []
-  return other.filter(p => p.userId).map(p => p.name.split(' ')[0])
+  if (!recorderPlayerId) return []
+  const ids = confirmerIds(m, recorderPlayerId)
+  return [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(p => ids.includes(p.id)).map(p => p.name.split(' ')[0])
 }
 
 // Every match saved, newest first, for the super user's overview. ranked
@@ -655,10 +689,9 @@ export async function matchPermissions(matchId: string, userId: string) {
   const mySide = sideOf(m, me.id)
   if (!mySide) return { canConfirm: false, canDelete: false }
   const recorder = await getPlayerForUser(m.recordedById)
-  const recorderSide = recorder ? sideOf(m, recorder.id) : null
   return {
     // A disputed score is resolved by picking an entry (confirmReport).
-    canConfirm: m.status === 'pending' && !m.disputed && !m.scoreConfirmedAt && recorderSide !== null && mySide !== recorderSide,
+    canConfirm: m.status === 'pending' && !m.disputed && !m.scoreConfirmedAt && !!recorder && confirmerIds(m, recorder.id).includes(me.id),
     // A scheduled match is cancelled by its organiser instead (see deleteMatch).
     canDelete: m.status === 'pending' && !m.organiserId,
   }
@@ -677,13 +710,10 @@ export async function getPendingForUser(userId: string): Promise<MatchWithPlayer
     .filter(m => {
       // Disputed: I can settle it if someone on the other pair entered a score.
       if (m.disputed) {
-        const mySide = sideOf(m, me.id)
-        return m.scoreReports.some(r => r.status === 'open' && r.submittedBy.player && sideOf(m, r.submittedBy.player.id) !== mySide)
+        return m.scoreReports.some(r => r.status === 'open' && r.submittedBy.player && confirmerIds(m, r.submittedBy.player.id).includes(me.id))
       }
       const recorderPlayer = m.recordedBy.player
-      if (!recorderPlayer) return false
-      const recorderSide = sideOf(m, recorderPlayer.id)
-      return recorderSide !== null && sideOf(m, me.id) !== recorderSide
+      return !!recorderPlayer && confirmerIds(m, recorderPlayer.id).includes(me.id)
     })
     .map(m => hydrateMatch(m))
 }
@@ -837,11 +867,11 @@ export async function createMatch(userId: string, data: {
     return { matchId: match.id, status: 'pending' as const, ptrDelta: 0, isUpset: false, invites }
   })
 
-  // Phone notification for the other pair, who can confirm it.
+  // Phone notification for whoever can confirm it.
   if (saved.status === 'pending') {
     const byId = new Map(players.map(p => [p.id, p]))
-    const theirs = mySide === 'A' ? [teamBPlayer1Id, teamBPlayer2Id] : [teamAPlayer1Id, teamAPlayer2Id]
-    await sendPush(theirs.map(id => byId.get(id)?.userId), {
+    const seated = { teamAPlayer1: byId.get(teamAPlayer1Id)!, teamAPlayer2: byId.get(teamAPlayer2Id)!, teamBPlayer1: byId.get(teamBPlayer1Id)!, teamBPlayer2: byId.get(teamBPlayer2Id)! }
+    await sendPush(confirmerIds(seated, me.id).map(id => byId.get(id)?.userId), {
       title: 'Confirm your match',
       body: `${firstName(me.name)} recorded: ${resultLine(data, byId)}`,
       url: '/matches',
@@ -919,13 +949,13 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
 export async function finalizeIfReady(matchId: string): Promise<{ ptrDelta: number } | null> {
   const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
   if (!m || m.status !== 'pending' || !m.scoreConfirmedAt) return null
-  const everyoneJoined = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].every(p => p.userId)
-  return everyoneJoined ? claimAndApply(matchId, false) : null
+  const everyoneIn = ![m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(awaitingJoin)
+  return everyoneIn ? claimAndApply(matchId, false) : null
 }
 
 // After a guest joins PadelTrack, any of their pending matches whose score is
 // already confirmed can now become ranked.
-async function settleMatchesFor(playerId: string): Promise<void> {
+export async function settleMatchesFor(playerId: string): Promise<void> {
   const pending = await prisma.match.findMany({ where: { status: 'pending', ...involving(playerId) }, select: { id: true } })
   for (const { id } of pending) await finalizeIfReady(id)
 }
@@ -945,7 +975,8 @@ export async function autoConfirmExpired(): Promise<number> {
   })
   let settled = 0
   for (const m of expired) {
-    const guestLeft = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(p => !p.userId)
+    const guestLeft = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(awaitingJoin)
+    const recorder = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].find(p => p.userId === m.recordedById)
     if (guestLeft) {
       const converted = await prisma.match.updateMany({
         where: { id: m.id, status: 'pending' },
@@ -953,7 +984,7 @@ export async function autoConfirmExpired(): Promise<number> {
       })
       settled += converted.count
       if (converted.count) {
-        const guests = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(p => !p.userId).map(p => firstName(p.name))
+        const guests = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(awaitingJoin).map(p => firstName(p.name))
         await sendPush([m.recordedById], {
           title: 'Match became a friendly',
           body: `${guests.join(' & ')} didn’t join PadelTrack within ${AUTO_CONFIRM_HOURS} hours, so your match won’t count towards ratings.`,
@@ -961,7 +992,8 @@ export async function autoConfirmExpired(): Promise<number> {
           tag: `match-${m.id}`,
         })
       }
-    } else if (await claimAndApply(m.id, true)) {
+    } else if (recorder && confirmsItself(m, recorder.id) && await claimAndApply(m.id, true)) {
+      // With guests as both opponents it waits for a partner or the super user.
       settled++
     }
   }
@@ -1091,8 +1123,7 @@ export async function updatePendingMatch(userId: string, matchId: string, data: 
   const after = (await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE }))!
 
   const byId = new Map(players.map(p => [p.id, p]))
-  const mySide = sideOf(after, me.id)
-  const theirs = (mySide === 'A' ? [ids[2], ids[3]] : [ids[0], ids[1]]).map(id => byId.get(id)?.userId)
+  const theirs = confirmerIds(after, me.id).map(id => byId.get(id)?.userId)
   const line = resultLine({ ...after, sets }, byId)
   if (isRanked) {
     await sendPush(theirs, { title: 'Match updated — please confirm', body: `${firstName(me.name)} changed the match: ${line}`, url: '/matches', tag: `match-${matchId}` })

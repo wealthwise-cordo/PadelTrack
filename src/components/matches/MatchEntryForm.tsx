@@ -127,7 +127,8 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const byId = useMemo(() => new Map(players.map(p => [p.id, p])), [players])
   const nextSlot = [1, 2, 3].find(i => !slots[i])
   const allPicked = nextSlot === undefined
-  const guestsInLineup = slots.map(id => byId.get(id)).filter((p): p is PlayerWithStats => !!p && p.isGuest)
+  // Ranked guests count without joining.
+  const guestsInLineup = slots.map(id => byId.get(id)).filter((p): p is PlayerWithStats => !!p && p.isGuest && !p.isRankedGuest)
 
   // A set only counts once it's a finished score (6-4, 7-5, 7-6…).
   const parsed: (SetScore | null)[] = sets.map(x => {
@@ -340,7 +341,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   }
 
   if (saved) {
-    const confirmers = [byId.get(slots[2]), byId.get(slots[3])].filter(p => p && !p.isGuest).map(p => p!.name.split(' ')[0])
+    // Same rule as the server (confirmerIds): the other pair, or your partner
+    // if both opponents are guests.
+    const opponents = [byId.get(slots[2]), byId.get(slots[3])].filter(p => p && !p.isGuest)
+    const confirmers = (opponents.length ? opponents : [byId.get(slots[1])].filter(p => p && !p.isGuest)).map(p => p!.name.split(' ')[0])
     const told = slots.slice(1).map(id => byId.get(id)).filter(p => p && !p.isGuest).map(p => p!.name.split(' ')[0])
     const SCORE_OUTCOMES: Record<string, { title: string; text: string }> = {
       complete: { title: 'Score saved', text: 'It’s in Match Centre. Friendlies don’t change anyone’s rating.' },
@@ -395,10 +399,12 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             <p className="text-sm text-zinc-500 max-w-xs">
               {confirmers.length
                 ? `${confirmers.join(' or ')} needs to confirm the score.`
-                : 'Your opponents confirm the score once they’ve joined.'}
-              {saved.invites.length > 0
-                ? ` ${saved.invites.map(i => i.name.split(' ')[0]).join(' & ')} ${saved.invites.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack yet — invite them within 48 hours or it becomes a friendly.`
-                : ' If nobody responds within 48 hours, it confirms automatically.'}
+                : guestsInLineup.length
+                  ? 'Your opponents confirm the score once they’ve joined.'
+                  : 'PadelTrack admin will confirm the score.'}
+              {guestsInLineup.length > 0
+                ? ` ${guestsInLineup.map(g => g.name.split(' ')[0]).join(' & ')} ${guestsInLineup.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack yet — invite them within 48 hours or it becomes a friendly.`
+                : opponents.length > 0 && ' If nobody responds within 48 hours, it confirms automatically.'}
               {savedIncomplete && ' As it didn’t finish, it won’t change anyone’s rating — only sets and games count.'}
             </p>
             {saved.invites.length > 0 && (

@@ -52,28 +52,34 @@ model User {
 // their claimToken invite link, which attaches it to the new user's account
 // along with its rating and match history.
 model Player {
-  id             String    @id @default(cuid())
-  name           String
-  nickname       String?
-  avatarColor    String    @default("#f97316")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  userId         String?   @unique
-  user           User?     @relation("UserPlayer", fields: [userId], references: [id], onDelete: SetNull)
-  createdById    String?
-  createdBy      User?     @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  claimToken     String?   @unique
+  id              String    @id @default(cuid())
+  name            String
+  nickname        String?
+  avatarColor     String    @default("#f97316")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  userId          String?   @unique
+  user            User?     @relation("UserPlayer", fields: [userId], references: [id], onDelete: SetNull)
+  createdById     String?
+  createdBy       User?     @relation("GuestCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  claimToken      String?   @unique
   // The LTA level (1.0–7.0) a player picked when they signed up; their
   // rating starts there.
-  startingLevel  Float?
+  startingLevel   Float?
   // For guests: the level the person adding them thought they were. Only
   // pre-selects the guest's own choice when they sign up — guests have no
   // rating until then.
-  suggestedLevel Float?
+  suggestedLevel  Float?
+  // A ranked guest: the super user verified this guest (Admin → Users) and
+  // set their level, so their ranked matches count without them joining.
+  // They stay out of circles and rankings until they do. Temporary, while
+  // few players are on the app.
+  rankedGuestAt   DateTime?
+  rankedGuestById String?
   // Set when the player's account was deleted: the profile is anonymised and
   // detached from its user, but stays in the matches it played so other
   // players' records and ratings are unchanged.
-  deletedAt      DateTime?
+  deletedAt       DateTime?
 
   // Rating and career stats — only confirmed ranked matches move these.
   ptr                Float     @default(1000)
@@ -106,9 +112,11 @@ model Player {
 
 // A match. Friendlies are saved as "complete" straight away. Ranked matches
 // start "pending" and become ranked once (a) a registered opponent confirms
-// the score and (b) every guest in the match has joined PadelTrack. After 48
-// hours: if a guest still hasn't joined it becomes a friendly permanently;
-// otherwise it confirms itself.
+// the score and (b) every guest in the match has joined PadelTrack or is a
+// ranked guest. If both opponents are guests the registered partner confirms;
+// with three guests only the super user can. After 48 hours: if a guest still
+// hasn't joined it becomes a friendly permanently; otherwise it confirms
+// itself, unless nobody on the other pair could have confirmed it.
 model Match {
   id                String             @id @default(cuid())
   playedAt          DateTime           @default(now())

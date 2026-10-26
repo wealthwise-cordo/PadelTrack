@@ -4,6 +4,8 @@ export interface PlayerWithStats {
   nickname: string | null
   avatarColor: string
   isGuest: boolean
+  // A guest the super user verified: rated, but not in circles or rankings.
+  isRankedGuest: boolean
   // Account deleted: still named in past matches, but no profile page.
   isDeleted: boolean
   ptr: number
@@ -76,7 +78,11 @@ export interface MatchWithPlayers {
   becameFriendly: boolean
   // Players in the match who aren't on PadelTrack yet. The claim token (for
   // the invite link) is only included in the viewer's own Match Centre.
-  guests: { id: string; name: string; claimToken?: string }[]
+  // ranked: a ranked guest, so the match doesn't wait for them to join.
+  guests: { id: string; name: string; ranked: boolean; claimToken?: string }[]
+  // A pending match confirms itself after 48 hours only if a registered
+  // opponent could have confirmed it.
+  autoConfirms: boolean
   // The viewing player's rating change from this match, when known.
   viewerDelta?: number
   // For pending matches: first names of the opponents who can confirm.

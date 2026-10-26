@@ -117,12 +117,12 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 min-w-0">
                 <h1 className="text-lg font-black truncate">{player.name}</h1>
-                {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">Guest</span>}
+                {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">{player.isRankedGuest ? 'Ranked guest' : 'Guest'}</span>}
               </div>
               {player.nickname && <div className="text-xs text-zinc-500">&ldquo;{player.nickname}&rdquo;</div>}
             </div>
             <div className="text-right shrink-0">
-              {player.isGuest ? (
+              {player.isGuest && !player.isRankedGuest ? (
                 <div className="text-xs font-semibold text-zinc-400 leading-tight">Unrated</div>
               ) : (
                 <div className="font-mono font-black text-xl text-zinc-900 leading-tight">{formatRating(player.ptr)}</div>
@@ -171,7 +171,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-lg font-black truncate">{player.name}</h1>
-              {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">Guest</span>}
+              {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">{player.isRankedGuest ? 'Ranked guest' : 'Guest'}</span>}
               {isMe && <span className="text-[10px] font-bold text-orange-600 bg-orange-100 rounded px-1.5 py-0.5 shrink-0">YOU</span>}
             </div>
             <div className="relative flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
@@ -195,7 +195,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             </div>
           </div>
           <div className="text-right shrink-0">
-            {player.isGuest ? (
+            {player.isGuest && !player.isRankedGuest ? (
               <div className="text-xs font-semibold text-zinc-400 leading-tight">Unrated</div>
             ) : (
               <>
