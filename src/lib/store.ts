@@ -8,7 +8,7 @@ import { prisma } from './prisma'
 import { calculatePTRChanges, currentReliability, reliabilityAfterMatch } from './ptr-algorithm'
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
 import { isCountryCode } from './countries'
-import { setWinner } from './utils'
+import { RANKED_MAX_AGE_DAYS, setWinner } from './utils'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -18,6 +18,11 @@ import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
 type PlayerWithHistory = Player & { ptrHistory?: PTRHistory[] }
 type MatchFull = Prisma.MatchGetPayload<{ include: typeof MATCH_INCLUDE }>
+
+// Ranked matches are limited to the last RANKED_MAX_AGE_DAYS (the form greys
+// out Ranked for older dates). The server allows a day's slack for timezones.
+const rankedTooOld = (playedAt: Date) => playedAt.getTime() < Date.now() - (RANKED_MAX_AGE_DAYS + 1) * 864e5
+const TOO_OLD_ERROR = `Ranked matches must have been played in the last ${RANKED_MAX_AGE_DAYS} days — save it as a friendly`
 
 // Pending matches confirm themselves if no opponent acts within this window.
 export const AUTO_CONFIRM_HOURS = 48
@@ -862,6 +867,7 @@ export async function createMatch(userId: string, data: {
   // any guests have 48 hours to join PadelTrack (see finalizeIfReady and
   // autoConfirmExpired). Friendlies are saved straight away.
   const isRanked = data.isRanked !== false
+  if (isRanked && rankedTooOld(playedAt)) return { error: TOO_OLD_ERROR }
   // Guests get an invite link either way: joining puts a friendly on their
   // profile, and lets a ranked match count.
   const invites = players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken!, rankedGuest: !!p.rankedGuestAt }))
@@ -1138,6 +1144,7 @@ export async function updatePendingMatch(userId: string, matchId: string, data: 
   const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
   if (data.clubId && !club) return { error: 'That club was not found' }
   const isRanked = data.isRanked !== false
+  if (isRanked && rankedTooOld(playedAt)) return { error: TOO_OLD_ERROR }
   const sets = data.sets.map(x => ({ teamAGames: x.teamAGames, teamBGames: x.teamBGames }))
 
   const saved = await prisma.$transaction(async tx => {

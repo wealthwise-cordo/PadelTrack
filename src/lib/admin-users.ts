@@ -71,6 +71,13 @@ export async function verifyGuest(userId: string, playerId: string, level: unkno
     },
   })
   if (updated.count === 0) return { error: 'This guest changed — refresh and try again' }
+  await prisma.adminUserAction.create({
+    data: {
+      action: 'verify', byId: userId,
+      summary: `Verified ${guest.name} as a ranked guest at level ${level.toFixed(1)}`,
+      detail: { playerId, level, ptrBefore: guest.ptr },
+    },
+  })
   // Their confirmed matches can become ranked now.
   await settleMatchesFor(playerId)
   if (guest.createdById) {
@@ -247,6 +254,15 @@ export async function mergePlayers(userId: string, keepId: unknown, removeId: un
       if (!removeHasResults && remove.startingLevel !== null) data.ptr = internalFromLevel(remove.startingLevel)
     }
     await tx.player.update({ where: { id: keep.id }, data })
+    const kind = (p: { userId: string | null; rankedGuestAt: Date | null }) => (p.userId ? 'registered' : p.rankedGuestAt ? 'ranked guest' : 'guest')
+    await tx.adminUserAction.create({
+      data: {
+        action: 'merge', byId: userId,
+        summary: `Merged ${remove.name} (${kind(remove)}) into ${keep.name} (${kind(keep)})${removeHasResults ? ', taking over their rating' : ''}`,
+        // The deleted guest as it was, since nothing else keeps it.
+        detail: { keepId: keep.id, removed: JSON.parse(JSON.stringify(remove)), tookOverRating: removeHasResults },
+      },
+    })
     await tx.duplicateDismissal.deleteMany({ where: { OR: [{ playerAId: remove.id }, { playerBId: remove.id }] } })
     await tx.player.delete({ where: { id: remove.id } })
   }, { timeout: 20_000 })
@@ -260,10 +276,19 @@ export async function dismissDuplicate(userId: string, aId: unknown, bId: unknow
   if ((await getRole(userId)) !== 'superuser') return { error: 'Only the super user can do this' }
   if (typeof aId !== 'string' || typeof bId !== 'string' || aId === bId) return { error: 'Pick two different players' }
   const [playerAId, playerBId] = pairKey(aId, bId)
+  const names = await prisma.player.findMany({ where: { id: { in: [playerAId, playerBId] } }, select: { name: true } })
+  if (names.length !== 2) return { error: 'One of these players wasn’t found — refresh and try again' }
   await prisma.duplicateDismissal.upsert({
     where: { playerAId_playerBId: { playerAId, playerBId } },
     create: { playerAId, playerBId, byId: userId },
     update: {},
   })
+  await prisma.adminUserAction.create({
+    data: { action: 'dismiss', byId: userId, summary: `Marked ${names[0].name} and ${names[1].name} as different people`, detail: { playerAId, playerBId } },
+  })
   return { ok: true }
+}
+
+export async function getUserActionLog(take = 30) {
+  return prisma.adminUserAction.findMany({ orderBy: { createdAt: 'desc' }, take, include: { by: { select: { name: true } } } })
 }

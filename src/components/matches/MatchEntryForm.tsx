@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CalendarDays, MapPin, X, CheckCircle2, Clock, RotateCcw, ChevronDown, Trash2 } from 'lucide-react'
-import { getInitials, setWinner, isSetComplete } from '@/lib/utils'
+import { getInitials, setWinner, isSetComplete, RANKED_MAX_AGE_DAYS } from '@/lib/utils'
 import PlayerPicker from '@/components/shared/PlayerPicker'
 import InviteButton from '@/components/players/InviteButton'
 import type { PlayerWithStats } from '@/types'
@@ -123,6 +123,15 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const futureDay = !!today && playedOn > today
   const isFuture = (mode === 'edit' && !editingScore) || (mode === 'new' && (futureDay || (!!startsAt && playedOn === today && startsAt.getTime() > now)))
   const startOk = !!startsAt && startsAt.getTime() > Date.now()
+  // Ranked only for matches played in the last 30 days (the server checks
+  // too); older ones are saved as friendlies.
+  const rankedFrom = today ? localDate(-RANKED_MAX_AGE_DAYS) : ''
+  const tooOldForRanked = mode !== 'score' && !!rankedFrom && !!playedOn && playedOn < rankedFrom
+  const [rankedNotice, setRankedNotice] = useState(false)
+  useEffect(() => {
+    if (tooOldForRanked) setIsRanked(false)
+    else setRankedNotice(false)
+  }, [tooOldForRanked])
 
   const byId = useMemo(() => new Map(players.map(p => [p.id, p])), [players])
   const nextSlot = [1, 2, 3].find(i => !slots[i])
@@ -644,13 +653,20 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             key={o.title}
             role="radio"
             aria-checked={isRanked === o.ranked}
-            onClick={() => setIsRanked(o.ranked)}
-            className={`h-10 rounded-lg text-sm font-bold transition ${isRanked === o.ranked ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-500'}`}
+            aria-disabled={o.ranked && tooOldForRanked}
+            onClick={() => (o.ranked && tooOldForRanked ? setRankedNotice(true) : setIsRanked(o.ranked))}
+            className={`h-10 rounded-lg text-sm font-bold transition ${isRanked === o.ranked ? 'bg-zinc-900 text-white shadow-sm' : 'text-zinc-500'} ${o.ranked && tooOldForRanked ? 'opacity-40 cursor-not-allowed' : ''}`}
           >
             {o.title}
           </button>
         ))}
       </section>}
+
+      {rankedNotice && tooOldForRanked && (
+        <p className="text-xs text-zinc-500 leading-relaxed -mt-2 px-1" role="status">
+          Ranked matches must have been played in the last {RANKED_MAX_AGE_DAYS} days, so this one can only be saved as a friendly.
+        </p>
+      )}
 
       {isRanked && guestsInLineup.length > 0 && (
         <p className="text-xs text-zinc-500 leading-relaxed -mt-2 px-1">

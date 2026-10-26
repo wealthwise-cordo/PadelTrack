@@ -7,6 +7,6 @@ export const LEGAL = {
   contactEmail: 'hello@padeltrack.co.uk',
   website: 'padeltrack.co.uk',
   country: 'England and Wales',
-  lastUpdated: '12 October 2026',
+  lastUpdated: '26 October 2026',
 }
-export const LEGAL_VERSION = '2026-10-12.2'
+export const LEGAL_VERSION = '2026-10-26.1'

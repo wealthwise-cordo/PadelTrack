@@ -2,23 +2,25 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { getRole } from '@/lib/roles'
-import { getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests } from '@/lib/admin-users'
+import { getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests, getUserActionLog } from '@/lib/admin-users'
 import VerifyGuest from '@/components/admin/VerifyGuest'
 import DuplicatePair from '@/components/admin/DuplicatePair'
 import { formatRating } from '@/lib/utils'
 
 export const revalidate = 0
 
+const ACTION_LABEL: Record<string, string> = { verify: 'Verified', merge: 'Merged', dismiss: 'Not the same' }
+const ACTION_STYLE: Record<string, string> = { verify: 'bg-emerald-100 text-emerald-800', merge: 'bg-orange-100 text-orange-800', dismiss: 'bg-zinc-200 text-zinc-700' }
 const date = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' })
 const when = (d: Date) => d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
 
 // Admin → Users (super user): guests holding up ranked matches, who can be
 // verified as ranked guests, the guests already verified, and players whose
-// names are at least 90% alike, to merge or dismiss.
+// names are at least 90% alike, to merge or dismiss — and the log of it all.
 export default async function AdminUsersPage() {
   const session = await requireSession()
   if ((await getRole(session.userId)) !== 'superuser') notFound()
-  const [waiting, ranked, duplicates] = await Promise.all([getGuestsAwaitingJoin(), getRankedGuests(), getDuplicateCandidates()])
+  const [waiting, ranked, duplicates, log] = await Promise.all([getGuestsAwaitingJoin(), getRankedGuests(), getDuplicateCandidates(), getUserActionLog()])
 
   return (
     <div className="space-y-8">
@@ -77,6 +79,25 @@ export default async function AdminUsersPage() {
         {duplicates.length === 0 ? (
           <p className="text-sm text-zinc-500">None found.</p>
         ) : duplicates.map(d => <DuplicatePair key={`${d.a.id}-${d.b.id}`} {...d} />)}
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold">History</h3>
+        {log.length === 0 ? (
+          <p className="text-sm text-zinc-500">Nothing yet.</p>
+        ) : (
+          <ul className="glass rounded-xl divide-y divide-zinc-100">
+            {log.map(a => (
+              <li key={a.id} className="p-3 text-sm space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 ${ACTION_STYLE[a.action] ?? ''}`}>{ACTION_LABEL[a.action] ?? a.action}</span>
+                  <span className="text-zinc-800 min-w-0">{a.summary}</span>
+                </div>
+                <div className="text-[11px] text-zinc-400">{date(a.createdAt)} · by {a.by?.name ?? 'unknown'}</div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   )

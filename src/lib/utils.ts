@@ -2,6 +2,10 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { levelFromInternal, levelDelta } from '@/lib/lta'
 
+// A ranked match must have been played within this many days; older ones can
+// only be friendlies.
+export const RANKED_MAX_AGE_DAYS = 30
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }

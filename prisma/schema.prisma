@@ -42,6 +42,7 @@ model User {
   PushSubscription   PushSubscription[]
 
   adminMatchActions    AdminMatchAction[]
+  adminUserActions     AdminUserAction[]
   adjustmentsRequested RatingAdjustment[] @relation("AdjustmentRequester")
   adjustmentsReviewed  RatingAdjustment[] @relation("AdjustmentReviewer")
 }
@@ -520,4 +521,19 @@ model DuplicateDismissal {
   createdAt DateTime @default(now())
 
   @@unique([playerAId, playerBId])
+}
+
+// The super user's actions in Admin → Users, for the record: verifying a
+// ranked guest, merging a duplicate (detail keeps the deleted guest as it
+// was) and marking two players as different people.
+model AdminUserAction {
+  id        String   @id @default(cuid())
+  action    String // verify | merge | dismiss
+  summary   String
+  detail    Json?
+  byId      String?
+  by        User?    @relation(fields: [byId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
