@@ -155,7 +155,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
             {match.guests.some(g => g.claimToken) && (
               <div className="flex flex-wrap gap-1.5 pt-0.5">
                 {match.guests.filter(g => g.claimToken).map(g => (
-                  <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} />
+                  <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} counts={g.ranked} />
                 ))}
               </div>
             )}
@@ -179,7 +179,8 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
         </div>
       )}
 
-      {/* Friendlies: guests can still join to get the match on their profile. */}
+      {/* Friendlies, and ranked guests' matches: guests can still join to get
+          the match on their profile. */}
       {!pending && match.guests.some(g => g.claimToken) && (
         <div className="mt-3 space-y-1.5 text-[11px]">
           {!match.becameFriendly && (
@@ -189,7 +190,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
           )}
           <div className="flex flex-wrap gap-1.5">
             {match.guests.filter(g => g.claimToken).map(g => (
-              <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} ranked={false} />
+              <InviteButton key={g.id} name={g.name} claimToken={g.claimToken!} dark={featured} ranked={match.isRanked} counts={g.ranked} />
             ))}
           </div>
         </div>

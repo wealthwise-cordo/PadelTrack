@@ -96,7 +96,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const [savedIncomplete, setSavedIncomplete] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState<{ status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; invites: { name: string; claimToken: string }[]; outcome?: string } | null>(null)
+  const [saved, setSaved] = useState<{ status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; invites: { name: string; claimToken: string; rankedGuest?: boolean }[]; outcome?: string } | null>(null)
 
   useEffect(() => {
     const t = localDate()
@@ -342,9 +342,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
 
   if (saved) {
     // Same rule as the server (confirmerIds): the other pair, or your partner
-    // if both opponents are guests.
+    // if both opponents are ranked guests.
     const opponents = [byId.get(slots[2]), byId.get(slots[3])].filter(p => p && !p.isGuest)
-    const confirmers = (opponents.length ? opponents : [byId.get(slots[1])].filter(p => p && !p.isGuest)).map(p => p!.name.split(' ')[0])
+    const bothRankedGuests = [byId.get(slots[2]), byId.get(slots[3])].every(p => p?.isRankedGuest)
+    const confirmers = (opponents.length ? opponents : bothRankedGuests ? [byId.get(slots[1])].filter(p => p && !p.isGuest) : []).map(p => p!.name.split(' ')[0])
     const told = slots.slice(1).map(id => byId.get(id)).filter(p => p && !p.isGuest).map(p => p!.name.split(' ')[0])
     const SCORE_OUTCOMES: Record<string, { title: string; text: string }> = {
       complete: { title: 'Score saved', text: 'It’s in Match Centre. Friendlies don’t change anyone’s rating.' },
@@ -366,7 +367,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           </p>
           {saved.invites.length > 0 && (
             <div className="flex flex-wrap justify-center gap-2 mt-1">
-              {saved.invites.map(i => <InviteButton key={i.claimToken} name={i.name} claimToken={i.claimToken} ranked={isRanked} />)}
+              {saved.invites.map(i => <InviteButton key={i.claimToken} name={i.name} claimToken={i.claimToken} ranked={isRanked} counts={i.rankedGuest} />)}
             </div>
           )}
           <div className="flex gap-2 mt-4">
@@ -409,7 +410,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             </p>
             {saved.invites.length > 0 && (
               <div className="flex flex-wrap justify-center gap-2 mt-1">
-                {saved.invites.map(i => <InviteButton key={i.claimToken} name={i.name} claimToken={i.claimToken} />)}
+                {saved.invites.map(i => <InviteButton key={i.claimToken} name={i.name} claimToken={i.claimToken} counts={i.rankedGuest} />)}
               </div>
             )}
           </>

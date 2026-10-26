@@ -132,13 +132,14 @@ export const MATCH_INCLUDE = {
   scoreReports: { orderBy: { createdAt: 'asc' as const }, include: { submittedBy: { select: { name: true, player: { select: { id: true } } } } } },
 } satisfies Prisma.MatchInclude
 
-type Seat = { id: string; userId: string | null }
+type Seat = { id: string; userId: string | null; rankedGuestAt: Date | null }
 type Seated = { teamAPlayer1: Seat; teamAPlayer2: Seat; teamBPlayer1: Seat; teamBPlayer2: Seat }
 
 // Who confirms a score entered by byPlayerId: registered players on the other
-// pair. While ranked guests are allowed, if both opponents are guests the
-// registered partner confirms instead; with no other registered player (three
-// guests) nobody can, and it waits for the super user in Admin → Matches.
+// pair. While ranked guests are allowed, if both opponents are ranked guests
+// the registered partner confirms instead; with no other registered player
+// (three guests) nobody can, and it waits for the super user in Admin →
+// Matches. Guests who aren't verified confirm once they've joined, as before.
 export function confirmerIds(m: Seated, byPlayerId: string): string[] {
   const a = [m.teamAPlayer1, m.teamAPlayer2]
   const b = [m.teamBPlayer1, m.teamBPlayer2]
@@ -147,6 +148,7 @@ export function confirmerIds(m: Seated, byPlayerId: string): string[] {
   const theirs = mine === a ? b : a
   const opponents = theirs.filter(p => p.userId)
   if (opponents.length) return opponents.map(p => p.id)
+  if (!theirs.every(p => p.rankedGuestAt)) return []
   return mine.filter(p => p.userId && p.id !== byPlayerId).map(p => p.id)
 }
 
@@ -235,8 +237,7 @@ export async function signUp(data: {
           name,
           claimToken: null,
           startingLevel: start,
-          // A ranked guest keeps the level the super user set.
-          ...(guest.matchesPlayed === 0 && !guest.rankedGuestAt && { ptr: internalFromLevel(start) }),
+          ...(guest.matchesPlayed === 0 && { ptr: internalFromLevel(start) }),
         },
       })
     } else {
@@ -344,7 +345,7 @@ export async function claimGuestForUser(token: string, userId: string): Promise<
         name: user?.name ?? guest.name,
         // They already picked a level for their own profile; it carries over,
         // capped by the level whoever added them suggested.
-        ...(own && guest.matchesPlayed === 0 && !guest.rankedGuestAt && (() => {
+        ...(own && guest.matchesPlayed === 0 && (() => {
           const start = startingLevelFor(own.startingLevel ?? levelFromInternal(own.ptr), guest.suggestedLevel)
           return { ptr: internalFromLevel(start), startingLevel: start }
         })()),
@@ -622,9 +623,9 @@ export async function getEventPlayers(ids: string[]): Promise<PlayerWithStats[]>
 // Matches
 // ---------------------------------------------------------------------------
 
-// withInvites adds guests' claim tokens to pending matches and friendlies so
-// the viewer can send invite links — only pass it when playerId is the
-// signed-in viewer.
+// withInvites adds guests' claim tokens to pending matches and friendlies —
+// and for ranked guests, to every match — so the viewer can send invite
+// links. Only pass it when playerId is the signed-in viewer.
 export async function getMatchesForPlayer(playerId: string, opts?: { withInvites?: boolean }): Promise<MatchWithPlayers[]> {
   const matches = await prisma.match.findMany({
     where: involving(playerId),
@@ -638,8 +639,9 @@ export async function getMatchesForPlayer(playerId: string, opts?: { withInvites
   return matches.map(m => {
     const hydrated = hydrateMatch(m, m.ptrHistory[0]?.delta)
     if (m.status === 'pending') hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
-    if (opts?.withInvites && (m.status === 'pending' || !m.isRanked)) {
-      const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p.claimToken]))
+    if (opts?.withInvites) {
+      const everyMatch = m.status === 'pending' || !m.isRanked
+      const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, everyMatch || p.rankedGuestAt ? p.claimToken : null]))
       hydrated.guests = hydrated.guests.map(g => ({ ...g, claimToken: tokens.get(g.id) ?? undefined }))
     }
     return hydrated
@@ -787,7 +789,7 @@ export async function createMatch(userId: string, data: {
   isRanked?: boolean
   // A start time in the future makes it a scheduled match: no score yet.
   startsAt?: string
-}): Promise<{ matchId: string; status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string }[] } | { error: string }> {
+}): Promise<{ matchId: string; status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string; rankedGuest: boolean }[] } | { error: string }> {
   const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
   const startsAt = data.startsAt !== undefined ? resolveStartsAt(data.startsAt) : null
   if (data.startsAt !== undefined && !startsAt) return { error: 'Pick a valid date and time' }
@@ -820,7 +822,7 @@ export async function createMatch(userId: string, data: {
   const isRanked = data.isRanked !== false
   // Guests get an invite link either way: joining puts a friendly on their
   // profile, and lets a ranked match count.
-  const invites = players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken! }))
+  const invites = players.filter(p => !p.userId && p.claimToken).map(p => ({ name: p.name, claimToken: p.claimToken!, rankedGuest: !!p.rankedGuestAt }))
 
   if (scheduled) {
     const match = await prisma.match.create({
