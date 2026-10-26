@@ -15,9 +15,6 @@ interface Props {
   // Internal rating points.
   ptr: number
   isSuperUser: boolean
-  // Set when an adjustment was approved or rejected in the last 30 days: no
-  // new adjustment until then.
-  coolingOffUntil: string | null
   // An adjustment already waiting for review on this player.
   pending: { levels: number; reason: string; requestedBy: string | null } | null
 }
@@ -29,7 +26,7 @@ const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n
 // For levellers and the super user on someone else's profile: move their
 // rating by up to one level, with a reason. A leveller's change goes to the
 // super user for review; the super user's applies at once.
-export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUser, coolingOffUntil, pending }: Props) {
+export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUser, pending }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [levels, setLevels] = useState(0)
@@ -95,16 +92,6 @@ export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUse
           {pending.requestedBy && <> · from {pending.requestedBy}</>}
           <div className="text-amber-800 mt-0.5">{pending.reason}</div>
         </div>
-      </div>
-    )
-  }
-
-  if (coolingOffUntil) {
-    const until = new Date(coolingOffUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' })
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-        <Clock className="h-3.5 w-3.5 shrink-0" />
-        <span>Adjustment reviewed in the last 30 days · next one possible from {until}</span>
       </div>
     )
   }

@@ -189,6 +189,22 @@ export async function getAdjustmentLog(opts: { requestedById?: string; take?: nu
   })
 }
 
+// Players in their cooling-off period, soonest to come out first.
+export async function getCoolingOffPlayers(now = new Date()) {
+  const since = new Date(now.getTime() - COOLING_OFF_DAYS * DAY_MS)
+  const rows = await prisma.ratingAdjustment.findMany({
+    where: { status: { in: ['approved', 'rejected'] }, OR: [{ reviewedAt: { gt: since } }, { reviewedAt: null, createdAt: { gt: since } }] },
+    select: { reviewedAt: true, createdAt: true, player: { select: { id: true, name: true } } },
+  })
+  const latest = new Map<string, { player: { id: string; name: string }; until: Date }>()
+  for (const r of rows) {
+    const until = new Date((r.reviewedAt ?? r.createdAt).getTime() + COOLING_OFF_DAYS * DAY_MS)
+    const seen = latest.get(r.player.id)
+    if (!seen || until > seen.until) latest.set(r.player.id, { player: r.player, until })
+  }
+  return Array.from(latest.values()).sort((a, b) => a.until.getTime() - b.until.getTime())
+}
+
 // For a profile: applied adjustments (oldest first) and any waiting one.
 export async function getPlayerAdjustments(playerId: string) {
   const rows = await prisma.ratingAdjustment.findMany({

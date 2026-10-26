@@ -619,6 +619,19 @@ function confirmerNames(m: MatchFull, recorderPlayerId: string | undefined): str
   return other.filter(p => p.userId).map(p => p.name.split(' ')[0])
 }
 
+// Every match saved, newest first, for the super user's overview. ranked
+// narrows to ranked (true) or friendlies (false).
+export async function getAllMatches(opts: { ranked?: boolean; skip?: number; take?: number } = {}) {
+  const where: Prisma.MatchWhereInput = opts.ranked === undefined ? {} : { isRanked: opts.ranked }
+  const [rows, total, ranked, friendlies] = await Promise.all([
+    prisma.match.findMany({ where, include: MATCH_INCLUDE, orderBy: { playedAt: 'desc' }, skip: opts.skip ?? 0, take: opts.take ?? 25 }),
+    prisma.match.count({ where }),
+    prisma.match.count({ where: { isRanked: true } }),
+    prisma.match.count({ where: { isRanked: false } }),
+  ])
+  return { matches: rows.map(m => hydrateMatch(m)), total, counts: { all: ranked + friendlies, ranked, friendlies } }
+}
+
 export async function getMatchById(id: string): Promise<MatchWithPlayers | null> {
   const m = await prisma.match.findUnique({ where: { id }, include: MATCH_INCLUDE })
   return m ? hydrateMatch(m) : null

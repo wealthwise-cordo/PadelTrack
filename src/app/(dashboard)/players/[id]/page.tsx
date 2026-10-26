@@ -102,8 +102,45 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
 
   const isMe = player.id === session.player.id
   const canEdit = canEditPlayer(raw, session.userId)
+
+  // Full profiles are for your circle (and guests you manage). Levellers and
+  // the super user see everyone; anyone else gets just the name and rating.
+  const inCircle = circle.some(p => p.id === player.id)
+  if (!isMe && !inCircle && !canEdit && !canAdjustRatings(role)) {
+    return (
+      <div className="py-6 space-y-5">
+        <div className="glass rounded-2xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0" style={{ backgroundColor: player.avatarColor }}>
+              {getInitials(player.name)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-lg font-black truncate">{player.name}</h1>
+                {player.isGuest && <span className="text-[10px] font-medium text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 shrink-0">Guest</span>}
+              </div>
+              {player.nickname && <div className="text-xs text-zinc-500">&ldquo;{player.nickname}&rdquo;</div>}
+            </div>
+            <div className="text-right shrink-0">
+              {player.isGuest ? (
+                <div className="text-xs font-semibold text-zinc-400 leading-tight">Unrated</div>
+              ) : (
+                <div className="font-mono font-black text-xl text-zinc-900 leading-tight">{formatRating(player.ptr)}</div>
+              )}
+            </div>
+          </div>
+        </div>
+        <p className="text-sm text-zinc-500 text-center px-4">
+          Play a ranked match with {player.name.split(' ')[0]} to see their full profile.
+        </p>
+      </div>
+    )
+  }
   // Levellers can't adjust a super user (nobody could review it).
+  // While cooling off there's nothing to do here; the wait is shown under
+  // Admin → Ratings, not on the profile.
   const canAdjust = canAdjustRatings(role) && !isMe && !player.isGuest &&
+    (adjustments.pending || !adjustments.coolingOffUntil) &&
     (role === 'superuser' || !raw.userId || (await getRole(raw.userId)) !== 'superuser')
   // The player sees that their rating was adjusted; only levellers and the
   // super user see why.
@@ -120,10 +157,9 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
   // Reliability today (includes any decay since their last ranked match).
   const reliability = currentReliability(raw.reliability, raw.lastRankedPlayedAt)
 
-  const recent = matches
-    .filter(m => m.status === 'complete' && m.isRanked)
-    .slice(0, 5)
-    .map(m => (isMe ? m : { ...m, viewerDelta: undefined }))
+  // You see all of your own; on someone else's profile, their latest five.
+  const ranked = matches.filter(m => m.status === 'complete' && m.isRanked)
+  const recent = isMe ? ranked : ranked.slice(0, 5).map(m => ({ ...m, viewerDelta: undefined }))
 
   return (
     <div className="py-6 space-y-5">
@@ -176,7 +212,6 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
               firstName={player.name.split(' ')[0]}
               ptr={player.ptr}
               isSuperUser={role === 'superuser'}
-              coolingOffUntil={adjustments.coolingOffUntil}
               pending={adjustments.pending && {
                 levels: levelDelta(adjustments.pending.delta),
                 reason: adjustments.pending.reason,
@@ -238,7 +273,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
 
       {recent.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold">{isMe ? 'Your recent ranked matches' : `${player.name.split(' ')[0]}’s recent ranked matches`}</h2>
+          <h2 className="text-sm font-semibold">{isMe ? 'Your ranked matches' : `${player.name.split(' ')[0]}’s recent ranked matches`}</h2>
           {recent.map(m => <MatchCard key={m.id} match={m} canDelete={isMe} />)}
         </section>
       )}

@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { getRole, canAdjustRatings } from '@/lib/roles'
-import { getAdjustmentLog, getLevellers, getPendingAdjustments } from '@/lib/rating-adjustments'
+import { getAdjustmentLog, getCoolingOffPlayers, getLevellers, getPendingAdjustments, COOLING_OFF_DAYS } from '@/lib/rating-adjustments'
 import AdjustmentReview from '@/components/admin/AdjustmentReview'
 import LevellerManager from '@/components/admin/LevellerManager'
 import { formatRating, formatRatingDelta } from '@/lib/utils'
@@ -26,10 +26,11 @@ export default async function RatingsAdminPage() {
   if (!canAdjustRatings(role)) notFound()
   const isSuper = role === 'superuser'
 
-  const [pending, log, levellers] = await Promise.all([
+  const [pending, log, levellers, coolingOff] = await Promise.all([
     isSuper ? getPendingAdjustments() : [],
     getAdjustmentLog(isSuper ? {} : { requestedById: session.userId }),
     isSuper ? getLevellers() : [],
+    getCoolingOffPlayers(),
   ])
 
   return (
@@ -65,6 +66,21 @@ export default async function RatingsAdminPage() {
               <AdjustmentReview id={a.id} />
             </div>
           ))}
+        </section>
+      )}
+
+      {coolingOff.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold">Cooling off</h2>
+          <p className="text-[11px] text-zinc-500">Adjusted or rejected in the last {COOLING_OFF_DAYS} days, so they can’t be adjusted again yet.</p>
+          <ul className="glass rounded-xl divide-y divide-zinc-100">
+            {coolingOff.map(c => (
+              <li key={c.player.id} className="p-3 flex items-center gap-3 text-sm">
+                <Link href={`/players/${c.player.id}`} className="flex-1 min-w-0 font-medium hover:underline truncate">{c.player.name}</Link>
+                <span className="text-[11px] text-zinc-500 shrink-0">Next from {date(c.until)}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
