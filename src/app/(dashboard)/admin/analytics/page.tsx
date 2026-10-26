@@ -3,7 +3,7 @@ import { requireSession } from '@/lib/session'
 import { getRole } from '@/lib/roles'
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle } from 'lucide-react'
 import Link from 'next/link'
-import { getAdminStats, parsePeriod, PERIODS, type KciStatus, type Period, type Indicator } from '@/lib/admin-stats'
+import { getAdminStats, getSilentPartnerFlags, parsePeriod, PERIODS, SILENT_PARTNER_FLAG, type KciStatus, type Period, type Indicator } from '@/lib/admin-stats'
 import { WeeklyBars, MatchBars, WeeklyLine, CircleBars } from '@/components/admin/AdminCharts'
 
 export const revalidate = 0
@@ -15,7 +15,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
   if ((await getRole(session.userId)) !== 'superuser') notFound()
 
   const period = parsePeriod(searchParams.period)
-  const s = await getAdminStats(period)
+  const [s, silent] = await Promise.all([getAdminStats(period), getSilentPartnerFlags()])
   const span = period === 'all' ? 'all time' : period === '1w' ? 'last week' : `last ${PERIODS[period].label}`
   const per = { day: 'day', week: 'week', month: 'month' }[s.grain]
   const t = s.tiles
@@ -57,6 +57,28 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
               <div className="flex justify-between"><span>Joined after being added to a match</span><span className="tabular-nums font-semibold">{s.kci.newPlayers.viaMatch}</span></div>
             </div>
           </div>
+        </div>
+      </Section>
+
+      <Section title="Flagged players" indicators={[]}>
+        <div className="glass rounded-xl p-3 space-y-2">
+          <p className="text-[11px] text-zinc-500">
+            All time. Players who recorded {SILENT_PARTNER_FLAG} or more ranked matches against two ranked guests that nobody confirmed — only their partner could have, and the match confirmed itself after 48 hours.
+          </p>
+          {silent.flagged.length === 0 ? (
+            <p className="text-sm text-zinc-500">Nobody flagged.{silent.below > 0 && ` ${silent.below} ${silent.below === 1 ? 'player has' : 'players have'} 1–${SILENT_PARTNER_FLAG - 1} such matches.`}</p>
+          ) : (
+            <ul className="divide-y divide-zinc-100">
+              {silent.flagged.map(p => (
+                <li key={p.id} className="py-1.5 flex items-center gap-3 text-sm">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: STATUS.amber.color }} aria-hidden />
+                  <Link href={`/players/${p.id}`} className="flex-1 min-w-0 truncate font-medium hover:underline">{p.name}</Link>
+                  <span className="text-[11px] text-zinc-500 shrink-0">last {p.last.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/London' })}</span>
+                  <span className="font-mono font-semibold tabular-nums shrink-0">{p.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Section>
 

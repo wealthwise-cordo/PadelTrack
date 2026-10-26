@@ -233,7 +233,7 @@ function Row({ p, showRating, onClick }: { p: PlayerWithStats; showRating: boole
         <span className="block text-sm font-semibold truncate">{p.name}</span>
         {p.nickname && <span className="block text-[11px] text-zinc-500">{p.nickname}</span>}
       </span>
-      {showRating && <span className="font-mono text-sm font-bold text-zinc-700">{formatRating(p.ptr)}</span>}
+      {showRating && !p.ratingHidden && <span className="font-mono text-sm font-bold text-zinc-700">{formatRating(p.ptr)}</span>}
     </button>
   )
 }

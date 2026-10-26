@@ -452,3 +452,40 @@ export async function getAdminStats(period: Period) {
 }
 
 export type AdminStats = Awaited<ReturnType<typeof getAdminStats>>
+
+// Players to look at: whoever recorded 3 or more ranked matches against two
+// ranked guests that nobody confirmed (only their partner could have, and it
+// confirmed itself after 48 hours). All time. A guest who joined later still
+// counts as a ranked guest here, as they were one when it was played.
+export const SILENT_PARTNER_FLAG = 3
+
+export async function getSilentPartnerFlags() {
+  const rows = await prisma.match.findMany({
+    where: { status: 'complete', isRanked: true, autoConfirmed: true },
+    select: {
+      recordedById: true, playedAt: true,
+      teamAPlayer1: { select: { id: true, name: true, userId: true, rankedGuestAt: true } },
+      teamAPlayer2: { select: { id: true, name: true, userId: true, rankedGuestAt: true } },
+      teamBPlayer1: { select: { id: true, name: true, userId: true, rankedGuestAt: true } },
+      teamBPlayer2: { select: { id: true, name: true, userId: true, rankedGuestAt: true } },
+    },
+  })
+  const byRecorder = new Map<string, { id: string; name: string; count: number; last: Date }>()
+  for (const m of rows) {
+    const a = [m.teamAPlayer1, m.teamAPlayer2]
+    const b = [m.teamBPlayer1, m.teamBPlayer2]
+    const recorder = [...a, ...b].find(p => p.userId === m.recordedById)
+    if (!recorder) continue
+    const opponents = a.includes(recorder) ? b : a
+    if (!opponents.every(p => p.rankedGuestAt)) continue
+    const seen = byRecorder.get(recorder.id)
+    if (seen) {
+      seen.count++
+      if (m.playedAt > seen.last) seen.last = m.playedAt
+    } else {
+      byRecorder.set(recorder.id, { id: recorder.id, name: recorder.name, count: 1, last: m.playedAt })
+    }
+  }
+  const all = Array.from(byRecorder.values()).sort((x, y) => y.count - x.count)
+  return { flagged: all.filter(p => p.count >= SILENT_PARTNER_FLAG), below: all.filter(p => p.count < SILENT_PARTNER_FLAG).length }
+}

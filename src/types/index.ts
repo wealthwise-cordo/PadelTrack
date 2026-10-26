@@ -9,6 +9,8 @@ export interface PlayerWithStats {
   // Account deleted: still named in past matches, but no profile page.
   isDeleted: boolean
   ptr: number
+  // Search found them by email and they're not in your circle: ptr is 0.
+  ratingHidden?: boolean
   reliability: number
   matchesPlayed: number
   wins: number

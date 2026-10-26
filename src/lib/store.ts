@@ -324,9 +324,15 @@ function validateProfileDetails(
 // pick, the level suggested by whoever added them, and the level set when
 // they were verified as a ranked guest. It's the average less a tenth of the
 // spread — with two levels, 40% of the way from the lower to the higher.
+// Their own pick counts at most OWN_PICK_LIFT above the highest of the
+// others, so picking high can't pull them far up.
+export const OWN_PICK_LIFT = 0.5
+
 export function startingLevelFor(ownPick: number, guest: { suggestedLevel: number | null; startingLevel: number | null; rankedGuestAt: Date | null }): number {
   // A guest's startingLevel is only ever set by verification.
-  return blendLevels([ownPick, guest.suggestedLevel, guest.rankedGuestAt ? guest.startingLevel : null])
+  const others = [guest.suggestedLevel, guest.rankedGuestAt ? guest.startingLevel : null].filter((l): l is number => l !== null)
+  const own = others.length ? Math.min(ownPick, Math.max(...others) + OWN_PICK_LIFT) : ownPick
+  return blendLevels([own, ...others])
 }
 
 export function blendLevels(given: (number | null)[]): number {
@@ -462,8 +468,11 @@ export async function getPickablePlayers(userId: string): Promise<PlayerWithStat
 }
 
 // Finds registered players by name or exact email. Guests are never
-// returned — they're added by typing their name (see createGuest).
-export async function searchPlayers(query: string): Promise<PlayerWithStats[]> {
+// returned — they're added by typing their name (see createGuest). Results
+// carry only name, nickname, avatar and rating (a full record is for the
+// profile page and its circle rules); someone found only by their email shows
+// no rating unless they're in the viewer's circle.
+export async function searchPlayers(query: string, viewerPlayerId: string): Promise<PlayerWithStats[]> {
   const q = query.trim()
   if (q.length < 2) return []
   const rows = await prisma.player.findMany({
@@ -476,7 +485,23 @@ export async function searchPlayers(query: string): Promise<PlayerWithStats[]> {
     orderBy: { name: 'asc' },
     take: 10,
   })
-  return rows.map(p => toPlayerWithStats(p))
+  const circle = new Set(await getCircleIds(viewerPlayerId))
+  return rows.map(p => {
+    const byName = p.name.toLowerCase().includes(q.toLowerCase())
+    return toSearchResult(p, byName || circle.has(p.id) || p.id === viewerPlayerId)
+  })
+}
+
+// A player as search shows them: everything but name, nickname, avatar and
+// (when shown) rating is left blank.
+function toSearchResult(p: Player, showRating: boolean): PlayerWithStats {
+  return {
+    ...toPlayerWithStats({ ...p, ptrHistory: [] }),
+    ptr: showRating ? p.ptr : 0,
+    ratingHidden: !showRating,
+    reliability: 0, matchesPlayed: 0, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0,
+    tiebreaksWon: 0, tiebreaksPlayed: 0, currentStreak: 0, bestStreak: 0,
+  }
 }
 
 export async function createGuest(userId: string, name: string, suggestedLevel?: number): Promise<PlayerWithStats | { error: string }> {
