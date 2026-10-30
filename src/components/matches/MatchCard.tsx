@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
-import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle, CalendarDays, Pencil, PenLine, AlertTriangle } from 'lucide-react'
+import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle, CalendarDays, Pencil, PenLine, AlertTriangle, Share2 } from 'lucide-react'
 import { getInitials, getFullScore, setWinner, formatRatingDelta } from '@/lib/utils'
 import InviteButton from '@/components/players/InviteButton'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
@@ -333,7 +333,10 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
             </Link>
           </div>
         ) : openSpots > 0 ? (
-          <div className="mt-2 text-[11px] text-zinc-400">{openSpots} spot{openSpots > 1 ? 's' : ''} open</div>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="flex-1 text-[11px] text-zinc-400">{openSpots} spot{openSpots > 1 ? 's' : ''} open</span>
+            {isOrganiser && !readOnly && <ShareJoinLink matchId={match.id} />}
+          </div>
         ) : (
           match.guests.length > 0 && <div className="mt-2 text-[11px] text-zinc-400">{match.guests.map(g => g.name.split(' ')[0]).join(' & ')} not on PadelTrack</div>
         )}
@@ -432,6 +435,36 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
 
       <Footer />
     </div>
+  )
+}
+
+// Shares (or copies) the match's join link, so others can take an open spot.
+function ShareJoinLink({ matchId }: { matchId: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'copied' | 'error'>('idle')
+  const share = async () => {
+    setState('busy')
+    const res = await fetch(`/api/matches/${matchId}/share`, { method: 'POST' })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok || !d.token) { setState('error'); return }
+    const url = `${window.location.origin}/join/${d.token}`
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'Join my padel match', text: 'Grab a spot in my padel match on PadelTrack', url })
+        setState('idle')
+        return
+      } catch {
+        // Share sheet dismissed — fall through to copying.
+      }
+    }
+    await navigator.clipboard.writeText(url)
+    setState('copied')
+    setTimeout(() => setState('idle'), 2000)
+  }
+  return (
+    <button onClick={share} disabled={state === 'busy'} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold bg-zinc-900 text-white active:scale-95 transition disabled:opacity-50">
+      {state === 'copied' ? <Check className="h-3.5 w-3.5" /> : <Share2 className="h-3.5 w-3.5" />}
+      {state === 'copied' ? 'Link copied' : state === 'error' ? 'Try again' : 'Share link'}
+    </button>
   )
 }
 

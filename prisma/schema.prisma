@@ -177,6 +177,10 @@ model Match {
   disputed          Boolean            @default(false)
   disputeRemindedAt DateTime?
   scoreReports      MatchScoreReport[]
+  // A link the organiser shares (/join/<token>) so others can take an open
+  // spot themselves. Made the first time it's shared; works while the match
+  // is scheduled and has a spot open.
+  joinToken         String?            @unique
   updatedAt         DateTime           @default(now()) @updatedAt
   // Where it was played, free text (e.g. "Padel Club Cartagena"). When a
   // listed club was picked, `clubId` links it and `location` holds its label.

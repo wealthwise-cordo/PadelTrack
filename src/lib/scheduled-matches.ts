@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import {
@@ -100,6 +101,61 @@ export async function updateScheduledMatch(userId: string, matchId: string, data
     await sendPush(stayed, { title: 'Match updated', body: `${who} changed your match: now ${whenLabel(startsAt)}${where}${isRanked ? '' : ' (friendly)'}`, url: '/matches', tag: `match-${matchId}` })
   }
   return { ok: true }
+}
+
+// --- Join links ---------------------------------------------------------------------
+
+const SEATS = ['teamAPlayer1Id', 'teamAPlayer2Id', 'teamBPlayer1Id', 'teamBPlayer2Id'] as const
+
+// The organiser's link for others to take an open spot. Made on first share,
+// then reused.
+export async function getJoinToken(userId: string, matchId: string): Promise<Result<{ token: string }>> {
+  const m = await prisma.match.findUnique({ where: { id: matchId } })
+  if (!m || !m.organiserId) return { error: 'Match not found' }
+  if (m.organiserId !== userId) return { error: 'Only the person who set up this match can share it' }
+  if (m.status !== 'scheduled') return { error: 'A score has been entered, so nobody can join now' }
+  if (isFull(m)) return { error: 'This match is full' }
+  if (m.joinToken) return { ok: true, token: m.joinToken }
+  const token = randomBytes(12).toString('base64url')
+  await prisma.match.updateMany({ where: { id: matchId, joinToken: null }, data: { joinToken: token } })
+  const saved = await prisma.match.findUnique({ where: { id: matchId }, select: { joinToken: true } })
+  return saved?.joinToken ? { ok: true, token: saved.joinToken } : { error: 'Match not found' }
+}
+
+// The match behind a join link, while it's still open to join.
+export async function getMatchByJoinToken(token: string): Promise<MatchWithPlayers | null> {
+  const m = await prisma.match.findUnique({ where: { joinToken: token }, select: { id: true, status: true } })
+  return m && m.status === 'scheduled' ? getMatchById(m.id) : null
+}
+
+// Someone opening a join link takes the open spot they picked (0–1 are the
+// first pair, 2–3 the second). The organiser and the others are told.
+export async function joinMatch(userId: string, token: string, seat: number): Promise<Result<{ matchId: string }>> {
+  if (!Number.isInteger(seat) || seat < 0 || seat > 3) return { error: 'Pick a spot' }
+  const me = await getPlayerForUser(userId)
+  const m = await prisma.match.findUnique({ where: { joinToken: token }, include: MATCH_INCLUDE })
+  if (!me || !m || m.status !== 'scheduled') return { error: 'This link is no longer valid' }
+  if (sideOf(m, me.id)) return { ok: true, matchId: m.id }
+  if (isFull(m)) return { error: 'This match is already full' }
+  if (m[SEATS[seat]]) return { error: 'Someone just took that spot — pick another' }
+
+  // Only if the spot is still free and you're not in it already.
+  const taken = await prisma.match.updateMany({
+    where: { id: m.id, status: 'scheduled', [SEATS[seat]]: null, NOT: { OR: SEATS.map(k => ({ [k]: me.id })) } },
+    data: { [SEATS[seat]]: me.id },
+  })
+  if (taken.count === 0) return { error: 'Someone just took that spot — pick another' }
+
+  const partnerSeat = seat ^ 1
+  const partner = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2][partnerSeat]
+  const who = firstName(me.name)
+  await sendPush(userIdsOf(m, userId), {
+    title: 'Someone joined your match',
+    body: `${who} joined ${whenLabel(m.playedAt)}${m.location ? ` at ${m.location}` : ''}${partner ? `, partnering ${firstName(partner.name)}` : ''}`,
+    url: '/matches',
+    tag: `match-${m.id}`,
+  })
+  return { ok: true, matchId: m.id }
 }
 
 // --- Entering the score ----------------------------------------------------------

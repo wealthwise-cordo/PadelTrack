@@ -14,8 +14,9 @@ import PushToggle from '@/components/shared/PushToggle'
 // profile; suggestedLevel (from whoever added them) is pre-selected, and the
 // server blends the levels given for them (startingLevelFor).
 // `heading` and `footer` show while signing up and are hidden on the
-// notifications step that follows a direct sign-up.
-export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false, heading, footer }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean; heading?: string; footer?: React.ReactNode }) {
+// notifications step that follows a direct sign-up. `next` is where to go
+// afterwards (e.g. back to a match join link).
+export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false, heading, footer, next = '/' }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean; heading?: string; footer?: React.ReactNode; next?: string }) {
   const router = useRouter()
   const [name, setName] = useState(defaultName)
   const [email, setEmail] = useState('')
@@ -79,7 +80,7 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
   }
 
   const goToApp = () => {
-    router.push('/')
+    router.push(next)
     router.refresh()
   }
 
