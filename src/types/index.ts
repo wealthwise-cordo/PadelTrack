@@ -89,14 +89,14 @@ export interface MatchWithPlayers {
   viewerDelta?: number
   // For pending matches: first names of the opponents who can confirm.
   awaitingConfirmationFrom?: string[]
-  teamAPlayer1Id: string
-  teamAPlayer2Id: string
-  teamBPlayer1Id: string
-  teamBPlayer2Id: string
-  teamAPlayer1: PlayerWithStats
-  teamAPlayer2: PlayerWithStats
-  teamBPlayer1: PlayerWithStats
-  teamBPlayer2: PlayerWithStats
+  teamAPlayer1Id: string | null
+  teamAPlayer2Id: string | null
+  teamBPlayer1Id: string | null
+  teamBPlayer2Id: string | null
+  teamAPlayer1: PlayerWithStats | null
+  teamAPlayer2: PlayerWithStats | null
+  teamBPlayer1: PlayerWithStats | null
+  teamBPlayer2: PlayerWithStats | null
   // Null when the match didn't finish (incomplete).
   winner: 'A' | 'B' | null
   incomplete: boolean

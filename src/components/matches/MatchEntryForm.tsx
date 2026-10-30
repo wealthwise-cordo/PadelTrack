@@ -82,6 +82,9 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const scoreRefs = useRef<(HTMLInputElement | null)[]>([])
   // Which slot the player picker is filling, or null when it's closed.
   const [pickTarget, setPickTarget] = useState<number | null>(null)
+  // A player tapped to move: tapping another spot swaps them (or moves them
+  // into an empty one).
+  const [moving, setMoving] = useState<number | null>(null)
   const [today, setToday] = useState('')
   const [playedOn, setPlayedOn] = useState('')
   // Start time, for a match set up ahead ('HH:MM', the viewer's local time).
@@ -122,7 +125,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const startsAt = playedOn && time ? new Date(`${playedOn}T${time}`) : null
   const futureDay = !!today && playedOn > today
   const isFuture = (mode === 'edit' && !editingScore) || (mode === 'new' && (futureDay || (!!startsAt && playedOn === today && startsAt.getTime() > now)))
-  const startOk = !!startsAt && startsAt.getTime() > Date.now()
+  // A match that has started can still be edited (players) while it keeps
+  // its time; a new time has to be in the future.
+  const keepsStart = mode === 'edit' && !editingScore && !!existing && !!startsAt && startsAt.getTime() === new Date(existing.startsAt).getTime()
+  const startOk = !!startsAt && (startsAt.getTime() > Date.now() || keepsStart)
   // Ranked only for matches played in the last 30 days (the server checks
   // too); older ones are saved as friendlies.
   const rankedFrom = today ? localDate(-RANKED_MAX_AGE_DAYS) : ''
@@ -161,7 +167,16 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
     .map(x => ({ us: Number(x.us), them: Number(x.them) }))
   const canSaveIncomplete = allPicked && !winner && entered.some(x => x.us + x.them > 0)
   const savingIncomplete = incomplete && canSaveIncomplete
-  const ready = isFuture ? allPicked && startOk : allPicked && (!!winner || savingIncomplete)
+  // A match for the future can be saved with spots open, to fill in later.
+  const ready = isFuture ? startOk : allPicked && (!!winner || savingIncomplete)
+  // Why Save is greyed out, shown briefly only after it's tapped.
+  const blockedReason = isFuture
+    ? (!time ? 'Add a start time' : !startOk ? 'Pick a time in the future' : '')
+    : !allPicked ? 'Add all four players'
+    : unfinished >= 0 && !savingIncomplete ? `Set ${unfinished + 1} isn’t finished (e.g. 6–4)`
+    : !winner && !savingIncomplete ? 'Score the sets' : ''
+  const [blockedTap, setBlockedTap] = useState(false)
+  useEffect(() => setBlockedTap(false), [blockedReason])
 
   // Once the last player is in, jump straight to the first score box. This
   // runs inside the tap handler (not after a delay) so phones open the
@@ -180,6 +195,16 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
     const next = [...slots] as Slots
     next[i] = ''
     setSlots(next)
+    setMoving(null)
+  }
+  // Swaps the player being moved with spot i (partner ↔ opponent, or into
+  // an open spot). You always stay in the first spot.
+  const moveTo = (i: number) => {
+    if (moving === null) return
+    const next = [...slots] as Slots
+    ;[next[moving], next[i]] = [next[i], next[moving]]
+    setSlots(next)
+    setMoving(null)
   }
   const applyLineup = (l: Lineup) => {
     setPlayers(prev => {
@@ -228,6 +253,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
   const reset = () => {
     setSaved(null)
     setSlots([me.id, '', '', ''])
+    setMoving(null)
     setSets(EMPTY_SETS)
     setIsRanked(true)
     setError('')
@@ -432,37 +458,46 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
     )
   }
 
+  // Tap an empty spot to add someone; tap a player to move them, then tap
+  // another spot to swap; the corner × removes them.
   const renderSlot = (i: number) => {
     const p = byId.get(slots[i])
     const isNext = i === nextSlot
+    const target = moving !== null && moving !== i && i !== 0
     if (!p) {
       return (
         <button
           key={i}
-          onClick={() => setPickTarget(i)}
-          className={`h-14 rounded-xl border-2 border-dashed text-xs font-semibold transition w-full ${isNext ? 'border-orange-400 text-orange-600 bg-orange-50' : 'border-zinc-200 text-zinc-400'}`}
+          onClick={() => (target ? moveTo(i) : setPickTarget(i))}
+          className={`h-14 rounded-xl border-2 border-dashed text-xs font-semibold transition w-full ${target ? 'border-orange-400 text-orange-600 bg-orange-50' : isNext && moving === null ? 'border-orange-400 text-orange-600 bg-orange-50' : 'border-zinc-200 text-zinc-400'}`}
         >
-          {SLOT_LABELS[i]}
+          {target ? 'Move here' : SLOT_LABELS[i]}
         </button>
       )
     }
+    const editable = i !== 0 && !fixedLineup
     return (
-      <button
-        key={i}
-        onClick={() => clearSlot(i)}
-        disabled={i === 0 || fixedLineup}
-        className="relative h-14 flex items-center gap-1.5 pl-2 pr-3 rounded-xl bg-white border border-zinc-200 w-full min-w-0 text-left active:scale-[0.98] transition"
-        aria-label={i === 0 ? 'You' : `Remove ${p.name}`}
-      >
-        <span className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: p.avatarColor }}>
-          {getInitials(p.name)}
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-sm font-semibold truncate">{i === 0 ? 'You' : p.name.split(' ')[0]}</span>
-          {p.isGuest && <span className="block text-[10px] text-zinc-400">Guest</span>}
-        </span>
-        {i !== 0 && !fixedLineup && <X className="absolute top-1.5 right-1.5 h-2.5 w-2.5 text-zinc-300" />}
-      </button>
+      <div key={i} className="relative">
+        <button
+          onClick={() => (target ? moveTo(i) : setMoving(moving === i ? null : i))}
+          disabled={!editable}
+          className={`h-14 flex items-center gap-1.5 pl-2 pr-5 rounded-xl bg-white border w-full min-w-0 text-left active:scale-[0.98] transition ${moving === i ? 'border-orange-500 ring-2 ring-orange-500/30' : target ? 'border-orange-300 border-dashed' : 'border-zinc-200'}`}
+          aria-label={i === 0 ? 'You' : moving === i ? `Stop moving ${p.name}` : target ? `Swap with ${p.name}` : `Move ${p.name}`}
+        >
+          <span className="h-8 w-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: p.avatarColor }}>
+            {getInitials(p.name)}
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-semibold truncate">{i === 0 ? 'You' : p.name.split(' ')[0]}</span>
+            {target ? <span className="block text-[10px] text-orange-600">Swap</span> : p.isGuest && <span className="block text-[10px] text-zinc-400">Guest</span>}
+          </span>
+        </button>
+        {editable && (
+          <button onClick={() => clearSlot(i)} className="absolute top-0 right-0 p-1.5 text-zinc-300 hover:text-red-500" aria-label={`Remove ${p.name}`}>
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
     )
   }
 
@@ -508,7 +543,7 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           </label>
           {/* Start time: needed for a future date; on today, a later time sets it up ahead. */}
           {(playedOn >= today || (mode === 'edit' && !editingScore)) && (
-            <label className={`relative flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full text-sm font-semibold cursor-pointer shrink-0 ${futureDay && !time ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-300' : 'bg-zinc-100'}`}>
+            <label className="relative flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-zinc-100 text-sm font-semibold cursor-pointer shrink-0">
               <Clock className="h-4 w-4 text-orange-500" />
               {/* Today with no time picked means "played now": enter the score. */}
               {time || (futureDay || (mode === 'edit' && !editingScore) ? 'Add time' : 'Now')}
@@ -587,6 +622,9 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           <div className="space-y-2">{renderSlot(0)}{renderSlot(1)}</div>
           <span className="text-center text-[9px] font-black text-zinc-300">VS</span>
           <div className="space-y-2">{renderSlot(2)}{renderSlot(3)}</div>
+          {moving !== null && (
+            <p className="col-span-3 pt-1 text-center text-[11px] text-zinc-400">Tap a spot to swap</p>
+          )}
 
           {!isFuture && Array.from({ length: visibleSets }, (_, i) => {
             const result = won(parsed[i])
@@ -623,25 +661,13 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
             })
           })}
         </div>
-        {isFuture && (
-          <p className="mt-3 rounded-xl bg-orange-50 border border-orange-200 px-3 py-2.5 text-xs text-orange-900 leading-relaxed">
-            <span className="font-semibold block">This match is for the future</span>
-            Add the score after it’s played. Everyone gets a reminder the day before{mode === 'new' ? ', and we’ll let them know they’ve been added' : ''}.
-          </p>
-        )}
-        {!isFuture && unfinished >= 0 && !savingIncomplete && (
-          <p className="text-xs text-amber-700 mt-2">Set {unfinished + 1} isn’t a finished score yet (e.g. 6–4, 7–5 or 7–6).</p>
-        )}
         {!isFuture && canSaveIncomplete && (
-          <label className="mt-3 flex items-start gap-2.5 rounded-xl bg-zinc-50 border border-zinc-200 px-3 py-2.5 cursor-pointer">
+          <label className="mt-3 flex items-center gap-2 px-1 cursor-pointer text-xs text-zinc-600">
             <input
               type="checkbox" checked={incomplete} onChange={e => setIncomplete(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-orange-500 shrink-0"
+              className="h-4 w-4 accent-orange-500 shrink-0"
             />
-            <span className="text-xs text-zinc-600 leading-relaxed">
-              <span className="font-semibold text-zinc-900 block">Match didn’t finish</span>
-              Save it as incomplete: no winner and no rating change.
-            </span>
+            Match didn’t finish <span className="text-zinc-400">(no rating change)</span>
           </label>
         )}
       </section>
@@ -663,16 +689,11 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
       </section>}
 
       {rankedNotice && tooOldForRanked && (
-        <p className="text-xs text-zinc-500 leading-relaxed -mt-2 px-1" role="status">
-          Ranked matches must have been played in the last {RANKED_MAX_AGE_DAYS} days, so this one can only be saved as a friendly.
-        </p>
+        <p className="text-[11px] text-zinc-400 -mt-2 px-1" role="status">Ranked only for the last {RANKED_MAX_AGE_DAYS} days</p>
       )}
 
       {isRanked && guestsInLineup.length > 0 && (
-        <p className="text-xs text-zinc-500 leading-relaxed -mt-2 px-1">
-          <span className="font-semibold text-zinc-700">{guestsInLineup.map(g => g.name.split(' ')[0]).join(' & ')} {guestsInLineup.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack.</span>{' '}
-          To count as ranked, {guestsInLineup.length > 1 ? 'they each need' : 'they need'} to join within 48 hours of saving, or it becomes a friendly. You’ll get an invite link to send after you save.
-        </p>
+        <p className="text-[11px] text-zinc-400 -mt-2 px-1">Guests must join within 48h to count</p>
       )}
 
       {/* Save bar — fixed to the bottom like a native app */}
@@ -681,8 +702,10 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
           <div className="flex-1 min-w-0">
             {error ? (
               <div className="text-sm font-semibold text-red-600 truncate">{error}</div>
+            ) : blockedTap && blockedReason ? (
+              <div className="text-xs text-zinc-500 truncate" role="status">{blockedReason}</div>
             ) : isFuture ? (
-              <div className="text-xs text-zinc-500">{!allPicked ? 'Add all four players' : !time ? 'Add a start time' : !startOk ? 'Pick a time in the future' : startsAt!.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+              startOk && <div className="text-xs text-zinc-500">{startsAt!.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
             ) : savingIncomplete ? (
               <>
                 <div className="text-sm font-black text-zinc-900">Incomplete {setsUs}–{setsThem}</div>
@@ -693,14 +716,14 @@ export default function MatchEntryForm({ me, players: initialPlayers, lineups, r
                 <div className={`text-sm font-black ${winner === 'A' ? 'text-orange-600' : 'text-zinc-900'}`}>{winner === 'A' ? 'You win' : 'You lose'} {setsUs}–{setsThem}</div>
                 <div className="text-xs text-zinc-500 font-mono truncate">{counted.filter(Boolean).map(s => `${s!.us}-${s!.them}`).join('  ')}</div>
               </>
-            ) : (
-              <div className="text-xs text-zinc-500">{!allPicked ? 'Add all four players' : 'Score the sets'}</div>
-            )}
+            ) : null}
           </div>
+          {/* Greyed out until ready; tapping it then says what's missing. */}
           <button
-            onClick={handleSubmit}
-            disabled={!ready || submitting}
-            className="h-12 px-6 rounded-xl font-bold text-sm bg-orange-500 text-white disabled:opacity-40 active:scale-[0.98] transition"
+            onClick={() => (ready ? handleSubmit() : setBlockedTap(true))}
+            disabled={submitting}
+            aria-disabled={!ready}
+            className={`h-12 px-6 rounded-xl font-bold text-sm bg-orange-500 text-white disabled:opacity-40 active:scale-[0.98] transition ${ready ? '' : 'opacity-40'}`}
           >
             {submitting ? 'Saving…' : mode === 'edit' ? 'Save changes' : isFuture ? 'Save match for future' : savingIncomplete ? 'Save incomplete' : mode === 'score' ? 'Save score' : isRanked ? 'Save match' : 'Save friendly'}
           </button>

@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import { getRole } from '@/lib/roles'
 import { internalFromLevel, isLtaLevel } from '@/lib/lta'
-import { AUTO_CONFIRM_HOURS, settleMatchesFor } from '@/lib/store'
+import { AUTO_CONFIRM_HOURS, lineupOf, settleMatchesFor } from '@/lib/store'
 import type { Prisma } from '@prisma/client'
 
 // Ranked guests — temporary, while few players are on PadelTrack. The super
@@ -31,7 +31,7 @@ export async function getGuestsAwaitingJoin() {
   const byId = new Map<string, { id: string; name: string; suggestedLevel: number | null; addedBy: string | null; matches: number; deadline: Date }>()
   for (const m of matches) {
     const deadline = new Date(m.submittedAt.getTime() + WINDOW_MS)
-    for (const p of [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]) {
+    for (const p of lineupOf(m)) {
       if (p.userId || p.deletedAt || p.rankedGuestAt) continue
       const seen = byId.get(p.id)
       if (seen) {

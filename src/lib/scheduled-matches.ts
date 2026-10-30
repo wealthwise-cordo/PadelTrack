@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import {
   MATCH_INCLUDE, autoConfirmExpired, confirmerIds, finalizeIfReady, firstName, getMatchById, getPlayerForUser, involving,
-  resolveStartsAt, resultLine, sideOf, validateScore, whenLabel,
+  isFull, lineupIdsOf, lineupOf, resolveStartsAt, resultLine, sideOf, validateScore, whenLabel,
 } from '@/lib/store'
 import type { MatchWithPlayers } from '@/types'
 import type { Prisma } from '@prisma/client'
@@ -10,7 +10,9 @@ import type { Prisma } from '@prisma/client'
 // Matches set up ahead of time (status "scheduled"). See the Match model for
 // the lifecycle; in short:
 //   - the organiser picks a future date and time, the players and the venue;
-//     the others are notified, and the organiser can edit or cancel it;
+//     the others are notified. Seats can be left open. Until a score is in,
+//     the organiser can add, remove or swap players, change the details, or
+//     cancel it;
 //   - 25 hours before the start, everyone gets a reminder (if it was set up
 //     more than 25 hours ahead — otherwise the "added" notice was enough);
 //   - 2 hours after the start, everyone is asked to add the score;
@@ -30,7 +32,7 @@ type Sets = { teamAGames: number; teamBGames: number }[]
 type Result<T = object> = ({ ok: true } & T) | { error: string }
 type MatchRow = Prisma.MatchGetPayload<{ include: typeof MATCH_INCLUDE }>
 
-const playersOf = (m: MatchRow) => [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
+const playersOf = (m: MatchRow) => lineupOf(m)
 const userIdsOf = (m: MatchRow, except?: string) => playersOf(m).map(p => p.userId).filter((id): id is string => !!id && id !== except)
 
 function sameScore(a: { sets: unknown; winner: string | null; incomplete: boolean }, b: { sets: Sets; winner: string | null; incomplete: boolean }) {
@@ -42,7 +44,8 @@ function sameScore(a: { sets: unknown; winner: string | null; incomplete: boolea
 // --- Editing -------------------------------------------------------------------
 
 export async function updateScheduledMatch(userId: string, matchId: string, data: {
-  teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string
+  // Null leaves that seat open.
+  teamAPlayer1Id: string | null; teamAPlayer2Id: string | null; teamBPlayer1Id: string | null; teamBPlayer2Id: string | null
   startsAt: unknown; location?: string; clubId?: string; isRanked?: boolean
 }): Promise<Result> {
   const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
@@ -51,29 +54,35 @@ export async function updateScheduledMatch(userId: string, matchId: string, data
   if (m.status !== 'scheduled') return { error: 'A score has been entered, so this match can’t be changed' }
 
   const startsAt = resolveStartsAt(data.startsAt)
-  if (!startsAt || startsAt.getTime() <= Date.now()) return { error: 'Pick a date and time in the future' }
-  const ids = [data.teamAPlayer1Id, data.teamAPlayer2Id, data.teamBPlayer1Id, data.teamBPlayer2Id]
-  if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
+  if (!startsAt) return { error: 'Pick a valid date and time' }
+  const timeChanged = startsAt.getTime() !== m.playedAt.getTime()
+  // Once it has started the line-up can still change (until a score is in),
+  // but a new time has to be in the future.
+  if (timeChanged && startsAt.getTime() <= Date.now()) return { error: 'Pick a date and time in the future' }
+  const seats = [data.teamAPlayer1Id || null, data.teamAPlayer2Id || null, data.teamBPlayer1Id || null, data.teamBPlayer2Id || null]
+  const ids = lineupIdsOf({ teamAPlayer1Id: seats[0], teamAPlayer2Id: seats[1], teamBPlayer1Id: seats[2], teamBPlayer2Id: seats[3] })
+  if (new Set(ids).size !== ids.length) return { error: 'All four players must be different' }
   const me = await getPlayerForUser(userId)
   if (!me || !ids.includes(me.id)) return { error: 'You must be one of the four players' }
   const players = await prisma.player.findMany({ where: { id: { in: ids }, deletedAt: null } })
-  if (players.length !== 4) return { error: 'One or more players were not found' }
+  if (players.length !== ids.length) return { error: 'One or more players were not found' }
   const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
   if (data.clubId && !club) return { error: 'That club was not found' }
   const location = club ? `${club.name}, ${club.area}` : data.location?.trim().slice(0, 60) || null
   const isRanked = data.isRanked !== false
-  const timeChanged = startsAt.getTime() !== m.playedAt.getTime()
 
-  await prisma.match.update({
-    where: { id: matchId },
+  // Only while it's still unscored: someone may be entering a score right now.
+  const updated = await prisma.match.updateMany({
+    where: { id: matchId, status: 'scheduled' },
     data: {
-      teamAPlayer1Id: ids[0], teamAPlayer2Id: ids[1], teamBPlayer1Id: ids[2], teamBPlayer2Id: ids[3],
+      teamAPlayer1Id: seats[0], teamAPlayer2Id: seats[1], teamBPlayer1Id: seats[2], teamBPlayer2Id: seats[3],
       playedAt: startsAt, location, clubId: club?.id ?? null, isRanked,
       // A new time gets its own reminder and score prompt; submittedAt marks
       // when it was (re)scheduled, which decides whether a reminder is due.
       ...(timeChanged && { reminderSentAt: null, scorePromptSentAt: null, submittedAt: new Date() }),
     },
   })
+  if (updated.count === 0) return { error: 'A score has been entered, so this match can’t be changed' }
 
   const before = new Set(playersOf(m).map(p => p.userId).filter(Boolean))
   const after = new Set(players.map(p => p.userId).filter(Boolean))
@@ -84,7 +93,9 @@ export async function updateScheduledMatch(userId: string, matchId: string, data
   const who = firstName(me.name)
   await sendPush(added, { title: 'You’ve been added to a match', body: `${who} added you to a ${isRanked ? 'ranked match' : 'friendly'}: ${whenLabel(startsAt)}${where}`, url: '/matches', tag: `match-${matchId}` })
   await sendPush(removed, { title: 'Removed from a match', body: `${who} took you off the match on ${whenLabel(m.playedAt)}.`, url: '/matches', tag: `match-${matchId}` })
-  const changed = timeChanged || location !== m.location || isRanked !== m.isRanked || added.length > 0 || removed.length > 0
+  // Seats moving (a swap, or someone leaving or joining) counts as a change.
+  const moved = seats.some((id, i) => id !== [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id][i])
+  const changed = timeChanged || location !== m.location || isRanked !== m.isRanked || moved
   if (changed) {
     await sendPush(stayed, { title: 'Match updated', body: `${who} changed your match: now ${whenLabel(startsAt)}${where}${isRanked ? '' : ' (friendly)'}`, url: '/matches', tag: `match-${matchId}` })
   }
@@ -106,6 +117,7 @@ export async function submitScore(
   if (!mySide) return { error: 'Only players in this match can add its score' }
   if (m.playedAt.getTime() > Date.now()) return { error: 'You can add the score once the match has started' }
   if (m.status === 'complete' || m.scoreConfirmedAt) return { error: 'This match already has a confirmed score' }
+  if (!isFull(m)) return { error: 'This match still has open spots — add all four players before the score' }
 
   const incomplete = input.incomplete === true
   const winner = incomplete ? null : input.winner
@@ -236,8 +248,15 @@ export async function getAwaitingScore(playerId: string): Promise<MatchWithPlaye
   return (await Promise.all(rows.map(r => getMatchById(r.id)))).filter((m): m is MatchWithPlayers => !!m)
 }
 
+// Ones with open spots only count for the organiser, who has to fill them.
 export function countAwaitingScore(playerId: string): Promise<number> {
-  return prisma.match.count({ where: { status: 'scheduled', playedAt: { lte: new Date() }, ...involving(playerId) } })
+  const full = { teamAPlayer1Id: { not: null }, teamAPlayer2Id: { not: null }, teamBPlayer1Id: { not: null }, teamBPlayer2Id: { not: null } }
+  return prisma.match.count({
+    where: {
+      status: 'scheduled', playedAt: { lte: new Date() },
+      AND: [involving(playerId), { OR: [full, { organiser: { player: { id: playerId } } }] }],
+    },
+  })
 }
 
 // --- Timed notifications (called every ~10 minutes by the cron endpoint) ------------
@@ -262,9 +281,11 @@ export async function runDueNotifications(now = new Date()) {
     for (const p of playersOf(m)) {
       if (!p.userId) continue
       const others = playersOf(m).filter(x => x.id !== p.id).map(x => firstName(x.name)).join(', ')
+      const open = 4 - playersOf(m).length
+      const spots = open ? ` — ${open} spot${open > 1 ? 's' : ''} still open` : ''
       await sendPush([p.userId], {
         title: tomorrow ? 'Padel tomorrow' : 'Padel coming up',
-        body: `${tomorrow ? `Tomorrow at ${time}` : whenLabel(m.playedAt)}${m.location ? ` at ${m.location}` : ''} with ${others}`,
+        body: `${tomorrow ? `Tomorrow at ${time}` : whenLabel(m.playedAt)}${m.location ? ` at ${m.location}` : ''}${others ? ` with ${others}` : ''}${spots}`,
         url: '/matches',
         tag: `match-${m.id}`,
       })
@@ -280,6 +301,17 @@ export async function runDueNotifications(now = new Date()) {
   for (const m of finished) {
     const claimed = await prisma.match.updateMany({ where: { id: m.id, scorePromptSentAt: null }, data: { scorePromptSentAt: now } })
     if (claimed.count === 0) continue
+    // Seats still open: only the organiser can fill them, before the score.
+    if (!isFull(m)) {
+      await sendPush([m.organiserId], {
+        title: 'How did it go?',
+        body: `Add the missing players to your match on ${whenLabel(m.playedAt)}, then the score.`,
+        url: `/matches/${m.id}/edit`,
+        tag: `match-${m.id}`,
+      })
+      sent.scorePrompts++
+      continue
+    }
     await sendPush(userIdsOf(m), {
       title: 'How did it go?',
       body: `Add the score for your match on ${whenLabel(m.playedAt)}.`,

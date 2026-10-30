@@ -1,13 +1,13 @@
 import { notFound, redirect } from 'next/navigation'
 import MatchEntryForm from '@/components/matches/MatchEntryForm'
-import { getClubs, getMatchById, getPickablePlayers, getPlayer, getRecentLocations } from '@/lib/store'
+import { getClubs, getMatchById, getPickablePlayers, getPlayer, getRecentLocations, lineupOf } from '@/lib/store'
 import { requireSession } from '@/lib/session'
 import { formExisting } from '@/lib/scheduled-form'
 
 export const revalidate = 0
 
 // Changing (or deleting) a match before its score is confirmed: the organiser
-// of a scheduled match, or whoever entered the score of a pending one.
+// of a scheduled match (any time until a score is in, open spots and all), or whoever entered the score of a pending one.
 export default async function EditMatchPage({ params }: { params: { id: string } }) {
   const session = await requireSession()
   const meId = session.player.id
@@ -24,7 +24,7 @@ export default async function EditMatchPage({ params }: { params: { id: string }
   const canDelete = !m.organiserId || m.organiserId === session.userId
 
   // Everyone already in it stays pickable, even if they're not in your circle.
-  const lineup = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
+  const lineup = lineupOf(m)
   const players = [...pickable, ...lineup.filter(p => !pickable.some(x => x.id === p.id))]
 
   return (

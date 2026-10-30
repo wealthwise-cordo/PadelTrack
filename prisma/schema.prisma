@@ -143,14 +143,15 @@ model Match {
   winner            String? // "A" | "B"; null when incomplete
   recordedById      String
   recordedBy        User               @relation("MatchRecorder", fields: [recordedById], references: [id], onDelete: Cascade)
-  teamAPlayer1Id    String
-  teamAPlayer2Id    String
-  teamBPlayer1Id    String
-  teamBPlayer2Id    String
-  teamAPlayer1      Player             @relation("TeamA1", fields: [teamAPlayer1Id], references: [id])
-  teamAPlayer2      Player             @relation("TeamA2", fields: [teamAPlayer2Id], references: [id])
-  teamBPlayer1      Player             @relation("TeamB1", fields: [teamBPlayer1Id], references: [id])
-  teamBPlayer2      Player             @relation("TeamB2", fields: [teamBPlayer2Id], references: [id])
+  // Null is an open spot: only a scheduled match can have one (see below).
+  teamAPlayer1Id    String?
+  teamAPlayer2Id    String?
+  teamBPlayer1Id    String?
+  teamBPlayer2Id    String?
+  teamAPlayer1      Player?            @relation("TeamA1", fields: [teamAPlayer1Id], references: [id], onDelete: Restrict)
+  teamAPlayer2      Player?            @relation("TeamA2", fields: [teamAPlayer2Id], references: [id], onDelete: Restrict)
+  teamBPlayer1      Player?            @relation("TeamB1", fields: [teamBPlayer1Id], references: [id], onDelete: Restrict)
+  teamBPlayer2      Player?            @relation("TeamB2", fields: [teamBPlayer2Id], references: [id], onDelete: Restrict)
   // Filled in when the match is confirmed and ratings are applied.
   teamAPTRBefore    Float              @default(0)
   teamBPTRBefore    Float              @default(0)
@@ -162,10 +163,11 @@ model Match {
   matchQuality      Float              @default(0)
   // Scheduled matches: set up ahead of time with no score (status
   // "scheduled", playedAt = start time). The organiser can edit or cancel it
-  // until a score is in. Players get a reminder 25 hours before
-  // (reminderSentAt) and a prompt to add the score 2 hours after the start
-  // (scorePromptSentAt). Any player can then enter the score; each entry is a
-  // MatchScoreReport. Two matching entries from opposite pairs confirm it;
+  // until a score is in, including leaving player spots open and filling,
+  // swapping or clearing them later; the score needs all four. Players get a
+  // reminder 25 hours before (reminderSentAt) and a prompt to add the score
+  // 2 hours after the start (scorePromptSentAt). Any player can then enter
+  // the score; each entry is a MatchScoreReport. Two matching entries from opposite pairs confirm it;
   // different entries make it `disputed` until an opponent of one submitter
   // picks the right one. Disputed matches never auto-confirm.
   organiserId       String?

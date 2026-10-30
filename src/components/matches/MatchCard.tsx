@@ -235,14 +235,17 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
 
   // No result yet (scheduled) or none at all (incomplete): neither side dimmed.
   const noResult = match.status === 'scheduled' || match.incomplete || match.disputed
-  const Team = ({ players, won, align }: { players: PlayerWithStats[]; won: boolean; align: 'left' | 'right' }) => (
+  // An open spot (a match set up ahead) shows as a dashed circle.
+  const Team = ({ players, won, align }: { players: (PlayerWithStats | null)[]; won: boolean; align: 'left' | 'right' }) => (
     <div className={`flex-1 min-w-0 ${align === 'right' ? 'text-right' : ''} ${won || noResult ? '' : 'opacity-60'}`}>
       <div className={`flex items-center gap-1.5 mb-1 ${align === 'right' ? 'justify-end' : ''}`}>
         {align === 'right' && won && <span className="text-[10px] text-orange-600 font-bold mr-1">WIN</span>}
-        {players.map(p => <Avatar key={p.id} p={p} size="sm" />)}
+        {players.map((p, i) => p
+          ? <Avatar key={p.id} p={p} size="sm" />
+          : <div key={`open-${i}`} className="h-7 w-7 rounded-full border-2 border-dashed border-zinc-300" title="Open spot" />)}
         {align === 'left' && won && <span className="text-[10px] text-orange-600 font-bold ml-1">WIN</span>}
       </div>
-      <div className="text-xs text-zinc-600 truncate">{players.map(p => p.name.split(' ')[0]).join(' & ')}</div>
+      <div className="text-xs text-zinc-600 truncate">{players.map(p => (p ? p.name.split(' ')[0] : 'Open')).join(' & ')}</div>
     </div>
   )
 
@@ -282,6 +285,7 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
     const start = new Date(match.playedAt)
     const started = mounted && start.getTime() <= Date.now()
     const isOrganiser = !!viewer && match.organiserId === viewer.userId
+    const openSpots = teamA.concat(teamB).filter(p => !p).length
     return (
       <div className={`ptr-card ${started ? '!border-orange-300 !bg-orange-50/50' : ''}`}>
         <div className="flex items-center mb-3 gap-2">
@@ -296,7 +300,8 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
           </span>
           <div className="flex items-center gap-2 shrink-0">
             {!match.isRanked && <span className="text-[10px] bg-sky-100 text-sky-800 rounded px-1.5 py-0.5 font-semibold">FRIENDLY</span>}
-            {isOrganiser && !started && (
+            {/* The organiser can change or cancel it until a score is in. */}
+            {isOrganiser && !readOnly && (
               <>
                 <Link href={`/matches/${match.id}/edit`} className="text-zinc-400 hover:text-zinc-700" aria-label="Edit match"><Pencil className="h-3.5 w-3.5" /></Link>
                 <button onClick={() => setConfirmingDelete(v => !v)} className="text-zinc-400 hover:text-red-600" aria-label="Delete match"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -311,6 +316,15 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
         </div>
         {started && readOnly ? (
           <div className="mt-2 text-[11px] text-zinc-500">Started — no score entered yet.</div>
+        ) : openSpots > 0 && started ? (
+          <div className="mt-3 pt-3 border-t border-orange-200 flex items-center gap-2">
+            <span className="text-xs text-zinc-500 flex-1">Waiting for players</span>
+            {isOrganiser && (
+              <Link href={`/matches/${match.id}/edit`} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-500 text-white hover:bg-orange-600">
+                <Pencil className="h-3.5 w-3.5" /> Add players
+              </Link>
+            )}
+          </div>
         ) : started ? (
           <div className="mt-3 pt-3 border-t border-orange-200 flex items-center gap-2">
             <span className="text-xs text-zinc-600 flex-1">How did it go?</span>
@@ -318,11 +332,10 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
               <PenLine className="h-3.5 w-3.5" /> Add score
             </Link>
           </div>
+        ) : openSpots > 0 ? (
+          <div className="mt-2 text-[11px] text-zinc-400">{openSpots} spot{openSpots > 1 ? 's' : ''} open</div>
         ) : (
-          <div className="mt-2 text-[11px] text-zinc-500">{match.guests.length ? `${match.guests.map(g => g.name.split(' ')[0]).join(' & ')} ${match.guests.length > 1 ? 'aren’t' : 'isn’t'} on PadelTrack, so won’t get reminders.` : 'Everyone gets a reminder the day before.'}</div>
-        )}
-        {isOrganiser && started && (
-          <button onClick={() => setConfirmingDelete(v => !v)} className="mt-2 text-[11px] text-zinc-400 hover:text-red-600">Didn’t happen? Cancel it</button>
+          match.guests.length > 0 && <div className="mt-2 text-[11px] text-zinc-400">{match.guests.map(g => g.name.split(' ')[0]).join(' & ')} not on PadelTrack</div>
         )}
         {confirmingDelete && (
           <div className="mt-3 pt-3 border-t border-zinc-200 flex items-center gap-2">
@@ -355,9 +368,9 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
             return (
               <div key={i} className={`flex flex-col items-center text-center gap-2 ${i === 1 ? 'order-3' : ''} ${won || match.incomplete ? '' : 'opacity-60'}`}>
                 <div className="flex -space-x-2">
-                  {team.map(p => <Avatar key={p.id} p={p} size="lg" />)}
+                  {team.map(p => p && <Avatar key={p.id} p={p} size="lg" />)}
                 </div>
-                <div className="text-sm font-semibold leading-tight">{team.map(p => p.name.split(' ')[0]).join(' & ')}</div>
+                <div className="text-sm font-semibold leading-tight">{team.map(p => p?.name.split(' ')[0] ?? 'Open').join(' & ')}</div>
                 {won && <span className="text-[10px] font-black tracking-widest text-orange-500">WINNERS</span>}
               </div>
             )

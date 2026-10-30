@@ -3,7 +3,7 @@ import { sendPush } from '@/lib/push'
 import { getRole } from '@/lib/roles'
 import { MIN_REASON_LENGTH, MAX_REASON_LENGTH } from '@/lib/rating-adjustments'
 import { acceptReport } from '@/lib/scheduled-matches'
-import { MATCH_INCLUDE, finalizeIfReady, getMatchById, getPlayerForUser, resultLine, whenLabel } from '@/lib/store'
+import { MATCH_INCLUDE, finalizeIfReady, getMatchById, getPlayerForUser, lineupOf, resultLine, whenLabel } from '@/lib/store'
 import type { MatchWithPlayers } from '@/types'
 import type { Prisma } from '@prisma/client'
 
@@ -20,10 +20,11 @@ type Result = { ok: true } | { error: string }
 type MatchRow = Prisma.MatchGetPayload<{ include: typeof MATCH_INCLUDE }>
 export type AdminAction = 'confirm' | 'settle' | 'void'
 
-const playersOf = (m: MatchRow) => [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
+const playersOf = (m: MatchRow) => lineupOf(m)
 
 function summaryOf(m: MatchRow, sets: { teamAGames: number; teamBGames: number }[] = m.sets): string {
-  const pair = (a: { name: string }, b: { name: string }) => `${a.name.split(' ')[0]} & ${b.name.split(' ')[0]}`
+  const first = (p: { name: string } | null) => p ? p.name.split(' ')[0] : 'Open'
+  const pair = (a: { name: string } | null, b: { name: string } | null) => `${first(a)} & ${first(b)}`
   const score = sets.length ? ` · ${sets.map(s => `${s.teamAGames}–${s.teamBGames}`).join(' ')}` : ''
   return `${pair(m.teamAPlayer1, m.teamAPlayer2)} v ${pair(m.teamBPlayer1, m.teamBPlayer2)}${score} · ${whenLabel(m.playedAt)}`
 }

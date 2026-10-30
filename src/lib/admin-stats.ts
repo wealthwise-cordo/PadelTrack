@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { levelFromInternal } from '@/lib/lta'
+import { lineupIdsOf, lineupOf } from '@/lib/store'
 
 // Everything on the admin analytics page for one time period, computed in
 // one pass. Fine at this scale (hundreds of players); move to SQL aggregates
@@ -194,7 +195,7 @@ export async function getAdminStats(period: Period) {
   }
   const matchesInByPlayer = new Map<string, number>()
   for (const m of matchesIn) {
-    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) matchesInByPlayer.set(id, (matchesInByPlayer.get(id) ?? 0) + 1)
+    for (const id of lineupIdsOf(m)) matchesInByPlayer.set(id, (matchesInByPlayer.get(id) ?? 0) + 1)
   }
   const activePlayers = Array.from(activeByUser.entries())
     .map(([userId, a]) => {
@@ -245,7 +246,7 @@ export async function getAdminStats(period: Period) {
   const circle = new Map<string, Set<string>>(registered.map(p => [p.id, new Set()]))
   for (const m of matches) {
     if (m.status !== 'complete' || !m.isRanked) continue
-    const ids = [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]
+    const ids = lineupIdsOf(m)
     for (const a of ids) for (const b of ids) if (a !== b && registeredIds.has(b)) circle.get(a)?.add(b)
   }
   const sizes = Array.from(circle.values()).map(s => s.size).sort((a, b) => a - b)
@@ -293,7 +294,7 @@ export async function getAdminStats(period: Period) {
   const joinedAt = (p: (typeof registered)[number]) => p.user!.createdAt.getTime()
   const matchTimes = new Map<string, number[]>()
   for (const m of matches) {
-    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) {
+    for (const id of lineupIdsOf(m)) {
       const list = matchTimes.get(id) ?? []
       list.push(m.submittedAt.getTime())
       matchTimes.set(id, list)
@@ -472,8 +473,8 @@ export async function getSilentPartnerFlags() {
   })
   const byRecorder = new Map<string, { id: string; name: string; count: number; last: Date }>()
   for (const m of rows) {
-    const a = [m.teamAPlayer1, m.teamAPlayer2]
-    const b = [m.teamBPlayer1, m.teamBPlayer2]
+    const a = lineupOf({ ...m, teamBPlayer1: null, teamBPlayer2: null })
+    const b = lineupOf({ ...m, teamAPlayer1: null, teamAPlayer2: null })
     const recorder = [...a, ...b].find(p => p.userId === m.recordedById)
     if (!recorder) continue
     const opponents = a.includes(recorder) ? b : a

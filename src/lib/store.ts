@@ -98,11 +98,11 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
     autoConfirmed: m.autoConfirmed,
     scoreConfirmed: !!m.scoreConfirmedAt,
     becameFriendly: m.becameFriendly,
-    guests: [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2]
+    guests: lineupOf(m)
       .filter(p => !p.userId && !p.deletedAt)
       .map(p => ({ id: p.id, name: p.name, ranked: !!p.rankedGuestAt })),
     autoConfirms: (() => {
-      const recorder = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].find(p => p.userId === m.recordedById)
+      const recorder = lineupOf(m).find(p => p.userId === m.recordedById)
       return !!recorder && confirmsItself(m, recorder.id)
     })(),
     viewerDelta,
@@ -110,10 +110,10 @@ function hydrateMatch(m: MatchFull, viewerDelta?: number): MatchWithPlayers {
     teamAPlayer2Id: m.teamAPlayer2Id,
     teamBPlayer1Id: m.teamBPlayer1Id,
     teamBPlayer2Id: m.teamBPlayer2Id,
-    teamAPlayer1: toPlayerWithStats(m.teamAPlayer1),
-    teamAPlayer2: toPlayerWithStats(m.teamAPlayer2),
-    teamBPlayer1: toPlayerWithStats(m.teamBPlayer1),
-    teamBPlayer2: toPlayerWithStats(m.teamBPlayer2),
+    teamAPlayer1: m.teamAPlayer1 && toPlayerWithStats(m.teamAPlayer1),
+    teamAPlayer2: m.teamAPlayer2 && toPlayerWithStats(m.teamAPlayer2),
+    teamBPlayer1: m.teamBPlayer1 && toPlayerWithStats(m.teamBPlayer1),
+    teamBPlayer2: m.teamBPlayer2 && toPlayerWithStats(m.teamBPlayer2),
     teamAPTRBefore: m.teamAPTRBefore,
     teamBPTRBefore: m.teamBPTRBefore,
     teamAPTRAfter: m.teamAPTRAfter,
@@ -138,7 +138,18 @@ export const MATCH_INCLUDE = {
 } satisfies Prisma.MatchInclude
 
 type Seat = { id: string; userId: string | null; rankedGuestAt: Date | null }
-type Seated = { teamAPlayer1: Seat; teamAPlayer2: Seat; teamBPlayer1: Seat; teamBPlayer2: Seat }
+type Seated = { teamAPlayer1: Seat | null; teamAPlayer2: Seat | null; teamBPlayer1: Seat | null; teamBPlayer2: Seat | null }
+type SeatIds = { teamAPlayer1Id: string | null; teamAPlayer2Id: string | null; teamBPlayer1Id: string | null; teamBPlayer2Id: string | null }
+
+// A match's seats are open (null) only while it's scheduled: the organiser
+// can save it with just some of the players and fill the rest in later. A
+// score needs all four, so pending and complete matches are always full.
+export const seatIdsOf = (m: SeatIds) => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]
+export const lineupIdsOf = (m: SeatIds) => seatIdsOf(m).filter((id): id is string => !!id)
+export const isFull = (m: SeatIds) => lineupIdsOf(m).length === 4
+export function lineupOf<P>(m: { teamAPlayer1: P | null; teamAPlayer2: P | null; teamBPlayer1: P | null; teamBPlayer2: P | null }): P[] {
+  return [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter((p): p is P => !!p)
+}
 
 // Who confirms a score entered by byPlayerId: registered players on the other
 // pair. While ranked guests are allowed, if both opponents are ranked guests
@@ -146,8 +157,8 @@ type Seated = { teamAPlayer1: Seat; teamAPlayer2: Seat; teamBPlayer1: Seat; team
 // (three guests) nobody can, and it waits for the super user in Admin →
 // Matches. Guests who aren't verified confirm once they've joined, as before.
 export function confirmerIds(m: Seated, byPlayerId: string): string[] {
-  const a = [m.teamAPlayer1, m.teamAPlayer2]
-  const b = [m.teamBPlayer1, m.teamBPlayer2]
+  const a = [m.teamAPlayer1, m.teamAPlayer2].filter((p): p is Seat => !!p)
+  const b = [m.teamBPlayer1, m.teamBPlayer2].filter((p): p is Seat => !!p)
   const mine = a.some(p => p.id === byPlayerId) ? a : b.some(p => p.id === byPlayerId) ? b : null
   if (!mine) return []
   const theirs = mine === a ? b : a
@@ -415,7 +426,7 @@ export async function getCircleIds(playerId: string): Promise<string[]> {
   })
   const ids = new Set<string>()
   for (const m of matches) {
-    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) ids.add(id)
+    for (const id of lineupIdsOf(m)) ids.add(id)
   }
   ids.delete(playerId)
   const registered = await prisma.player.findMany({
@@ -452,7 +463,7 @@ export async function getPickablePlayers(userId: string): Promise<PlayerWithStat
         select: { teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
       })
     : []
-  const playedWithIds = Array.from(new Set(nearMatches.flatMap(m => [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id])))
+  const playedWithIds = Array.from(new Set(nearMatches.flatMap(lineupIdsOf)))
   const circleUserIds = circleIds.length
     ? (await prisma.player.findMany({ where: { id: { in: circleIds } }, select: { userId: true } })).map(p => p.userId!).filter(Boolean)
     : []
@@ -688,7 +699,7 @@ export async function getMatchesForPlayer(playerId: string, opts?: { withInvites
     if (m.status === 'pending') hydrated.awaitingConfirmationFrom = confirmerNames(m, m.recordedBy.player?.id)
     if (opts?.withInvites) {
       const everyMatch = m.status === 'pending' || !m.isRanked
-      const tokens = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, everyMatch || p.rankedGuestAt ? p.claimToken : null]))
+      const tokens = new Map(lineupOf(m).map(p => [p.id, everyMatch || p.rankedGuestAt ? p.claimToken : null]))
       hydrated.guests = hydrated.guests.map(g => ({ ...g, claimToken: tokens.get(g.id) ?? undefined }))
     }
     return hydrated
@@ -699,7 +710,7 @@ export async function getMatchesForPlayer(playerId: string, opts?: { withInvites
 function confirmerNames(m: MatchFull, recorderPlayerId: string | undefined): string[] {
   if (!recorderPlayerId) return []
   const ids = confirmerIds(m, recorderPlayerId)
-  return [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(p => ids.includes(p.id)).map(p => p.name.split(' ')[0])
+  return lineupOf(m).filter(p => ids.includes(p.id)).map(p => p.name.split(' ')[0])
 }
 
 // Every match saved, newest first, for the super user's overview. ranked
@@ -722,7 +733,8 @@ export async function getMatchById(id: string): Promise<MatchWithPlayers | null>
 
 type Side = 'A' | 'B'
 
-export function sideOf(m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }, playerId: string): Side | null {
+export function sideOf(m: SeatIds, playerId: string): Side | null {
+  if (!playerId) return null
   if (m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId) return 'A'
   if (m.teamBPlayer1Id === playerId || m.teamBPlayer2Id === playerId) return 'B'
   return null
@@ -817,10 +829,11 @@ export function resolveStartsAt(startsAt: unknown): Date | null {
 }
 
 export async function createMatch(userId: string, data: {
-  teamAPlayer1Id: string
-  teamAPlayer2Id: string
-  teamBPlayer1Id: string
-  teamBPlayer2Id: string
+  // A match set up ahead can leave seats open (null) to fill in later.
+  teamAPlayer1Id: string | null
+  teamAPlayer2Id: string | null
+  teamBPlayer1Id: string | null
+  teamBPlayer2Id: string | null
   sets: { teamAGames: number; teamBGames: number }[]
   // Null for an incomplete match.
   winner: Side | null
@@ -837,15 +850,19 @@ export async function createMatch(userId: string, data: {
   // A start time in the future makes it a scheduled match: no score yet.
   startsAt?: string
 }): Promise<{ matchId: string; status: 'scheduled' | 'pending' | 'complete'; ptrDelta: number; isUpset: boolean; invites: { name: string; claimToken: string; rankedGuest: boolean }[] } | { error: string }> {
-  const { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id, sets, winner } = data
+  const { sets, winner } = data
+  const teamAPlayer1Id = data.teamAPlayer1Id || null, teamAPlayer2Id = data.teamAPlayer2Id || null
+  const teamBPlayer1Id = data.teamBPlayer1Id || null, teamBPlayer2Id = data.teamBPlayer2Id || null
+  const seats = { teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id }
   const startsAt = data.startsAt !== undefined ? resolveStartsAt(data.startsAt) : null
   if (data.startsAt !== undefined && !startsAt) return { error: 'Pick a valid date and time' }
   const scheduled = !!startsAt && startsAt.getTime() > Date.now()
   // A start time already passed is when it was played (it needs a score).
   const playedAt = startsAt ?? resolvePlayedAt(data.playedOn)
   if (!playedAt) return { error: 'Pick a valid date that isn’t in the future' }
-  const ids = [teamAPlayer1Id, teamAPlayer2Id, teamBPlayer1Id, teamBPlayer2Id]
-  if (new Set(ids).size !== 4) return { error: 'All four players must be different' }
+  const ids = lineupIdsOf(seats)
+  if (!scheduled && ids.length !== 4) return { error: 'Add all four players to save a score' }
+  if (new Set(ids).size !== ids.length) return { error: 'All four players must be different' }
   const incomplete = !scheduled && data.incomplete === true
   if (!scheduled) {
     const scoreError = validateScore(sets, winner, incomplete)
@@ -854,11 +871,11 @@ export async function createMatch(userId: string, data: {
 
   const me = await getPlayerForUser(userId)
   if (!me) return { error: 'Your profile was not found' }
-  const mySide = sideOf(data, me.id)
+  const mySide = sideOf(seats, me.id)
   if (!mySide) return { error: 'You must be one of the four players' }
 
   const players = await prisma.player.findMany({ where: { id: { in: ids } } })
-  if (players.length !== 4) return { error: 'One or more players were not found' }
+  if (players.length !== ids.length) return { error: 'One or more players were not found' }
 
   const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
   if (data.clubId && !club) return { error: 'That club was not found' }
@@ -920,7 +937,8 @@ export async function createMatch(userId: string, data: {
   // Phone notification for whoever can confirm it.
   if (saved.status === 'pending') {
     const byId = new Map(players.map(p => [p.id, p]))
-    const seated = { teamAPlayer1: byId.get(teamAPlayer1Id)!, teamAPlayer2: byId.get(teamAPlayer2Id)!, teamBPlayer1: byId.get(teamBPlayer1Id)!, teamBPlayer2: byId.get(teamBPlayer2Id)! }
+    const [a1, a2, b1, b2] = ids.map(id => byId.get(id)!)
+    const seated = { teamAPlayer1: a1, teamAPlayer2: a2, teamBPlayer1: b1, teamBPlayer2: b2 }
     await sendPush(confirmerIds(seated, me.id).map(id => byId.get(id)?.userId), {
       title: 'Confirm your match',
       body: `${firstName(me.name)} recorded: ${resultLine(data, byId)}`,
@@ -942,10 +960,11 @@ export function whenLabel(d: Date): string {
 
 // "Morgan & Riley beat Alex & Taylor 6–3 6–4" (winner's games first).
 export function resultLine(
-  m: { teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string; winner: string | null; sets: { teamAGames: number; teamBGames: number }[] },
+  m: SeatIds & { winner: string | null; sets: { teamAGames: number; teamBGames: number }[] },
   byId: Map<string, { name: string }>
 ): string {
-  const pair = (a: string, b: string) => `${firstName(byId.get(a)?.name ?? '?')} & ${firstName(byId.get(b)?.name ?? '?')}`
+  const name = (id: string | null) => firstName((id && byId.get(id)?.name) || '?')
+  const pair = (a: string | null, b: string | null) => `${name(a)} & ${name(b)}`
   const A = pair(m.teamAPlayer1Id, m.teamAPlayer2Id)
   const B = pair(m.teamBPlayer1Id, m.teamBPlayer2Id)
   if (m.winner !== 'A' && m.winner !== 'B') {
@@ -957,11 +976,11 @@ export function resultLine(
 }
 
 // The recorder and their partner, as user ids.
-async function recorderSideUsers(m: { recordedById: string; teamAPlayer1Id: string; teamAPlayer2Id: string; teamBPlayer1Id: string; teamBPlayer2Id: string }): Promise<string[]> {
+async function recorderSideUsers(m: SeatIds & { recordedById: string }): Promise<string[]> {
   const recorder = await getPlayerForUser(m.recordedById)
   const side = recorder ? sideOf(m, recorder.id) : null
   if (!side) return [m.recordedById]
-  return usersOfPlayers(side === 'A' ? [m.teamAPlayer1Id, m.teamAPlayer2Id] : [m.teamBPlayer1Id, m.teamBPlayer2Id])
+  return usersOfPlayers(lineupIdsOf(side === 'A' ? { ...m, teamBPlayer1Id: null, teamBPlayer2Id: null } : { ...m, teamAPlayer1Id: null, teamAPlayer2Id: null }))
 }
 
 
@@ -982,7 +1001,7 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
     const m = await prisma.match.findUnique({ where: { id: matchId }, include: { sets: { orderBy: { setNumber: 'asc' } }, teamAPlayer1: true, teamAPlayer2: true, teamBPlayer1: true, teamBPlayer2: true } })
     const confirmer = await getPlayerForUser(userId)
     if (m) {
-      const byId = new Map([m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => [p.id, p]))
+      const byId = new Map(lineupOf(m).map(p => [p.id, p]))
       await sendPush(await recorderSideUsers(m), {
         title: 'Match confirmed',
         body: `${firstName(confirmer?.name ?? 'Your opponent')} confirmed ${resultLine(m, byId)}${result ? '' : ' — waiting for guests to join'}`,
@@ -999,7 +1018,7 @@ export async function confirmMatch(matchId: string, userId: string): Promise<{ o
 export async function finalizeIfReady(matchId: string): Promise<{ ptrDelta: number } | null> {
   const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
   if (!m || m.status !== 'pending' || !m.scoreConfirmedAt) return null
-  const everyoneIn = ![m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(awaitingJoin)
+  const everyoneIn = !lineupOf(m).some(awaitingJoin)
   return everyoneIn ? claimAndApply(matchId, false) : null
 }
 
@@ -1025,8 +1044,8 @@ export async function autoConfirmExpired(): Promise<number> {
   })
   let settled = 0
   for (const m of expired) {
-    const guestLeft = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].some(awaitingJoin)
-    const recorder = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].find(p => p.userId === m.recordedById)
+    const guestLeft = lineupOf(m).some(awaitingJoin)
+    const recorder = lineupOf(m).find(p => p.userId === m.recordedById)
     if (guestLeft) {
       const converted = await prisma.match.updateMany({
         where: { id: m.id, status: 'pending' },
@@ -1034,7 +1053,7 @@ export async function autoConfirmExpired(): Promise<number> {
       })
       settled += converted.count
       if (converted.count) {
-        const guests = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].filter(awaitingJoin).map(p => firstName(p.name))
+        const guests = lineupOf(m).filter(awaitingJoin).map(p => firstName(p.name))
         await sendPush([m.recordedById], {
           title: 'Match became a friendly',
           body: `${guests.join(' & ')} didn’t join PadelTrack within ${AUTO_CONFIRM_HOURS} hours, so your match won’t count towards ratings.`,
@@ -1195,7 +1214,7 @@ export async function cancelScheduledMatch(matchId: string, userId: string): Pro
   const gone = await prisma.match.deleteMany({ where: { id: matchId, status: { in: ['scheduled', 'pending'] }, scoreConfirmedAt: null } })
   if (gone.count === 0) return { error: 'This match has a confirmed score, so it can’t be cancelled' }
   const organiser = await getPlayerForUser(userId)
-  const others = [m.teamAPlayer1, m.teamAPlayer2, m.teamBPlayer1, m.teamBPlayer2].map(p => p.userId).filter(id => id && id !== userId)
+  const others = lineupOf(m).map(p => p.userId).filter(id => id && id !== userId)
   await sendPush(others, {
     title: 'Match cancelled',
     body: `${firstName(organiser?.name ?? 'The organiser')} cancelled the match on ${whenLabel(m.playedAt)}.`,
@@ -1234,9 +1253,10 @@ function tallySets(sets: { teamAGames: number; teamBGames: number }[]) {
 async function applySetStats(tx: TxClient, matchId: string): Promise<{ ptrDelta: number }> {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { sets: true } })
   const t = tallySets(match.sets)
+  // A match with a score always has all four players.
   const sides: [string, boolean][] = [
-    [match.teamAPlayer1Id, true], [match.teamAPlayer2Id, true],
-    [match.teamBPlayer1Id, false], [match.teamBPlayer2Id, false],
+    [match.teamAPlayer1Id!, true], [match.teamAPlayer2Id!, true],
+    [match.teamBPlayer1Id!, false], [match.teamBPlayer2Id!, false],
   ]
   await Promise.all([
     ...sides.map(([id, onA]) => tx.player.update({
@@ -1260,7 +1280,8 @@ async function applySetStats(tx: TxClient, matchId: string): Promise<{ ptrDelta:
 // moment of confirmation, and marks the match complete.
 async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: number; isUpset: boolean }> {
   const match = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { sets: { orderBy: { setNumber: 'asc' } } } })
-  const ids = [match.teamAPlayer1Id, match.teamAPlayer2Id, match.teamBPlayer1Id, match.teamBPlayer2Id]
+  // A match with a score always has all four players.
+  const ids = lineupIdsOf(match)
   const rows = await tx.player.findMany({ where: { id: { in: ids } } })
   const byId = new Map(rows.map(p => [p.id, p]))
   const [p1, p2, p3, p4] = ids.map(id => byId.get(id)!)

@@ -10,7 +10,7 @@ import InviteLink from '@/components/players/InviteLink'
 import MatchCard from '@/components/matches/MatchCard'
 import { getInitials, formatRating, getWinRate, formatRatingDelta, setWinner } from '@/lib/utils'
 import { Trophy, Swords, Handshake, ChevronRight, Info } from 'lucide-react'
-import type { MatchWithPlayers, ProfileMatch } from '@/types'
+import type { MatchWithPlayers, PlayerWithStats, ProfileMatch } from '@/types'
 import { currentReliability } from '@/lib/ptr-algorithm'
 import { getRole, canAdjustRatings } from '@/lib/roles'
 import { getPlayerAdjustments } from '@/lib/rating-adjustments'
@@ -25,7 +25,8 @@ function headToHead(matches: MatchWithPlayers[], playerId: string) {
     // Incomplete matches have no result, so they don't count head-to-head.
     if (m.status !== 'complete' || !m.isRanked || m.incomplete) continue
     const onTeamA = m.teamAPlayer1Id === playerId || m.teamAPlayer2Id === playerId
-    const opponents = onTeamA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
+    // A complete match always has all four players.
+    const opponents = (onTeamA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]).filter((p): p is PlayerWithStats => !!p)
     const won = (onTeamA && m.winner === 'A') || (!onTeamA && m.winner === 'B')
     for (const opp of opponents) {
       if (!h2h[opp.id]) h2h[opp.id] = { wins: 0, losses: 0, name: opp.name, color: opp.avatarColor }
@@ -51,7 +52,7 @@ function toProfileMatches(matches: MatchWithPlayers[], playerId: string): Profil
       const setsB = played.filter(s => setWinner(s.teamAGames, s.teamBGames) === 'B').length
       const gamesA = played.reduce((n, s) => n + s.teamAGames, 0)
       const gamesB = played.reduce((n, s) => n + s.teamBGames, 0)
-      const opps = onA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
+      const opps = (onA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]).filter((p): p is PlayerWithStats => !!p)
       return {
         id: m.id,
         playedAt: m.playedAt,

@@ -1,5 +1,5 @@
 import MatchEntryForm, { type Lineup } from '@/components/matches/MatchEntryForm'
-import { getPickablePlayers, getPlayer, getMatchesForPlayer, getRecentLocations, getClubs } from '@/lib/store'
+import { getPickablePlayers, getPlayer, getMatchesForPlayer, getRecentLocations, getClubs, isFull, lineupIdsOf } from '@/lib/store'
 import { requireSession } from '@/lib/session'
 
 export const revalidate = 0
@@ -19,7 +19,7 @@ export default async function NewMatchPage() {
   // chips put the likeliest people first.
   const freq = new Map<string, number>()
   for (const m of myMatches.slice(0, 50)) {
-    for (const id of [m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id]) {
+    for (const id of lineupIdsOf(m)) {
       if (id !== meId) freq.set(id, (freq.get(id) ?? 0) + 1)
     }
   }
@@ -32,9 +32,11 @@ export default async function NewMatchPage() {
   const lineups: Lineup[] = []
   const seen = new Set<string>()
   for (const m of myMatches) {
+    // Matches set up ahead with open spots aren't a full line-up.
+    if (!isFull(m)) continue
     const onA = m.teamAPlayer1Id === meId || m.teamAPlayer2Id === meId
-    const mine = onA ? [m.teamAPlayer1, m.teamAPlayer2] : [m.teamBPlayer1, m.teamBPlayer2]
-    const opps = onA ? [m.teamBPlayer1, m.teamBPlayer2] : [m.teamAPlayer1, m.teamAPlayer2]
+    const mine = onA ? [m.teamAPlayer1!, m.teamAPlayer2!] : [m.teamBPlayer1!, m.teamBPlayer2!]
+    const opps = onA ? [m.teamBPlayer1!, m.teamBPlayer2!] : [m.teamAPlayer1!, m.teamAPlayer2!]
     const partner = mine.find(p => p.id !== meId)!
     const key = [partner.id, ...opps.map(o => o.id).sort()].join('|')
     if (seen.has(key)) continue
