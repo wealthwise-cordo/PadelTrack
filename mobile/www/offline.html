@@ -19,6 +19,10 @@
     <p>Check your internet and try again.</p>
     <button onclick="location.href = 'https://www.padeltrack.co.uk'">Try again</button>
   </main>
-  <script>window.addEventListener('online', () => { location.href = 'https://www.padeltrack.co.uk' })</script>
+  <script>
+    // The launch splash waits for the site to hide it; here the site never loaded.
+    window.Capacitor?.Plugins?.SplashScreen?.hide()
+    window.addEventListener('online', () => { location.href = 'https://www.padeltrack.co.uk' })
+  </script>
 </body>
 </html>

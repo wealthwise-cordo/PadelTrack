@@ -5,10 +5,12 @@
 	<!-- Push notifications. Xcode switches this to production for App Store builds. -->
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- www.padeltrack.co.uk links open in the app (see /.well-known/apple-app-site-association). -->
+	<!-- www.padeltrack.co.uk links open in the app, and the Passwords app offers
+	     the site's saved passwords at sign-in (see /.well-known/apple-app-site-association). -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:www.padeltrack.co.uk</string>
+		<string>webcredentials:www.padeltrack.co.uk</string>
 	</array>
 </dict>
 </plist>

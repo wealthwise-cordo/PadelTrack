@@ -38,7 +38,7 @@ function LoginForm() {
   }
 
   return (
-    <AuthShell subtitle="Sign in to see your rankings">
+    <AuthShell subtitle="Sign in to see your ranking">
       <form onSubmit={handleSubmit} method="post" className="space-y-4">
         <EmailField value={email} onChange={setEmail} purpose="sign-in" />
         <PasswordField value={password} onChange={setPassword} purpose="current" />

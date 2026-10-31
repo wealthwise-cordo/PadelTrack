@@ -21,7 +21,9 @@ const config: CapacitorConfig = {
     backgroundColor: '#18181b',
   },
   plugins: {
-    SplashScreen: { launchShowDuration: 0, launchAutoHide: false, backgroundColor: '#18181b', showSpinner: false },
+    // The logo stays up until the site has loaded and hides it (NativeBridge,
+    // or the offline screen).
+    SplashScreen: { launchShowDuration: 3000, launchAutoHide: false, backgroundColor: '#18181b', showSpinner: false },
     PushNotifications: { presentationOptions: ['banner', 'sound', 'badge'] },
   },
 }
