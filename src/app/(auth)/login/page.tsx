@@ -6,6 +6,7 @@ import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import AuthShell, { primaryButtonClass } from '@/components/shared/AuthShell'
 import { EmailField, PasswordField } from '@/components/shared/AuthFields'
+import { rememberReturning } from '@/lib/native'
 
 export default function LoginPage() {
   return (
@@ -32,6 +33,7 @@ function LoginForm() {
       setError('Wrong email or password')
       setLoading(false)
     } else {
+      rememberReturning()
       router.push(next.startsWith('/') ? next : '/')
       router.refresh()
     }

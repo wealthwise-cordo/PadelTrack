@@ -10,6 +10,12 @@ import { Share } from '@capacitor/share'
 
 export const isNativeApp = () => Capacitor.isNativePlatform()
 
+// Marks this device as one that's been signed in, so the app opens on
+// sign-in rather than sign-up from now on (see middleware.ts).
+export function rememberReturning() {
+  document.cookie = 'pt-returning=1; path=/; max-age=31536000; samesite=lax; secure'
+}
+
 const TOKEN_KEY = 'pt-native-push-token'
 
 // Shares a link with the phone's share sheet, or copies it. Returns 'copied'

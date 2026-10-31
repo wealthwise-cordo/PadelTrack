@@ -1370,10 +1370,16 @@ async function applyPTR(tx: TxClient, matchId: string): Promise<{ ptrDelta: numb
 
 // Sign-up name and email, for the edit-profile panel, and whether profile
 // details are missing (invite-link sign-ups skip them at first).
-export async function getAccount(userId: string): Promise<{ name: string; email: string; profileIncomplete: boolean } | null> {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, gender: true, dateOfBirth: true, country: true } })
+export async function getAccount(userId: string): Promise<{ name: string; email: string; profileIncomplete: boolean; termsCurrent: boolean } | null> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, gender: true, dateOfBirth: true, country: true, termsVersion: true } })
   if (!u) return null
-  return { name: u.name, email: u.email, profileIncomplete: !u.gender || !u.dateOfBirth || !u.country }
+  return { name: u.name, email: u.email, profileIncomplete: !u.gender || !u.dateOfBirth || !u.country, termsCurrent: u.termsVersion === LEGAL_VERSION }
+}
+
+// Agreeing to the current Terms of Use and Privacy notice (LEGAL_VERSION):
+// asked after signing in whenever someone hasn't agreed to this version.
+export async function acceptTerms(userId: string): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { termsAcceptedAt: new Date(), termsVersion: LEGAL_VERSION } })
 }
 
 // Fills in gender, date of birth and country — all three required.

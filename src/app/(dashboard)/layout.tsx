@@ -1,3 +1,5 @@
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
 import Navbar from '@/components/shared/Navbar'
 import AutoSync from '@/components/shared/AutoSync'
 import NativePushPrompt from '@/components/shared/NativePushPrompt'
@@ -11,6 +13,8 @@ import { countAwaitingScore } from '@/lib/scheduled-matches'
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession()
   const [pending, fingerprint, account, role, toScore] = await Promise.all([getPendingForUser(session.userId), getSyncFingerprint(), getAccount(session.userId), getRole(session.userId), countAwaitingScore(session.player.id)])
+  // Not agreed to the current Terms and Privacy yet: that comes first.
+  if (account && !account.termsCurrent) redirect(`/accept-terms?next=${encodeURIComponent(headers().get('x-pathname') || '/')}`)
   const reviewCount = role === 'superuser' ? (await countPendingAdjustments()) + (await countDisputes(session.player.id)) : 0
 
   return (

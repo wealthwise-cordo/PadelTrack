@@ -2,12 +2,16 @@ import Link from 'next/link'
 import Logo from '@/components/shared/Logo'
 
 // Shared frame for the signed-out screens (login, sign up, claim).
-export default function AuthShell({ subtitle, children }: { subtitle?: string; children: React.ReactNode }) {
+// `headerLink` puts a link at the top right (e.g. Sign in on sign-up).
+export default function AuthShell({ subtitle, headerLink, children }: { subtitle?: string; headerLink?: { href: string; label: string }; children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <header className="bg-zinc-900 text-white [padding-top:env(safe-area-inset-top)]">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-2">
           <Logo />
+          {headerLink && (
+            <Link href={headerLink.href} className="ml-auto px-3 py-1.5 rounded-lg text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/10">{headerLink.label}</Link>
+          )}
         </div>
       </header>
       <div className="flex-1 flex items-start sm:items-center justify-center px-4 py-10">

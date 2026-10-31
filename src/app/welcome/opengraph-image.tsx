@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og'
 
-// The preview card shown when /signup is shared (WhatsApp, iMessage, socials).
+// The preview card shown when padeltrack.co.uk is shared (WhatsApp, iMessage, socials).
 export const alt = 'PadelTrack — padel rankings for you and your crew'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'

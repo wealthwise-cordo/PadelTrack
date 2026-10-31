@@ -15,6 +15,9 @@ const config: CapacitorConfig = {
     url: 'https://www.padeltrack.co.uk',
     errorPath: 'offline.html',
   },
+  // Lets the site tell the app from Safari (the middleware sends the app
+  // straight to sign-in rather than the welcome page).
+  appendUserAgent: 'PadelTrackApp',
   ios: {
     // The site pads itself for the notch and home bar (safe-area insets).
     contentInset: 'never',

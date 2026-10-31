@@ -8,6 +8,7 @@ import { NameField, EmailField, PasswordField, GenderField, DateOfBirthField, Co
 import { COUNTRIES } from '@/lib/countries'
 import LevelPicker from '@/components/shared/LevelPicker'
 import PushToggle from '@/components/shared/PushToggle'
+import { rememberReturning } from '@/lib/native'
 
 // Creates an account and signs straight in. The LTA level picked here sets
 // the starting rating. With claimToken, the account takes over that guest
@@ -70,6 +71,7 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
       router.push('/login')
       return
     }
+    rememberReturning()
     if (!claimToken) {
       setCreated(true)
       setLoading(false)

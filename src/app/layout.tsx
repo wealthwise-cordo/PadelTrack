@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import NativeBridge from '@/components/shared/NativeBridge'
+import { APP_STORE_ID } from '@/components/marketing/AppStoreButton'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
@@ -13,6 +14,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'PadelTrack',
   },
+  // Safari on iPhone shows its own "Open" / "Get" bar for the app on every
+  // page (never inside the app itself). Needs NEXT_PUBLIC_APP_STORE_ID.
+  ...(APP_STORE_ID && { itunes: { appId: APP_STORE_ID } }),
 }
 
 export const viewport: Viewport = {
