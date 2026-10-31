@@ -5,7 +5,7 @@ import Logo from '@/components/shared/Logo'
 export default function AuthShell({ subtitle, children }: { subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <header className="bg-zinc-900 text-white">
+      <header className="bg-zinc-900 text-white [padding-top:env(safe-area-inset-top)]">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-2">
           <Logo />
         </div>
@@ -16,7 +16,7 @@ export default function AuthShell({ subtitle, children }: { subtitle?: string; c
           {children}
         </div>
       </div>
-      <footer className="flex justify-center gap-4 pb-6 text-[11px] text-zinc-400">
+      <footer className="flex justify-center gap-4 [padding-bottom:calc(1.5rem+env(safe-area-inset-bottom))] text-[11px] text-zinc-400">
         <Link href="/terms" className="hover:text-zinc-700">Terms of Use</Link>
         <Link href="/privacy" className="hover:text-zinc-700">Privacy</Link>
       </footer>

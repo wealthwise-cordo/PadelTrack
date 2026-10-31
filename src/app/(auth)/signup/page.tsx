@@ -69,7 +69,7 @@ export default function SignUpPage() {
   return (
     <div className="min-h-screen bg-white text-zinc-900">
       {/* Header */}
-      <header className="bg-zinc-900 text-white">
+      <header className="bg-zinc-900 text-white [padding-top:env(safe-area-inset-top)]">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-2">
           <Logo />
           <div className="flex-1" />

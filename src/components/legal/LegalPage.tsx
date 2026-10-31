@@ -7,7 +7,7 @@ import { LEGAL } from '@/lib/legal'
 export default function LegalPage({ title, intro, children }: { title: string; intro: string; children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-white">
-      <header className="bg-zinc-900 text-white">
+      <header className="bg-zinc-900 text-white [padding-top:env(safe-area-inset-top)]">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2">
             <Logo />
