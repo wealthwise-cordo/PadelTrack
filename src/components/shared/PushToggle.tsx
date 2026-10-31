@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { Bell, BellOff, Share } from 'lucide-react'
+import { NATIVE_PUSH_EVENT, disableNativePush, enableNativePush, isNativeApp, markAskedForPush, nativePushState } from '@/lib/native'
 
-// Phone notifications on/off for this device. iPhones only allow them for
-// PadelTrack added to the Home Screen, so there it explains that first.
+// Phone notifications on/off for this device. In the iPhone app they're the
+// app's own (Apple push); in Safari, iPhones only allow them for PadelTrack
+// added to the Home Screen, so there it explains that first.
 // `card`: a prompt in Match Centre (hidden once on or dismissed);
 // `menu`: a row in the account menu;
 // `inline`: part of onboarding (after sign-up, in "Complete your profile"),
@@ -37,6 +39,11 @@ export default function PushToggle({ variant, onUnavailable }: { variant: 'card'
   useEffect(() => {
     try { setDismissed(localStorage.getItem(DISMISS_KEY) === '1') } catch {}
     ;(async () => {
+      if (isNativeApp()) {
+        // Offered at sign-up: the app's first-open prompt needn't ask again.
+        if (variant === 'inline') markAskedForPush()
+        return setState(await nativePushState())
+      }
       if (!VAPID || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
         setState(typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && isIosBrowserTab() ? 'ios-install' : 'unsupported')
         return
@@ -49,6 +56,14 @@ export default function PushToggle({ variant, onUnavailable }: { variant: 'card'
     })().catch(() => setState('unsupported'))
   }, [])
 
+  // In the app, another toggle (or the first-open prompt) may change it.
+  useEffect(() => {
+    if (!isNativeApp()) return
+    const sync = () => void nativePushState().then(setState).catch(() => {})
+    window.addEventListener(NATIVE_PUSH_EVENT, sync)
+    return () => window.removeEventListener(NATIVE_PUSH_EVENT, sync)
+  }, [])
+
   useEffect(() => {
     if (state === 'unsupported') onUnavailable?.()
   }, [state, onUnavailable])
@@ -56,6 +71,7 @@ export default function PushToggle({ variant, onUnavailable }: { variant: 'card'
   const turnOn = async () => {
     setBusy(true)
     try {
+      if (isNativeApp()) return setState(await enableNativePush())
       const permission = await Notification.requestPermission()
       if (permission !== 'granted') return setState(permission === 'denied' ? 'denied' : 'off')
       const reg = await navigator.serviceWorker.register('/sw.js')
@@ -73,6 +89,10 @@ export default function PushToggle({ variant, onUnavailable }: { variant: 'card'
   const turnOff = async () => {
     setBusy(true)
     try {
+      if (isNativeApp()) {
+        await disableNativePush()
+        return setState('off')
+      }
       const reg = await navigator.serviceWorker.getRegistration('/sw.js')
       const sub = await reg?.pushManager.getSubscription()
       if (sub) {

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import NativeBridge from '@/components/shared/NativeBridge'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={inter.variable}>
       <body className="min-h-screen bg-background antialiased">
         {children}
+        <NativeBridge />
       </body>
     </html>
   )

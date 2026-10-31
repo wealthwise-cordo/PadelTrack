@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
+import { forgetThisDevice } from '@/lib/native'
 import { Trophy, History, LayoutGrid, Plus, LogOut, User, FileText, Shield } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import PushToggle from '@/components/shared/PushToggle'
@@ -120,7 +121,7 @@ export default function Navbar({
                 <FileText className="h-4 w-4 text-zinc-500" /> Terms &amp; privacy
               </Link>
               <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={async () => { await forgetThisDevice(); await signOut({ callbackUrl: '/login' }) }}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-50 text-left"
               >
                 <LogOut className="h-4 w-4 text-zinc-500" /> Sign out

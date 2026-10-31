@@ -1,5 +1,6 @@
 import Navbar from '@/components/shared/Navbar'
 import AutoSync from '@/components/shared/AutoSync'
+import NativePushPrompt from '@/components/shared/NativePushPrompt'
 import { requireSession } from '@/lib/session'
 import { getPendingForUser, getSyncFingerprint, getAccount } from '@/lib/store'
 import { getRole } from '@/lib/roles'
@@ -25,6 +26,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <main className="px-4 pb-10 max-w-3xl mx-auto">
         {children}
       </main>
+      <NativePushPrompt />
     </div>
   )
 }

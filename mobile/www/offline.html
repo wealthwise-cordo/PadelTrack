@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Shown by the iPhone app when padeltrack.co.uk can't be reached. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>PadelTrack</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #18181b; color: #fff; font-family: -apple-system, system-ui, sans-serif; }
+    main { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; box-sizing: border-box; }
+    h1 { margin: 0; font-size: 20px; font-weight: 900; }
+    p { margin: 0; font-size: 14px; color: #a1a1aa; }
+    button { margin-top: 8px; padding: 12px 24px; border: 0; border-radius: 12px; background: #f97316; color: #fff; font-size: 14px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>No connection</h1>
+    <p>Check your internet and try again.</p>
+    <button onclick="location.href = 'https://www.padeltrack.co.uk'">Try again</button>
+  </main>
+  <script>window.addEventListener('online', () => { location.href = 'https://www.padeltrack.co.uk' })</script>
+</body>
+</html>

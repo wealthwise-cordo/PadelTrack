@@ -40,6 +40,7 @@ model User {
   roundRobinEvents   RoundRobinEvent[]   @relation("RoundRobinEventOwner")
   snakeLaddersEvents SnakeLaddersEvent[] @relation("SnakeLaddersEventOwner")
   PushSubscription   PushSubscription[]
+  NativePushToken    NativePushToken[]
 
   adminMatchActions    AdminMatchAction[]
   adminUserActions     AdminUserAction[]
@@ -495,6 +496,20 @@ model PushSubscription {
   endpoint  String   @unique
   p256dh    String
   auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// An iPhone running the PadelTrack app that turned on notifications: its
+// Apple Push Notification service device token. Sent alongside Web Push by
+// sendPush; tokens Apple says are gone are removed.
+model NativePushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   @default("ios")
   createdAt DateTime @default(now())
 
   @@index([userId])

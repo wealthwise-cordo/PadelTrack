@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Share2, Check } from 'lucide-react'
+import { shareLink } from '@/lib/native'
 
 // Shares (or copies) a guest's join link. Joining through it hands them their
 // profile and lets pending ranked matches count. `ranked` false is for a
@@ -13,22 +14,15 @@ export default function InviteButton({ name, claimToken, dark, ranked = true, co
 
   const invite = async () => {
     const url = `${window.location.origin}/claim/${claimToken}`
-    if (typeof navigator.share === 'function') {
-      try {
-        const text = !ranked
-          ? 'I’ve recorded our friendly on PadelTrack — join to see it on your profile.'
-          : counts
-            ? 'I’ve recorded our match on PadelTrack — join to see it and your rating on your profile.'
-            : 'I’ve recorded our match on PadelTrack — join within 48 hours so it counts as ranked.'
-        await navigator.share({ title: 'Join me on PadelTrack', text, url })
-        return
-      } catch {
-        // Share sheet dismissed — fall through to copying.
-      }
+    const text = !ranked
+      ? 'I’ve recorded our friendly on PadelTrack — join to see it on your profile.'
+      : counts
+        ? 'I’ve recorded our match on PadelTrack — join to see it and your rating on your profile.'
+        : 'I’ve recorded our match on PadelTrack — join within 48 hours so it counts as ranked.'
+    if ((await shareLink({ title: 'Join me on PadelTrack', text, url })) === 'copied') {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     }
-    await navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   return (

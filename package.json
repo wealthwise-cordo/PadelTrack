@@ -13,10 +13,18 @@
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
     "venues:review": "node --env-file=.env node_modules/.bin/tsx scripts/unlisted-venues.ts",
-    "db:launch-reset": "node --env-file=.env node_modules/.bin/tsx scripts/reset-for-launch.ts"
+    "db:launch-reset": "node --env-file=.env node_modules/.bin/tsx scripts/reset-for-launch.ts",
+    "ios": "cap sync ios && cap open ios"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/push-notifications": "^8.1.3",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@prisma/client": "^5.20.0",
     "@radix-ui/react-avatar": "^1.1.1",
     "@radix-ui/react-dialog": "^1.1.2",
@@ -42,6 +50,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^18",

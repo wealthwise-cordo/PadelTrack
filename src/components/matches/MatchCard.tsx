@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { Zap, Clock, Check, X, Trash2, Timer, MapPin, CheckCircle2, Circle, CalendarDays, Pencil, PenLine, AlertTriangle, Share2 } from 'lucide-react'
 import { getInitials, getFullScore, setWinner, formatRatingDelta } from '@/lib/utils'
 import InviteButton from '@/components/players/InviteButton'
+import { shareLink } from '@/lib/native'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
 
 interface Props {
@@ -447,18 +448,10 @@ function ShareJoinLink({ matchId }: { matchId: string }) {
     const d = await res.json().catch(() => ({}))
     if (!res.ok || !d.token) { setState('error'); return }
     const url = `${window.location.origin}/join/${d.token}`
-    if (typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ title: 'Join my padel match', text: 'Grab a spot in my padel match on PadelTrack', url })
-        setState('idle')
-        return
-      } catch {
-        // Share sheet dismissed — fall through to copying.
-      }
-    }
-    await navigator.clipboard.writeText(url)
-    setState('copied')
-    setTimeout(() => setState('idle'), 2000)
+    if ((await shareLink({ title: 'Join my padel match', text: 'Grab a spot in my padel match on PadelTrack', url })) === 'copied') {
+      setState('copied')
+      setTimeout(() => setState('idle'), 2000)
+    } else setState('idle')
   }
   return (
     <button onClick={share} disabled={state === 'busy'} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-bold bg-zinc-900 text-white active:scale-95 transition disabled:opacity-50">
