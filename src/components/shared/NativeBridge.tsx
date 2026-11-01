@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { App } from '@capacitor/app'
+import { Keyboard } from '@capacitor/keyboard'
 import { PushNotifications } from '@capacitor/push-notifications'
 import { SplashScreen } from '@capacitor/splash-screen'
 import { StatusBar, Style } from '@capacitor/status-bar'
@@ -10,8 +11,9 @@ import { isNativeApp, saveToken } from '@/lib/native'
 
 // Runs only inside the iPhone app: hides the splash screen once the site has
 // loaded, keeps the status bar light on the dark header, opens the right page
-// when a notification or a padeltrack.co.uk link is tapped, and refreshes this
-// phone's notification token on each launch.
+// when a notification or a padeltrack.co.uk link is tapped, refreshes this
+// phone's notification token on each launch, and keeps the field you're
+// typing in visible once the keyboard has shrunk the page.
 export default function NativeBridge() {
   const router = useRouter()
 
@@ -32,6 +34,10 @@ export default function NativeBridge() {
       PushNotifications.addListener('pushNotificationActionPerformed', e => open(e.notification.data?.url)),
       App.addListener('appUrlOpen', e => open(e.url)),
       PushNotifications.addListener('registration', t => void saveToken(t.value)),
+      Keyboard.addListener('keyboardDidShow', () => {
+        const el = document.activeElement
+        if (el instanceof HTMLElement && el !== document.body) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }),
     ]
     void PushNotifications.checkPermissions().then(p => { if (p.receive === 'granted') void PushNotifications.register() })
     return () => { handles.forEach(h => void h.then(x => x.remove())) }

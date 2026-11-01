@@ -28,6 +28,9 @@ const config: CapacitorConfig = {
     // or the offline screen).
     SplashScreen: { launchShowDuration: 3000, launchAutoHide: false, backgroundColor: '#18181b', showSpinner: false },
     PushNotifications: { presentationOptions: ['banner', 'sound', 'badge'] },
+    // The keyboard shrinks the page instead of pushing it up, so the header
+    // stays below the clock and bottom bars sit just above the keyboard.
+    Keyboard: { resize: 'native', resizeOnFullScreen: true },
   },
 }
 
