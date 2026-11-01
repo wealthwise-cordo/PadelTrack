@@ -14,6 +14,14 @@ import { isNativeApp, saveToken } from '@/lib/native'
 // when a notification or a padeltrack.co.uk link is tapped, refreshes this
 // phone's notification token on each launch, and keeps the field you're
 // typing in visible once the keyboard has shrunk the page.
+// Scrolls the field being typed in to the middle of what's left of the
+// screen, clear of the keyboard and any bar fixed to the bottom.
+function revealFocused() {
+  const el = document.activeElement
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return
+  setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50)
+}
+
 export default function NativeBridge() {
   const router = useRouter()
 
@@ -34,13 +42,16 @@ export default function NativeBridge() {
       PushNotifications.addListener('pushNotificationActionPerformed', e => open(e.notification.data?.url)),
       App.addListener('appUrlOpen', e => open(e.url)),
       PushNotifications.addListener('registration', t => void saveToken(t.value)),
-      Keyboard.addListener('keyboardDidShow', () => {
-        const el = document.activeElement
-        if (el instanceof HTMLElement && el !== document.body) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      }),
+      Keyboard.addListener('keyboardDidShow', revealFocused),
     ]
+    // The page shrinks when the keyboard opens (resize: native), which may
+    // land after the keyboard event — catch it here too.
+    window.addEventListener('resize', revealFocused)
     void PushNotifications.checkPermissions().then(p => { if (p.receive === 'granted') void PushNotifications.register() })
-    return () => { handles.forEach(h => void h.then(x => x.remove())) }
+    return () => {
+      handles.forEach(h => void h.then(x => x.remove()))
+      window.removeEventListener('resize', revealFocused)
+    }
   }, [router])
 
   return null
