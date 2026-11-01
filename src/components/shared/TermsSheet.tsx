@@ -2,11 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import { LEGAL } from '@/lib/legal'
+import { forgetThisDevice } from '@/lib/native'
 
 // Slides up over the page for anyone signed in who hasn't agreed to the
 // current Terms of Use and Privacy notice (LEGAL_VERSION): a new account, or
-// documents updated since they last agreed. It can't be dismissed. Once
+// documents updated since they last agreed. It can't be dismissed, only
+// declined by signing out. Once
 // agreed, the layout re-renders without it (and the app offers notifications).
 export default function TermsSheet() {
   const router = useRouter()
@@ -39,6 +42,7 @@ export default function TermsSheet() {
         <p className="flex justify-center gap-4 text-[11px] text-zinc-400">
           <a href={LEGAL.termsUrl} className="hover:text-zinc-700">Terms of Use</a>
           <a href={LEGAL.privacyUrl} className="hover:text-zinc-700">Privacy</a>
+          <button onClick={async () => { await forgetThisDevice(); await signOut({ callbackUrl: '/login' }) }} disabled={busy} className="hover:text-zinc-700">Sign out</button>
         </p>
       </div>
     </div>
