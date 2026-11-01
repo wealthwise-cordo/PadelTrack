@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli'
+import { KeyboardResize } from '@capacitor/keyboard'
 
 // The iPhone app (ios/): a native shell that loads the live site, so web
 // deploys reach the app without an App Store update. Native extras — push
@@ -30,7 +31,7 @@ const config: CapacitorConfig = {
     PushNotifications: { presentationOptions: ['banner', 'sound', 'badge'] },
     // The keyboard shrinks the page instead of pushing it up, so the header
     // stays below the clock and bottom bars sit just above the keyboard.
-    Keyboard: { resize: 'native', resizeOnFullScreen: true },
+    Keyboard: { resize: KeyboardResize.Native, resizeOnFullScreen: true },
   },
 }
 
