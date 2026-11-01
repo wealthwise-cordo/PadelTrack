@@ -1,6 +1,10 @@
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
+  // hover: styles only on devices with a real pointer. On iPhone (the app and
+  // Safari) a tap would otherwise first trigger the hover style and only the
+  // second tap would click.
+  future: { hoverOnlyWhenSupported: true },
     content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
