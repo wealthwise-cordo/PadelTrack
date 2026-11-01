@@ -15,7 +15,7 @@ export default function Image() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', marginTop: 28, fontSize: 64, fontWeight: 900, lineHeight: 1.05 }}>
             <span>Settle it on court.</span>
-            <span style={{ color: '#f97316' }}>Prove it on the table.</span>
+            <span style={{ color: '#f97316' }}>Prove it in the ranking.</span>
           </div>
           <div style={{ marginTop: 28, fontSize: 28, color: '#d4d4d8', maxWidth: 560 }}>
             Padel ratings on the LTA 1.0–7.0 scale, opponent-confirmed results and rankings for the people you play with. Free.

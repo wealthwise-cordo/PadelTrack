@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Trophy, ShieldCheck, Users, LayoutGrid, Swords, Flame, UserPlus, ClipboardCheck, TrendingUp, Check } from 'lucide-react'
 import Logo from '@/components/shared/Logo'
 import AppStoreButton from '@/components/marketing/AppStoreButton'
-import { Court, Racket, Ball } from '@/components/marketing/PadelArt'
+import { Court } from '@/components/marketing/PadelArt'
 import { LEGAL } from '@/lib/legal'
 
 // padeltrack.co.uk for anyone signed out (the middleware shows it at /): what
@@ -88,12 +88,9 @@ export default function WelcomePage() {
         <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-orange-500/20 blur-3xl" aria-hidden="true" />
         <div className="relative max-w-6xl mx-auto px-4 pt-10 pb-14 md:pt-16 md:pb-20 grid md:grid-cols-2 gap-10 items-center">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-orange-300">
-              <Ball className="h-3.5 w-3.5" /> Free · Built for padel
-            </span>
-            <h1 className="mt-4 text-4xl md:text-5xl font-black tracking-tight leading-[1.05]">
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-[1.05]">
               Settle it on court.<br />
-              <span className="text-orange-500">Prove it on the table.</span>
+              <span className="text-orange-500">Prove it in the ranking.</span>
             </h1>
             <p className="mt-4 text-base md:text-lg text-zinc-300 max-w-md">
               Record your matches, get a padel rating that moves with every result, and see where you really rank among the people you play with.
@@ -114,10 +111,9 @@ export default function WelcomePage() {
             </ul>
           </div>
 
-          {/* Court, racket and a sample rankings card */}
+          {/* Court and a sample rankings card */}
           <div className="relative mx-auto w-full max-w-md md:max-w-none">
             <Court className="w-full drop-shadow-2xl" />
-            <Racket className="absolute -top-8 -right-2 h-32 md:h-40 rotate-[24deg] drop-shadow-xl" />
             <div className="absolute -bottom-8 left-2 md:-left-6 w-56 rounded-2xl bg-white text-zinc-900 shadow-2xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-black uppercase tracking-wider">Your circle</span>
@@ -189,11 +185,7 @@ export default function WelcomePage() {
 
       {/* Download */}
       <section className="max-w-6xl mx-auto px-4 py-14 flex flex-col items-center text-center">
-        <div className="flex items-end gap-4 mb-6">
-          <Racket className="h-28 -rotate-12" />
-          <Ball className="h-8 mb-3" />
-        </div>
-        <h2 className="text-2xl md:text-3xl font-black tracking-tight">Get on the table</h2>
+        <h2 className="text-2xl md:text-3xl font-black tracking-tight">Get a ranking</h2>
         <p className="mt-2 text-zinc-600 max-w-md">Free on iPhone, or use it on the web.</p>
         <div className="mt-6 flex flex-wrap justify-center items-center gap-3">
           <AppStoreButton />
