@@ -168,11 +168,14 @@
 
 </main>
 <script>
-  // Back to PadelTrack: the page you came from, or the home page if opened directly.
+  // Back to PadelTrack: the page you came from (loaded fresh, not "back",
+  // which in the iPhone app can return a page cut off from the app), or the
+  // home page if opened directly.
   function backToPadelTrack(e) {
     e.preventDefault()
-    if (history.length > 1 && document.referrer.indexOf(location.host) !== -1) history.back()
-    else location.href = '/'
+    var from = document.referrer
+    var sameSite = from && from.indexOf(location.origin + '/') === 0 && from.split('#')[0] !== location.href.split('#')[0]
+    location.replace(sameSite ? from : '/')
   }
   document.querySelectorAll('.close, .return').forEach(function (el) { el.addEventListener('click', backToPadelTrack) })
   if (navigator.userAgent.indexOf('PadelTrackApp') !== -1) document.querySelector('.return').textContent = 'Return to app'
