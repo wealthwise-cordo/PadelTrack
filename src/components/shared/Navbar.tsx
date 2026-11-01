@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { forgetThisDevice } from '@/lib/native'
-import { Trophy, History, LayoutGrid, Plus, LogOut, User, FileText, Shield } from 'lucide-react'
+import { LEGAL } from '@/lib/legal'
+import { Trophy, History, LayoutGrid, Plus, LogOut, User, Shield } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import PushToggle from '@/components/shared/PushToggle'
 import Logo from '@/components/shared/Logo'
@@ -117,15 +118,16 @@ export default function Navbar({
                 </Link>
               )}
               <PushToggle variant="menu" />
-              <Link href="/terms" className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-50">
-                <FileText className="h-4 w-4 text-zinc-500" /> Terms &amp; privacy
-              </Link>
               <button
                 onClick={async () => { await forgetThisDevice(); await signOut({ callbackUrl: '/login' }) }}
                 className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-50 text-left"
               >
                 <LogOut className="h-4 w-4 text-zinc-500" /> Sign out
               </button>
+              <div className="flex gap-3 px-3 pt-2 pb-1 mt-1 border-t border-zinc-100 text-[11px] text-zinc-400">
+                <a href={LEGAL.termsUrl} className="hover:text-zinc-700">Terms of Use</a>
+                <a href={LEGAL.privacyUrl} className="hover:text-zinc-700">Privacy</a>
+              </div>
             </div>
           )}
         </div>

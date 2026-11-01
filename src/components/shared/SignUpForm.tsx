@@ -7,16 +7,15 @@ import { primaryButtonClass } from '@/components/shared/AuthShell'
 import { NameField, EmailField, PasswordField, GenderField, DateOfBirthField, CountryField } from '@/components/shared/AuthFields'
 import { COUNTRIES } from '@/lib/countries'
 import LevelPicker from '@/components/shared/LevelPicker'
-import PushToggle from '@/components/shared/PushToggle'
 import { rememberReturning } from '@/lib/native'
 
 // Creates an account and signs straight in. The LTA level picked here sets
 // the starting rating. With claimToken, the account takes over that guest
 // profile; suggestedLevel (from whoever added them) is pre-selected, and the
 // server blends the levels given for them (startingLevelFor).
-// `heading` and `footer` show while signing up and are hidden on the
-// notifications step that follows a direct sign-up. `next` is where to go
-// afterwards (e.g. back to a match join link).
+// The Terms of Use and Privacy notice are agreed straight after, in the sheet
+// over Ranking (TermsSheet), then the app offers notifications. `next` is
+// where to go afterwards (e.g. back to a match join link).
 export default function SignUpForm({ claimToken, defaultName = '', suggestedLevel = null, collectProfile = false, heading, footer, next = '/' }: { claimToken?: string; defaultName?: string; suggestedLevel?: number | null; collectProfile?: boolean; heading?: string; footer?: React.ReactNode; next?: string }) {
   const router = useRouter()
   const [name, setName] = useState(defaultName)
@@ -34,10 +33,6 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
   }, [])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [accepted, setAccepted] = useState(false)
-  // Direct sign-ups get one more step: turning on phone notifications.
-  // (Invite-link sign-ups are offered it in "Complete your profile".)
-  const [created, setCreated] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,16 +44,12 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
       setError('Pick the level that best describes you')
       return
     }
-    if (!accepted) {
-      setError('Please agree to the Terms and Privacy Notice')
-      return
-    }
     setLoading(true)
     setError('')
     const res = await fetch('/api/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, level, claimToken, acceptTerms: accepted, ...(collectProfile && { gender, dateOfBirth, country }) }),
+      body: JSON.stringify({ name, email, password, level, claimToken, ...(collectProfile && { gender, dateOfBirth, country }) }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -72,33 +63,8 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
       return
     }
     rememberReturning()
-    if (!claimToken) {
-      setCreated(true)
-      setLoading(false)
-      return
-    }
-    router.push('/')
+    router.push(claimToken ? '/' : next)
     router.refresh()
-  }
-
-  const goToApp = () => {
-    router.push(next)
-    router.refresh()
-  }
-
-  if (created) {
-    return (
-      <div className="space-y-4">
-        <div className="text-center">
-          <div className="text-lg font-black">You’re all set, {name.trim().split(' ')[0]}</div>
-          <p className="text-sm text-zinc-600 mt-1">One last thing — want a heads-up on your phone?</p>
-        </div>
-        <PushToggle variant="inline" onUnavailable={goToApp} />
-        <button type="button" onClick={goToApp} className={primaryButtonClass}>
-          Continue to PadelTrack
-        </button>
-      </div>
-    )
   }
 
   return (
@@ -122,20 +88,6 @@ export default function SignUpForm({ claimToken, defaultName = '', suggestedLeve
         onChange={l => { setLevel(l); setError('') }}
         hint="Based on the LTA Padel Rating System — this may be the same as an existing rating you have on Playtomic or similar"
       />
-      <label className="flex items-start gap-2.5 text-xs text-zinc-600 leading-relaxed cursor-pointer">
-        <input
-          type="checkbox"
-          name="accept-terms"
-          required
-          checked={accepted}
-          onChange={e => { setAccepted(e.target.checked); setError('') }}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-orange-500"
-        />
-        <span>
-          I agree to the <a href="/terms" target="_blank" className="font-semibold text-orange-600 underline">Terms of Use</a>, including liability and safety, and I’ve read the{' '}
-          <a href="/privacy" target="_blank" className="font-semibold text-orange-600 underline">Privacy Notice</a>.
-        </span>
-      </label>
       {error && <p className="text-sm text-red-600 text-center">{error}</p>}
       <button type="submit" disabled={loading} className={primaryButtonClass}>
         {loading ? 'Creating account…' : claimToken ? 'Create account & claim profile' : 'Create account'}

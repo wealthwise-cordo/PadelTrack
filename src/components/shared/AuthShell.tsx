@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import Logo from '@/components/shared/Logo'
+import { LEGAL } from '@/lib/legal'
 
 // Shared frame for the signed-out screens (login, sign up, claim).
 // `headerLink` puts a link at the top right (e.g. Sign in on sign-up).
@@ -21,8 +22,8 @@ export default function AuthShell({ subtitle, headerLink, children }: { subtitle
         </div>
       </div>
       <footer className="flex justify-center gap-4 [padding-bottom:calc(1.5rem+env(safe-area-inset-bottom))] text-[11px] text-zinc-400">
-        <Link href="/terms" className="hover:text-zinc-700">Terms of Use</Link>
-        <Link href="/privacy" className="hover:text-zinc-700">Privacy</Link>
+        <a href={LEGAL.termsUrl} className="hover:text-zinc-700">Terms of Use</a>
+        <a href={LEGAL.privacyUrl} className="hover:text-zinc-700">Privacy</a>
       </footer>
     </div>
   )

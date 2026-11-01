@@ -4,6 +4,7 @@ import { Trophy, ShieldCheck, Users, LayoutGrid, Swords, Flame, UserPlus, Clipbo
 import Logo from '@/components/shared/Logo'
 import AppStoreButton from '@/components/marketing/AppStoreButton'
 import { Court, Racket, Ball } from '@/components/marketing/PadelArt'
+import { LEGAL } from '@/lib/legal'
 
 // padeltrack.co.uk for anyone signed out (the middleware shows it at /): what
 // PadelTrack is, the App Store download, and sign in / sign up for the web.
@@ -202,8 +203,8 @@ export default function WelcomePage() {
       </section>
 
       <footer className="flex justify-center gap-4 border-t border-zinc-100 pt-6 [padding-bottom:calc(2rem+env(safe-area-inset-bottom))] text-[11px] text-zinc-400">
-        <Link href="/terms" className="hover:text-zinc-700">Terms of Use</Link>
-        <Link href="/privacy" className="hover:text-zinc-700">Privacy</Link>
+        <a href={LEGAL.termsUrl} className="hover:text-zinc-700">Terms of Use</a>
+        <a href={LEGAL.privacyUrl} className="hover:text-zinc-700">Privacy</a>
       </footer>
     </div>
   )

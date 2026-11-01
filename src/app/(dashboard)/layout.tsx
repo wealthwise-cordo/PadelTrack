@@ -1,8 +1,7 @@
-import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
 import Navbar from '@/components/shared/Navbar'
 import AutoSync from '@/components/shared/AutoSync'
 import NativePushPrompt from '@/components/shared/NativePushPrompt'
+import TermsSheet from '@/components/shared/TermsSheet'
 import { requireSession } from '@/lib/session'
 import { getPendingForUser, getSyncFingerprint, getAccount } from '@/lib/store'
 import { getRole } from '@/lib/roles'
@@ -13,8 +12,6 @@ import { countAwaitingScore } from '@/lib/scheduled-matches'
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession()
   const [pending, fingerprint, account, role, toScore] = await Promise.all([getPendingForUser(session.userId), getSyncFingerprint(), getAccount(session.userId), getRole(session.userId), countAwaitingScore(session.player.id)])
-  // Not agreed to the current Terms and Privacy yet: that comes first.
-  if (account && !account.termsCurrent) redirect(`/accept-terms?next=${encodeURIComponent(headers().get('x-pathname') || '/')}`)
   const reviewCount = role === 'superuser' ? (await countPendingAdjustments()) + (await countDisputes(session.player.id)) : 0
 
   return (
@@ -30,7 +27,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <main className="px-4 pb-10 max-w-3xl mx-auto">
         {children}
       </main>
-      <NativePushPrompt />
+      {/* Agreeing to the current terms comes first; then (in the app) notifications. */}
+      {account && !account.termsCurrent ? <TermsSheet /> : <NativePushPrompt />}
     </div>
   )
 }
