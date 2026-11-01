@@ -2,9 +2,10 @@ import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import {
-  MATCH_INCLUDE, autoConfirmExpired, confirmerIds, finalizeIfReady, firstName, getMatchById, getPlayerForUser, involving,
+  BLOCKED_ERROR, MATCH_INCLUDE, autoConfirmExpired, confirmerIds, finalizeIfReady, firstName, getMatchById, getPlayerForUser, involving,
   isFull, lineupIdsOf, lineupOf, resolveStartsAt, resultLine, sideOf, validateScore, whenLabel,
 } from '@/lib/store'
+import { blocksAny } from '@/lib/safety'
 import type { MatchWithPlayers } from '@/types'
 import type { Prisma } from '@prisma/client'
 
@@ -67,6 +68,7 @@ export async function updateScheduledMatch(userId: string, matchId: string, data
   if (!me || !ids.includes(me.id)) return { error: 'You must be one of the four players' }
   const players = await prisma.player.findMany({ where: { id: { in: ids }, deletedAt: null } })
   if (players.length !== ids.length) return { error: 'One or more players were not found' }
+  if (await blocksAny(userId, me.id, ids)) return { error: BLOCKED_ERROR }
   const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
   if (data.clubId && !club) return { error: 'That club was not found' }
   const location = club ? `${club.name}, ${club.area}` : data.location?.trim().slice(0, 60) || null
@@ -137,6 +139,7 @@ export async function joinMatch(userId: string, token: string, seat: number): Pr
   if (!me || !m || m.status !== 'scheduled') return { error: 'This link is no longer valid' }
   if (sideOf(m, me.id)) return { ok: true, matchId: m.id }
   if (isFull(m)) return { error: 'This match is already full' }
+  if (await blocksAny(userId, me.id, lineupIdsOf(m))) return { error: 'This match isn’t available to you' }
   if (m[SEATS[seat]]) return { error: 'Someone just took that spot — pick another' }
 
   // Only if the spot is still free and you're not in it already.

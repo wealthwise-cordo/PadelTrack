@@ -44,8 +44,9 @@ export async function logError(entry: { source: 'server' | 'client'; error?: unk
 }
 
 // Who can open /admin: comma-separated emails in ADMIN_EMAILS.
+export const adminEmails = () => (process.env.ADMIN_EMAILS ?? '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false
-  const admins = (process.env.ADMIN_EMAILS ?? '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
-  return admins.includes(email.toLowerCase())
+  return adminEmails().includes(email.toLowerCase())
 }

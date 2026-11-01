@@ -46,6 +46,9 @@ model User {
   adminUserActions     AdminUserAction[]
   adjustmentsRequested RatingAdjustment[] @relation("AdjustmentRequester")
   adjustmentsReviewed  RatingAdjustment[] @relation("AdjustmentReviewer")
+  blocks               PlayerBlock[]
+  reportsMade          PlayerReport[]     @relation("ReportMaker")
+  reportsResolved      PlayerReport[]     @relation("ReportResolver")
 }
 
 // A person who plays. Registered users have exactly one Player (userId set).
@@ -108,6 +111,8 @@ model Player {
   teamA2      Match[]            @relation("TeamA2")
   teamB1      Match[]            @relation("TeamB1")
   teamB2      Match[]            @relation("TeamB2")
+  blockedBy   PlayerBlock[]
+  reports     PlayerReport[]
 
   @@index([createdById])
 }
@@ -557,4 +562,39 @@ model AdminUserAction {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// A user blocking a player. Works both ways for the pair: neither sees the
+// other in search, pickers or their ranking, and neither can add the other to
+// a match or join the other's match through a join link.
+model PlayerBlock {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, playerId])
+  @@index([playerId])
+}
+
+// A user reporting a player (offensive name, made-up results, harassment…).
+// The super user is notified and resolves it under Admin → Reports.
+model PlayerReport {
+  id           String    @id @default(cuid())
+  reporterId   String
+  reporter     User      @relation("ReportMaker", fields: [reporterId], references: [id], onDelete: Cascade)
+  playerId     String
+  player       Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  reason       String // offensive | fake-results | harassment | impersonation | other
+  details      String?
+  status       String    @default("open") // open | resolved
+  resolution   String?
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+
+  @@index([status, createdAt])
 }

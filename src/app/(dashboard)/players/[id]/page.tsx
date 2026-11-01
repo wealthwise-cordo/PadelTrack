@@ -16,6 +16,8 @@ import { getRole, canAdjustRatings } from '@/lib/roles'
 import { getPlayerAdjustments } from '@/lib/rating-adjustments'
 import AdjustRatingPanel from '@/components/players/AdjustRatingPanel'
 import { levelDelta } from '@/lib/lta'
+import { isBlocking } from '@/lib/safety'
+import PlayerSafety from '@/components/players/PlayerSafety'
 
 export const revalidate = 0
 
@@ -90,7 +92,7 @@ function versusMe(matches: MatchWithPlayers[], meId: string, themId: string) {
 
 export default async function PlayerProfilePage({ params }: { params: { id: string } }) {
   const session = await requireSession()
-  const [player, raw, matches, circle, account, role, adjustments] = await Promise.all([
+  const [player, raw, matches, circle, account, role, adjustments, blocked] = await Promise.all([
     getPlayer(params.id),
     getPlayerRaw(params.id),
     getMatchesForPlayer(params.id),
@@ -98,11 +100,29 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
     params.id === session.player.id ? getAccount(session.userId) : null,
     getRole(session.userId),
     getPlayerAdjustments(params.id),
+    isBlocking(session.userId, params.id),
   ])
   if (!player || !raw || raw.deletedAt) notFound()
 
   const isMe = player.id === session.player.id
   const canEdit = canEditPlayer(raw, session.userId)
+  // Report (anyone but you) and block (players with an account).
+  const safety = !isMe && <PlayerSafety playerId={player.id} name={player.name} canBlock={!!raw.userId} blocked={blocked} />
+
+  if (blocked) {
+    return (
+      <div className="py-6 space-y-5">
+        <div className="glass rounded-2xl p-4 flex items-center gap-3">
+          <div className="h-12 w-12 rounded-xl flex items-center justify-center text-base font-bold text-white shrink-0" style={{ backgroundColor: player.avatarColor }}>
+            {getInitials(player.name)}
+          </div>
+          <h1 className="text-lg font-black truncate">{player.name}</h1>
+        </div>
+        <p className="text-sm text-zinc-500 text-center px-4">You’ve blocked {player.name.split(' ')[0]}.</p>
+        {safety}
+      </div>
+    )
+  }
 
   // Full profiles are for your circle (and guests you manage). Levellers and
   // the super user see everyone; anyone else gets just the name and rating.
@@ -134,6 +154,7 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
         <p className="text-sm text-zinc-500 text-center px-4">
           Play a ranked match with {player.name.split(' ')[0]} to see their full profile.
         </p>
+        {safety}
       </div>
     )
   }
@@ -300,6 +321,8 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
           </div>
         </div>
       )}
+
+      {safety}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import { calculatePTRChanges, currentReliability, reliabilityAfterMatch } from '
 import { internalFromLevel, isLtaLevel, levelFromInternal } from './lta'
 import { isCountryCode } from './countries'
 import { RANKED_MAX_AGE_DAYS, setWinner } from './utils'
+import { blocksAny, hiddenPlayerIds } from './safety'
 import type { PlayerWithStats, MatchWithPlayers, PTRHistoryPoint } from '@/types'
 import type { Player, PTRHistory, Prisma } from '@prisma/client'
 
@@ -23,6 +24,9 @@ type MatchFull = Prisma.MatchGetPayload<{ include: typeof MATCH_INCLUDE }>
 // out Ranked for older dates). The server allows a day's slack for timezones.
 const rankedTooOld = (playedAt: Date) => playedAt.getTime() < Date.now() - (RANKED_MAX_AGE_DAYS + 1) * 864e5
 const TOO_OLD_ERROR = `Ranked matches must have been played in the last ${RANKED_MAX_AGE_DAYS} days — save it as a friendly`
+
+// Adding someone you've blocked, or who has blocked you, to a match.
+export const BLOCKED_ERROR = 'You can’t play a match with a player you’ve blocked or who has blocked you'
 
 // Pending matches confirm themselves if no opponent acts within this window.
 export const AUTO_CONFIRM_HOURS = 48
@@ -434,9 +438,12 @@ export async function getCircleIds(playerId: string): Promise<string[]> {
   return registered.map(p => p.id)
 }
 
-// The rankings view: you plus your circle, ordered by rating.
+// The rankings view: you plus your circle, ordered by rating. Players blocked
+// either way are left out.
 export async function getCircleRankings(playerId: string): Promise<PlayerWithStats[]> {
-  const ids = [playerId, ...(await getCircleIds(playerId))]
+  const me = await prisma.player.findUnique({ where: { id: playerId }, select: { userId: true } })
+  const hidden = me?.userId ? await hiddenPlayerIds(me.userId, playerId) : new Set<string>()
+  const ids = [playerId, ...(await getCircleIds(playerId)).filter(id => !hidden.has(id))]
   const rows = await prisma.player.findMany({
     where: { id: { in: ids } },
     include: { ptrHistory: true },
@@ -476,7 +483,8 @@ export async function getPickablePlayers(userId: string): Promise<PlayerWithStat
     },
     orderBy: { name: 'asc' },
   })
-  const players = rows.map(p => toPlayerWithStats(p))
+  const hidden = await hiddenPlayerIds(userId, me?.id)
+  const players = rows.filter(p => !hidden.has(p.id)).map(p => toPlayerWithStats(p))
   // Keep "you" first.
   return [...players.filter(p => p.id === me?.id), ...players.filter(p => p.id !== me?.id)]
 }
@@ -500,7 +508,9 @@ export async function searchPlayers(query: string, viewerPlayerId: string): Prom
     take: 10,
   })
   const circle = new Set(await getCircleIds(viewerPlayerId))
-  return rows.map(p => {
+  const viewer = await prisma.player.findUnique({ where: { id: viewerPlayerId }, select: { userId: true } })
+  const hidden = viewer?.userId ? await hiddenPlayerIds(viewer.userId, viewerPlayerId) : new Set<string>()
+  return rows.filter(p => !hidden.has(p.id)).map(p => {
     const byName = p.name.toLowerCase().includes(q.toLowerCase())
     return toSearchResult(p, byName || circle.has(p.id) || p.id === viewerPlayerId)
   })
@@ -874,6 +884,7 @@ export async function createMatch(userId: string, data: {
 
   const players = await prisma.player.findMany({ where: { id: { in: ids } } })
   if (players.length !== ids.length) return { error: 'One or more players were not found' }
+  if (await blocksAny(userId, me.id, ids)) return { error: BLOCKED_ERROR }
 
   const club = data.clubId ? await prisma.club.findFirst({ where: { id: data.clubId, active: true } }) : null
   if (data.clubId && !club) return { error: 'That club was not found' }
@@ -1149,6 +1160,7 @@ export async function updatePendingMatch(userId: string, matchId: string, data: 
   if (!me || !ids.includes(me.id)) return { error: 'You must be one of the four players' }
   const players = await prisma.player.findMany({ where: { id: { in: ids }, deletedAt: null } })
   if (players.length !== 4) return { error: 'One or more players were not found' }
+  if (await blocksAny(userId, me.id, ids)) return { error: BLOCKED_ERROR }
 
   const incomplete = data.incomplete === true
   const winner = incomplete ? null : data.winner

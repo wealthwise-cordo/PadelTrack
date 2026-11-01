@@ -8,11 +8,12 @@ import { getRole } from '@/lib/roles'
 import { countPendingAdjustments } from '@/lib/rating-adjustments'
 import { countDisputes } from '@/lib/admin-matches'
 import { countAwaitingScore } from '@/lib/scheduled-matches'
+import { countOpenReports } from '@/lib/safety'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession()
   const [pending, fingerprint, account, role, toScore] = await Promise.all([getPendingForUser(session.userId), getSyncFingerprint(), getAccount(session.userId), getRole(session.userId), countAwaitingScore(session.player.id)])
-  const reviewCount = role === 'superuser' ? (await countPendingAdjustments()) + (await countDisputes(session.player.id)) : 0
+  const reviewCount = role === 'superuser' ? (await countPendingAdjustments()) + (await countDisputes(session.player.id)) + (await countOpenReports()) : 0
 
   return (
     <div className="min-h-screen bg-white">
