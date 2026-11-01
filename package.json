@@ -14,7 +14,9 @@
     "db:migrate": "prisma migrate dev",
     "venues:review": "node --env-file=.env node_modules/.bin/tsx scripts/unlisted-venues.ts",
     "db:launch-reset": "node --env-file=.env node_modules/.bin/tsx scripts/reset-for-launch.ts",
-    "ios": "cap sync ios && cap open ios"
+    "ios": "cap sync ios && cap open ios",
+    "demo:db": "node --env-file=.env scripts/demo-db.mjs",
+    "demo:seed": "node --env-file=.env node_modules/.bin/tsx scripts/seed-demo.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.2",
@@ -58,6 +60,7 @@
     "@types/react-dom": "^18",
     "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.5.0",
+    "embedded-postgres": "^17.11.0-beta.19",
     "eslint": "^8",
     "eslint-config-next": "14.2.18",
     "postcss": "^8",

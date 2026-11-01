@@ -503,6 +503,8 @@ export async function searchPlayers(query: string, viewerPlayerId: string): Prom
         { userId: { not: null }, name: { contains: q, mode: 'insensitive' } },
         { user: { email: q.toLowerCase() } },
       ],
+      // Apple's reviewer account never turns up in anyone's search.
+      NOT: { user: { email: { in: reviewAccountEmails() } } },
     },
     orderBy: { name: 'asc' },
     take: 10,
@@ -514,6 +516,13 @@ export async function searchPlayers(query: string, viewerPlayerId: string): Prom
     const byName = p.name.toLowerCase().includes(q.toLowerCase())
     return toSearchResult(p, byName || circle.has(p.id) || p.id === viewerPlayerId)
   })
+}
+
+// Accounts Apple's App Review signs in with (REVIEW_ACCOUNT_EMAILS,
+// comma-separated; review@padeltrack.co.uk if unset). Hidden from player
+// search so real players never add it to a match, or find it.
+export function reviewAccountEmails(): string[] {
+  return (process.env.REVIEW_ACCOUNT_EMAILS ?? 'review@padeltrack.co.uk').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 }
 
 // A player as search shows them: everything but name, nickname, avatar and

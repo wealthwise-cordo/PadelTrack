@@ -13,7 +13,9 @@ const config: CapacitorConfig = {
   // Only the offline screen ships in the app; everything else is the site.
   webDir: 'mobile/www',
   server: {
-    url: 'https://www.padeltrack.co.uk',
+    // CAP_SERVER_URL points a local build at a local copy of the site (App
+    // Store screenshots with demo data): CAP_SERVER_URL=http://localhost:3004 npx cap sync ios
+    url: process.env.CAP_SERVER_URL || 'https://www.padeltrack.co.uk',
     errorPath: 'offline.html',
   },
   // Lets the site tell the app from Safari (the middleware sends the app

@@ -30,3 +30,6 @@ next-env.d.ts
 .env.vercel
 .vercel
 .env*
+
+# Local demo database (scripts/demo-db.mjs)
+.demo-db/
