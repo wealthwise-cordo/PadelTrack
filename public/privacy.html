@@ -18,12 +18,18 @@
   .updated { color:var(--muted); margin:0 0 1.5rem; }
   ul { padding-left:1.25rem; }
   li { margin:.35rem 0; }
+  /* Close (top right) and return (bottom): back to where you came from. */
+  .close { position:fixed; top:calc(env(safe-area-inset-top) + .75rem); right:1rem; width:2.25rem; height:2.25rem;
+           display:flex; align-items:center; justify-content:center; border-radius:999px; border:0;
+           background:var(--rule); color:var(--fg); font-size:1.1rem; line-height:1; text-decoration:none; }
+  .return { display:block; margin:3rem auto 0; padding:.8rem 1.5rem; border:0; border-radius:.75rem;
+            background:#f97316; color:#fff; font:inherit; font-weight:700; text-align:center; text-decoration:none; width:max-content; }
 </style>
 </head>
 <body>
 <main>
 
-<p><a href="https://www.padeltrack.co.uk/">← PadelTrack</a></p>
+<a class="close" href="/" aria-label="Close">✕</a>
 
 <h1>Privacy notice</h1>
 <p class="updated">Last updated 1 November 2026</p>
@@ -156,6 +162,18 @@
 
 <p>Questions? Email hello@padeltrack.co.uk.</p>
 
+<a class="return" href="/">Return to PadelTrack</a>
+
 </main>
+<script>
+  // Back to PadelTrack: the page you came from, or the home page if opened directly.
+  function backToPadelTrack(e) {
+    e.preventDefault()
+    if (history.length > 1 && document.referrer.indexOf(location.host) !== -1) history.back()
+    else location.href = '/'
+  }
+  document.querySelectorAll('.close, .return').forEach(function (el) { el.addEventListener('click', backToPadelTrack) })
+  if (navigator.userAgent.indexOf('PadelTrackApp') !== -1) document.querySelector('.return').textContent = 'Return to app'
+</script>
 </body>
 </html>
