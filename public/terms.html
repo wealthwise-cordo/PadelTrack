@@ -162,14 +162,21 @@
 
 </main>
 <script>
-  // Back to PadelTrack: the page you came from (loaded fresh, not "back",
-  // which in the iPhone app can return a page cut off from the app), or the
-  // home page if opened directly.
+  // Back to PadelTrack: the page you opened the documents from (moving
+  // between Terms and Privacy doesn't change it), loaded fresh rather than
+  // "back", which in the iPhone app can return a page cut off from the app.
+  // Opened directly: the home page.
+  var RETURN_KEY = 'pt-legal-return'
+  var from = document.referrer
+  var isDocument = function (url) { return /\/(terms|privacy)\.html/.test(url) }
+  try {
+    if (from && from.indexOf(location.origin + '/') === 0 && !isDocument(from)) sessionStorage.setItem(RETURN_KEY, from)
+  } catch (e) {}
   function backToPadelTrack(e) {
     e.preventDefault()
-    var from = document.referrer
-    var sameSite = from && from.indexOf(location.origin + '/') === 0 && from.split('#')[0] !== location.href.split('#')[0]
-    location.replace(sameSite ? from : '/')
+    var to = '/'
+    try { to = sessionStorage.getItem(RETURN_KEY) || '/' } catch (err) {}
+    location.replace(to)
   }
   document.querySelectorAll('.close, .return').forEach(function (el) { el.addEventListener('click', backToPadelTrack) })
   if (navigator.userAgent.indexOf('PadelTrackApp') !== -1) document.querySelector('.return').textContent = 'Return to app'
