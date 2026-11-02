@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
+import { requireAdminUnlock } from '@/lib/admin-auth'
 import { requestAdjustment } from '@/lib/rating-adjustments'
 
 // A leveller or the super user adjusting this player's rating. Body:
@@ -7,6 +8,8 @@ import { requestAdjustment } from '@/lib/rating-adjustments'
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Sign in first' }, { status: 401 })
+  const locked = await requireAdminUnlock(session.userId)
+  if (locked) return locked
   const body = await req.json().catch(() => ({}))
   const result = await requestAdjustment(session.userId, params.id, { levels: body.levels, reason: body.reason })
   if ('error' in result) return NextResponse.json(result, { status: 400 })

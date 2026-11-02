@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { SlidersHorizontal, X, Clock } from 'lucide-react'
 import { levelFromInternal, MAX_LEVEL, MIN_LEVEL } from '@/lib/lta'
+import { adminFetch } from '@/lib/admin-fetch'
 
 const MAX_ADJUST = 1
 const MIN_REASON = 10
@@ -65,7 +66,7 @@ export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUse
     setSaving(true)
     setError('')
     try {
-      const res = await fetch(`/api/players/${playerId}/adjustments`, {
+      const res = await adminFetch(`/api/players/${playerId}/adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ levels, reason: reason.trim() }),

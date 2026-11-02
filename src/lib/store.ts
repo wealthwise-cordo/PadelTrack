@@ -657,6 +657,15 @@ export async function deleteAccount(userId: string, password: string): Promise<{
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) return { error: 'Account not found' }
   if (!(await bcrypt.compare(password, user.password))) return { error: 'Password is incorrect' }
+  await eraseAccount(userId)
+  return { ok: true }
+}
+
+// Deleting an account (the player themselves, or the super user from Admin):
+// personal details are erased and the profile can't be opened; the name stays
+// on confirmed matches so other players' results and ratings don't change.
+// Their matches still waiting to be confirmed are removed.
+export async function eraseAccount(userId: string): Promise<void> {
   const me = await getPlayerForUser(userId)
   const unusable = await bcrypt.hash(randomBytes(32).toString('base64url'), 10)
   await prisma.$transaction(async tx => {
@@ -672,16 +681,16 @@ export async function deleteAccount(userId: string, password: string): Promise<{
       })
     }
     await tx.pushSubscription.deleteMany({ where: { userId } })
+    await tx.nativePushToken.deleteMany({ where: { userId } })
     await tx.passwordReset.deleteMany({ where: { userId } })
     await tx.user.update({
       where: { id: userId },
       data: {
         email: `deleted-${userId}@deleted.invalid`, name: 'Deleted player', password: unusable,
-        gender: null, dateOfBirth: null, country: null,
+        gender: null, dateOfBirth: null, country: null, adminPasswordHash: null,
       },
     })
   })
-  return { ok: true }
 }
 
 export function canEditPlayer(p: Player, userId: string): boolean {
@@ -1264,6 +1273,70 @@ function tallySets(sets: { teamAGames: number; teamBGames: number }[]) {
     tbWonB,
     tbTotal: tbWonA + tbWonB,
   }
+}
+
+// Removing a confirmed match (super user, Admin → Matches). Ranked: each of
+// the four players loses exactly the rating change this match gave them —
+// their rating, and every later point in their rating history, shift by it,
+// so the chart stays continuous. Later matches keep their own changes (no
+// recalculation). Their matches played, wins/losses, sets, games and
+// tie-breaks are taken back too, and streaks and last-played recalculated
+// from what's left; reliability stays. Friendlies are simply deleted.
+export async function undoConfirmedMatch(tx: TxClient, matchId: string): Promise<string[]> {
+  const m = await tx.match.findUniqueOrThrow({ where: { id: matchId }, include: { sets: true, ptrHistory: true } })
+  const ids = lineupIdsOf(m)
+  if (m.status === 'complete' && m.isRanked) {
+    const t = tallySets(m.sets)
+    const sides: [string | null, boolean][] = [[m.teamAPlayer1Id, true], [m.teamAPlayer2Id, true], [m.teamBPlayer1Id, false], [m.teamBPlayer2Id, false]]
+    for (const [id, onA] of sides) {
+      if (!id) continue
+      const h = m.ptrHistory.find(x => x.playerId === id)
+      const delta = h?.delta ?? 0
+      if (h && delta) {
+        await tx.pTRHistory.updateMany({
+          where: { playerId: id, createdAt: { gt: h.createdAt } },
+          data: { ptrBefore: { decrement: delta }, ptrAfter: { decrement: delta } },
+        })
+      }
+      const won = !m.incomplete && (m.winner === 'A') === onA
+      await tx.player.update({
+        where: { id },
+        data: {
+          ptr: { decrement: delta },
+          matchesPlayed: { decrement: 1 },
+          ...(!m.incomplete && (won ? { wins: { decrement: 1 } } : { losses: { decrement: 1 } })),
+          setsWon: { decrement: onA ? t.setsA : t.setsB },
+          setsLost: { decrement: onA ? t.setsB : t.setsA },
+          gamesWon: { decrement: onA ? t.gamesA : t.gamesB },
+          gamesLost: { decrement: onA ? t.gamesB : t.gamesA },
+          tiebreaksWon: { decrement: onA ? t.tbWonA : t.tbWonB },
+          tiebreaksPlayed: { decrement: t.tbTotal },
+        },
+      })
+    }
+  }
+  await tx.match.delete({ where: { id: matchId } }) // sets, history and score entries go with it
+  return m.status === 'complete' && m.isRanked && !m.incomplete ? ids : []
+}
+
+// Current and best streak and last ranked match, from a player's confirmed
+// ranked matches with a result, in the order they were confirmed.
+export async function recomputeStreaks(playerId: string): Promise<void> {
+  const rows = await prisma.match.findMany({
+    where: { status: 'complete', isRanked: true, incomplete: false, ...involving(playerId) },
+    select: { winner: true, playedAt: true, teamAPlayer1Id: true, teamAPlayer2Id: true, teamBPlayer1Id: true, teamBPlayer2Id: true },
+    orderBy: [{ confirmedAt: 'asc' }, { playedAt: 'asc' }],
+  })
+  let current = 0
+  let best = 0
+  let last: Date | null = null
+  for (const r of rows) {
+    const won = r.winner === sideOf(r, playerId)
+    current = won ? (current > 0 ? current + 1 : 1) : (current < 0 ? current - 1 : -1)
+    if (current > best) best = current
+    if (!last || r.playedAt > last) last = r.playedAt
+  }
+  await prisma.player.update({ where: { id: playerId }, data: { currentStreak: current, bestStreak: best, lastRankedPlayedAt: last } })
 }
 
 // An incomplete ranked match, once confirmed: counts as a match played and

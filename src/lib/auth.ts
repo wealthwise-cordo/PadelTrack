@@ -18,7 +18,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!credentials?.email || !credentials?.password) return null
 
         const user = await findUserByEmail(credentials.email as string)
-        if (!user) return null
+        // Suspended accounts can't sign in (Admin → Users).
+        if (!user || user.suspendedAt) return null
 
         const valid = user.password ? await bcrypt.compare(credentials.password as string, user.password) : false
         if (!valid) return null

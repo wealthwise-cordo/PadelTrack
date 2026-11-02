@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Merge, X } from 'lucide-react'
 import { formatRating } from '@/lib/utils'
+import { adminFetch } from '@/lib/admin-fetch'
 
 type Side = {
   id: string
@@ -36,7 +37,7 @@ export default function DuplicatePair({ similarity, a, b, keepA, keepB }: {
     setBusy(true)
     setError('')
     try {
-      const res = await fetch('/api/admin/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res = await adminFetch('/api/admin/duplicates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) setError(d.error || 'Something went wrong')
       else router.refresh()

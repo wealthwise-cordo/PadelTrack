@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { BadgeCheck } from 'lucide-react'
 import { LTA_LEVELS } from '@/lib/lta'
+import { adminFetch } from '@/lib/admin-fetch'
 
 // Pick a level for a guest and make them a ranked guest.
 export default function VerifyGuest({ playerId, name, suggestedLevel }: { playerId: string; name: string; suggestedLevel: number | null }) {
@@ -18,7 +19,7 @@ export default function VerifyGuest({ playerId, name, suggestedLevel }: { player
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/admin/guests/${playerId}`, {
+      const res = await adminFetch(`/api/admin/guests/${playerId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ level: Number(level) }),

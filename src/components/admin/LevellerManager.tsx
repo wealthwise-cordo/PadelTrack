@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, X } from 'lucide-react'
+import { adminFetch } from '@/lib/admin-fetch'
 
 // The super user's list of levellers: add by account email, or remove.
 export default function LevellerManager({ levellers }: { levellers: { id: string; name: string; email: string }[] }) {
@@ -15,7 +16,7 @@ export default function LevellerManager({ levellers }: { levellers: { id: string
     setBusy(true)
     setError('')
     try {
-      const res = await fetch('/api/levellers', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res = await adminFetch('/api/levellers', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) setError(d.error || 'Something went wrong')
       else {

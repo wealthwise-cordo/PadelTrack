@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
 import { getRole } from '@/lib/roles'
+import { adminEmails } from '@/lib/analytics'
 import { internalFromLevel, isLtaLevel } from '@/lib/lta'
-import { AUTO_CONFIRM_HOURS, lineupOf, settleMatchesFor } from '@/lib/store'
+import { AUTO_CONFIRM_HOURS, eraseAccount, lineupOf, settleMatchesFor } from '@/lib/store'
 import type { Prisma } from '@prisma/client'
 
 // Ranked guests — temporary, while few players are on PadelTrack. The super
@@ -291,4 +292,77 @@ export async function dismissDuplicate(userId: string, aId: unknown, bId: unknow
 
 export async function getUserActionLog(take = 30) {
   return prisma.adminUserAction.findMany({ orderBy: { createdAt: 'desc' }, take, include: { by: { select: { name: true } } } })
+}
+
+// --- Suspending and deleting accounts (super user) ------------------------------
+
+type Outcome = { ok: true } | { error: string }
+
+// Whose account it is, for the checks below: not yourself, not another super
+// user, and not one already deleted.
+async function targetAccount(superUserId: string, playerId: string) {
+  if ((await getRole(superUserId)) !== 'superuser') return { error: 'Not allowed' } as const
+  const player = await prisma.player.findUnique({ where: { id: playerId }, include: { user: true } })
+  if (!player?.user || player.deletedAt) return { error: 'Only players with an account can be suspended or deleted' } as const
+  if (player.user.id === superUserId) return { error: 'You can’t do that to your own account' } as const
+  if ((await getRole(player.user.id)) === 'superuser') return { error: 'Super users can’t be suspended or deleted here' } as const
+  return { player, user: player.user } as const
+}
+
+// Suspended players can't sign in (and are signed out) until unsuspended.
+// Their matches and rating are untouched.
+export async function setSuspended(superUserId: string, playerId: string, suspend: boolean, reason: unknown): Promise<Outcome> {
+  const t = await targetAccount(superUserId, playerId)
+  if (t.error !== undefined) return { error: t.error }
+  const why = typeof reason === 'string' ? reason.trim().slice(0, 300) : ''
+  if (suspend && why.length < 5) return { error: 'Give a reason' }
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: t.user.id }, data: { suspendedAt: suspend ? new Date() : null } }),
+    prisma.adminUserAction.create({
+      data: { action: suspend ? 'suspend' : 'unsuspend', byId: superUserId, summary: `${suspend ? 'Suspended' : 'Unsuspended'} ${t.player.name}${why ? ` — ${why}` : ''}`, detail: { playerId } },
+    }),
+  ])
+  if (suspend) {
+    await prisma.pushSubscription.deleteMany({ where: { userId: t.user.id } })
+    await prisma.nativePushToken.deleteMany({ where: { userId: t.user.id } })
+  }
+  return { ok: true }
+}
+
+// Deletes the account as if they'd done it themselves (see eraseAccount).
+export async function deleteUserAccount(superUserId: string, playerId: string, reason: unknown): Promise<Outcome> {
+  const t = await targetAccount(superUserId, playerId)
+  if (t.error !== undefined) return { error: t.error }
+  const why = typeof reason === 'string' ? reason.trim().slice(0, 300) : ''
+  if (why.length < 5) return { error: 'Give a reason' }
+  await eraseAccount(t.user.id)
+  await prisma.adminUserAction.create({
+    data: { action: 'delete', byId: superUserId, summary: `Deleted the account of ${t.player.name} — ${why}`, detail: { playerId } },
+  })
+  return { ok: true }
+}
+
+// Every account on PadelTrack (not guests, not deleted), A–Z, for Admin →
+// Users: who they are, when they joined, and whether they're suspended.
+export async function getAllUsers() {
+  const rows = await prisma.player.findMany({
+    where: { userId: { not: null }, deletedAt: null },
+    select: {
+      id: true, name: true, avatarColor: true, matchesPlayed: true,
+      user: { select: { id: true, email: true, createdAt: true, suspendedAt: true, role: true } },
+    },
+    orderBy: { name: 'asc' },
+  })
+  const admins = adminEmails()
+  return rows.map(p => ({
+    playerId: p.id,
+    name: p.name,
+    avatarColor: p.avatarColor,
+    matchesPlayed: p.matchesPlayed,
+    email: p.user!.email,
+    joinedAt: p.user!.createdAt.toISOString(),
+    suspended: !!p.user!.suspendedAt,
+    isSuperUser: p.user!.role === 'superuser' || admins.includes(p.user!.email.toLowerCase()),
+    userId: p.user!.id,
+  }))
 }

@@ -6,6 +6,8 @@ import { countDisputes } from '@/lib/admin-matches'
 import { getGuestsAwaitingJoin } from '@/lib/admin-users'
 import { countOpenReports } from '@/lib/safety'
 import AdminTabs from '@/components/admin/AdminTabs'
+import AdminPasswordButton from '@/components/admin/AdminPasswordButton'
+import { hasAdminPassword } from '@/lib/admin-auth'
 
 // Everything admin under one heading. The super user sees Analytics,
 // Ratings, Matches, Users and Reports; a leveller only Ratings. Members get a 404.
@@ -28,7 +30,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="py-6 space-y-6">
       <div className="space-y-3">
-        <h1 className="text-2xl font-black tracking-tight">Admin</h1>
+        <div className="flex items-end justify-between gap-3">
+          <h1 className="text-2xl font-black tracking-tight">Admin</h1>
+          {isSuper && <AdminPasswordButton hasPassword={await hasAdminPassword(session.userId)} />}
+        </div>
         <AdminTabs tabs={tabs} />
       </div>
       {children}

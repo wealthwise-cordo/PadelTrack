@@ -5,12 +5,13 @@ import { getRole } from '@/lib/roles'
 import { getAdminMatchLog, getAdminMatchQueue } from '@/lib/admin-matches'
 import MatchCard from '@/components/matches/MatchCard'
 import AdminMatchActions from '@/components/admin/AdminMatchActions'
+import RemoveMatch from '@/components/admin/RemoveMatch'
 import { getAllMatches } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 export const revalidate = 0
 
-const ACTION_LABEL = { confirm: 'Confirmed', settle: 'Settled', void: 'Voided' } as Record<string, string>
+const ACTION_LABEL = { confirm: 'Confirmed', settle: 'Settled', void: 'Voided', remove: 'Removed' } as Record<string, string>
 const PAGE_SIZE = 25
 const FILTERS = [
   { key: 'all', label: 'All', ranked: undefined },
@@ -19,7 +20,7 @@ const FILTERS = [
 ] as const
 type Filter = (typeof FILTERS)[number]['key']
 
-const ACTION_STYLE = { confirm: 'bg-emerald-100 text-emerald-800', settle: 'bg-orange-100 text-orange-800', void: 'bg-zinc-200 text-zinc-700' } as Record<string, string>
+const ACTION_STYLE = { confirm: 'bg-emerald-100 text-emerald-800', settle: 'bg-orange-100 text-orange-800', void: 'bg-zinc-200 text-zinc-700', remove: 'bg-red-100 text-red-800' } as Record<string, string>
 
 // Admin → Matches (super user): matches that aren't confirmed and may need a
 // hand — disputes, unconfirmed scores, and matches set up in advance that
@@ -49,7 +50,7 @@ export default async function AdminMatchesPage({ searchParams }: { searchParams:
     <div className="space-y-8">
       <div>
         <p className="text-sm text-zinc-500">
-          Other players’ matches that aren’t confirmed yet (your own you handle as a player). You can confirm a stuck score, settle a dispute by picking the right score, or void a match — always with a reason, which the players are sent. Confirmed matches can’t be changed here.
+          Other players’ matches that aren’t confirmed yet (your own you handle as a player). You can confirm a stuck score, settle a dispute by picking the right score, or void a match — always with a reason, which the players are sent. Under All matches you can remove a confirmed match: for a ranked one the four players lose just that match’s rating change and stats (nobody is notified).
         </p>
       </div>
 
@@ -106,7 +107,14 @@ export default async function AdminMatchesPage({ searchParams }: { searchParams:
         </nav>
         {all.matches.length === 0 ? (
           <p className="text-sm text-zinc-500">No matches.</p>
-        ) : all.matches.map(m => <MatchCard key={m.id} match={m} readOnly />)}
+        ) : all.matches.map(m => (
+          <div key={m.id} className="space-y-1.5">
+            <MatchCard match={m} readOnly />
+            {m.status === 'complete' && ![m.teamAPlayer1Id, m.teamAPlayer2Id, m.teamBPlayer1Id, m.teamBPlayer2Id].includes(session.player.id) && (
+              <RemoveMatch matchId={m.id} ranked={m.isRanked} incomplete={m.incomplete} />
+            )}
+          </div>
+        ))}
         {pages > 1 && (
           <div className="flex items-center justify-between text-xs">
             {page > 1 ? <Link href={href(filter.key, page - 1)} scroll={false} className="font-semibold text-zinc-600 hover:text-zinc-900">← Newer</Link> : <span />}

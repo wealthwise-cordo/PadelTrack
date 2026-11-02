@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Ban } from 'lucide-react'
 import type { ScoreReport } from '@/types'
+import { adminFetch } from '@/lib/admin-fetch'
 
 const MIN_REASON = 10
 
@@ -27,7 +28,7 @@ export default function AdminMatchActions({ matchId, status, disputed, reports }
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/admin/matches/${matchId}`, {
+      const res = await adminFetch(`/api/admin/matches/${matchId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, reason: reason.trim(), reportId }),

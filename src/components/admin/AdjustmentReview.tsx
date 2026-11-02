@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, X } from 'lucide-react'
+import { adminFetch } from '@/lib/admin-fetch'
 
 // Approve / reject buttons for one pending adjustment, with an optional note.
 export default function AdjustmentReview({ id }: { id: string }) {
@@ -15,7 +16,7 @@ export default function AdjustmentReview({ id }: { id: string }) {
     setBusy(action)
     setError('')
     try {
-      const res = await fetch(`/api/adjustments/${id}`, {
+      const res = await adminFetch(`/api/adjustments/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, note: note.trim() }),

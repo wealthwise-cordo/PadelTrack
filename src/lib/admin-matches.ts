@@ -3,7 +3,7 @@ import { sendPush } from '@/lib/push'
 import { getRole } from '@/lib/roles'
 import { MIN_REASON_LENGTH, MAX_REASON_LENGTH } from '@/lib/rating-adjustments'
 import { acceptReport } from '@/lib/scheduled-matches'
-import { MATCH_INCLUDE, finalizeIfReady, getMatchById, getPlayerForUser, lineupOf, resultLine, whenLabel } from '@/lib/store'
+import { MATCH_INCLUDE, finalizeIfReady, getMatchById, getPlayerForUser, lineupOf, recomputeStreaks, resultLine, undoConfirmedMatch, whenLabel } from '@/lib/store'
 import type { MatchWithPlayers } from '@/types'
 import type { Prisma } from '@prisma/client'
 
@@ -113,5 +113,30 @@ export async function adminMatchAction(
     url: '/matches',
     tag: `match-${matchId}`,
   })
+  return { ok: true }
+}
+
+// The super user removing a confirmed match (ranked, incomplete or a
+// friendly) from Admin → Matches, with a reason for the log. Ranked ones are
+// taken back for the four players as undoConfirmedMatch describes. The
+// players aren't notified. Not for a match the super user played in.
+export async function removeConfirmedMatch(userId: string, matchId: string, input: { reason: unknown }): Promise<Result> {
+  if ((await getRole(userId)) !== 'superuser') return { error: 'Only the super user can do this' }
+  const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+  if (reason.length < MIN_REASON_LENGTH) return { error: `Give a reason of at least ${MIN_REASON_LENGTH} characters` }
+  if (reason.length > MAX_REASON_LENGTH) return { error: `Keep the reason to ${MAX_REASON_LENGTH} characters` }
+  const m = await prisma.match.findUnique({ where: { id: matchId }, include: MATCH_INCLUDE })
+  if (!m) return { error: 'Match not found' }
+  if (m.status !== 'complete') return { error: 'Only confirmed matches can be removed — void unconfirmed ones instead' }
+  const me = await getPlayerForUser(userId)
+  if (me && playersOf(m).some(p => p.id === me.id)) return { error: 'You played in this match, so you can’t remove it' }
+  const summary = `${m.isRanked ? (m.incomplete ? 'Ranked, incomplete' : 'Ranked') : 'Friendly'} · ${summaryOf(m)}`
+
+  const affected = await prisma.$transaction(async tx => {
+    const ids = await undoConfirmedMatch(tx, matchId)
+    await tx.adminMatchAction.create({ data: { matchId, action: 'remove', reason, summary, byId: userId } })
+    return ids
+  })
+  for (const id of affected) await recomputeStreaks(id)
   return { ok: true }
 }

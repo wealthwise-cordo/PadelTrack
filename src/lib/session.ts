@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { autoConfirmExpired, getPlayerForUser } from '@/lib/store'
 import { recordActiveDay } from '@/lib/analytics'
+import { prisma } from '@/lib/prisma'
 
 // The signed-in user and their player profile, or null. Cached for the
 // request, so the layout and the page share one lookup (and one
@@ -16,6 +17,9 @@ export const getSession = cache(async () => {
   await autoConfirmExpired()
   const player = await getPlayerForUser(userId)
   if (!player) return null
+  // Suspended since signing in: treated as signed out.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { suspendedAt: true } })
+  if (!user || user.suspendedAt) return null
   await recordActiveDay(userId)
   return { userId, player, name: session.user?.name ?? player.name }
 })

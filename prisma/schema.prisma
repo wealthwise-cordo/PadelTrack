@@ -9,28 +9,33 @@ datasource db {
 }
 
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  password        String
-  name            String
+  id                String          @id @default(cuid())
+  email             String          @unique
+  password          String
+  name              String
   // Collected on direct sign-up (not when claiming a guest invite).
-  gender          String? // male | female | other
-  dateOfBirth     DateTime?       @db.Date
-  country         String? // ISO 3166-1 alpha-2, e.g. GB
+  gender            String? // male | female | other
+  dateOfBirth       DateTime?       @db.Date
+  country           String? // ISO 3166-1 alpha-2, e.g. GB
   // When the terms of use (incl. liability) and privacy notice were accepted at
   // sign-up, and which version (see src/lib/legal.ts).
-  termsAcceptedAt DateTime?
-  termsVersion    String?
+  termsAcceptedAt   DateTime?
+  termsVersion      String?
   // member | leveller | superuser. Levellers can propose rating adjustments
   // for the super user to review; the super user (also anyone in
   // ADMIN_EMAILS) sees analytics and adjusts ratings without review.
-  role            String          @default("member")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  player          Player?         @relation("UserPlayer")
-  passwordResets  PasswordReset[]
-  signIns         SignIn[]
-  activeDays      ActiveDay[]
+  role              String          @default("member")
+  // The super user's second password, asked before rating, match and
+  // account actions in Admin (bcrypt; set from Admin). See admin-auth.ts.
+  adminPasswordHash String?
+  // Suspended by the super user: can't sign in until unsuspended.
+  suspendedAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  player            Player?         @relation("UserPlayer")
+  passwordResets    PasswordReset[]
+  signIns           SignIn[]
+  activeDays        ActiveDay[]
 
   guestsCreated      Player[]            @relation("GuestCreator")
   matchesRecorded    Match[]             @relation("MatchRecorder")
@@ -527,7 +532,7 @@ model NativePushToken {
 model AdminMatchAction {
   id        String   @id @default(cuid())
   matchId   String
-  action    String // confirm | settle | void
+  action    String // confirm | settle | void | remove
   reason    String
   summary   String
   byId      String?
@@ -554,7 +559,7 @@ model DuplicateDismissal {
 // was) and marking two players as different people.
 model AdminUserAction {
   id        String   @id @default(cuid())
-  action    String // verify | merge | dismiss
+  action    String // verify | merge | dismiss | suspend | unsuspend | delete
   summary   String
   detail    Json?
   byId      String?

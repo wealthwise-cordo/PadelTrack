@@ -2,28 +2,35 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { getRole } from '@/lib/roles'
-import { getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests, getUserActionLog } from '@/lib/admin-users'
+import { getAllUsers, getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests, getUserActionLog } from '@/lib/admin-users'
+import AllUsers from '@/components/admin/AllUsers'
 import VerifyGuest from '@/components/admin/VerifyGuest'
 import DuplicatePair from '@/components/admin/DuplicatePair'
 import { formatRating } from '@/lib/utils'
 
 export const revalidate = 0
 
-const ACTION_LABEL: Record<string, string> = { verify: 'Verified', merge: 'Merged', dismiss: 'Not the same' }
-const ACTION_STYLE: Record<string, string> = { verify: 'bg-emerald-100 text-emerald-800', merge: 'bg-orange-100 text-orange-800', dismiss: 'bg-zinc-200 text-zinc-700' }
+const ACTION_LABEL: Record<string, string> = { verify: 'Verified', merge: 'Merged', dismiss: 'Not the same', suspend: 'Suspended', unsuspend: 'Unsuspended', delete: 'Deleted' }
+const ACTION_STYLE: Record<string, string> = { verify: 'bg-emerald-100 text-emerald-800', merge: 'bg-orange-100 text-orange-800', dismiss: 'bg-zinc-200 text-zinc-700', suspend: 'bg-red-100 text-red-800', unsuspend: 'bg-zinc-200 text-zinc-700', delete: 'bg-red-100 text-red-800' }
 const date = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London' })
 const when = (d: Date) => d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
 
-// Admin → Users (super user): guests holding up ranked matches, who can be
+// Admin → Users (super user): every account (suspend or delete, with the
+// admin password and a reason), guests holding up ranked matches, who can be
 // verified as ranked guests, the guests already verified, and players whose
 // names are at least 90% alike, to merge or dismiss — and the log of it all.
 export default async function AdminUsersPage() {
   const session = await requireSession()
   if ((await getRole(session.userId)) !== 'superuser') notFound()
-  const [waiting, ranked, duplicates, log] = await Promise.all([getGuestsAwaitingJoin(), getRankedGuests(), getDuplicateCandidates(), getUserActionLog()])
+  const [users, waiting, ranked, duplicates, log] = await Promise.all([getAllUsers(), getGuestsAwaitingJoin(), getRankedGuests(), getDuplicateCandidates(), getUserActionLog()])
 
   return (
     <div className="space-y-8">
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold">All users <span className="text-zinc-400 font-normal">({users.length})</span></h3>
+        <AllUsers users={users} meUserId={session.userId} />
+      </section>
+
       <p className="text-sm text-zinc-500">
         A ranked match with a guest in it becomes a friendly if they don’t join within 48 hours. Verify a guest and set their level to make them a ranked guest: their ranked matches count without them joining, but they stay out of circles and rankings and nobody can open their full profile. If they join later, they keep that rating.
       </p>
