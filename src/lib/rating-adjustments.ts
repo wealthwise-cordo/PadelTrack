@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { sendPush } from '@/lib/push'
-import { INTERNAL_PER_LEVEL, MAX_LEVEL, MIN_LEVEL, internalFromLevel } from '@/lib/lta'
+import { INTERNAL_PER_LEVEL, MAX_LEVEL, MIN_LEVEL, internalFromLevel, levelDelta } from '@/lib/lta'
 import { canAdjustRatings, effectiveRole, getRole } from '@/lib/roles'
 
 // Manual rating adjustments. The controls:
@@ -240,4 +240,32 @@ export async function setLeveller(superUserId: string, target: { email?: unknown
   if (effectiveRole(user) === 'superuser') return { error: 'That’s a super user already' }
   await prisma.user.update({ where: { id: user.id }, data: { role: makeLeveller ? 'leveller' : 'member' } })
   return { ok: true }
+}
+
+// Players whose rating can be adjusted from Admin → Ratings: every
+// registered player except yourself (levellers also not the super user,
+// since nobody could review it), with any adjustment already waiting and
+// whether they're cooling off.
+export async function getAdjustablePlayers(viewerUserId: string, viewerIsSuper: boolean) {
+  const [rows, pending, coolingOff] = await Promise.all([
+    prisma.player.findMany({
+      where: { userId: { not: null }, deletedAt: null, NOT: { userId: viewerUserId } },
+      select: { id: true, name: true, avatarColor: true, ptr: true, user: { select: { role: true, email: true } } },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.ratingAdjustment.findMany({ where: { status: 'pending' }, include: { requestedBy: { select: { name: true } } } }),
+    getCoolingOffPlayers(),
+  ])
+  const pendingBy = new Map(pending.map(p => [p.playerId, p]))
+  const coolingBy = new Map(coolingOff.map(c => [c.player.id, c.until]))
+  return rows
+    .filter(p => viewerIsSuper || effectiveRole(p.user) !== 'superuser')
+    .map(p => {
+      const waiting = pendingBy.get(p.id)
+      return {
+        id: p.id, name: p.name, avatarColor: p.avatarColor, ptr: p.ptr,
+        pending: waiting ? { levels: levelDelta(waiting.delta), reason: waiting.reason, requestedBy: waiting.requestedBy?.name ?? null } : null,
+        coolingOffUntil: !waiting && coolingBy.has(p.id) ? coolingBy.get(p.id)!.toISOString() : null,
+      }
+    })
 }

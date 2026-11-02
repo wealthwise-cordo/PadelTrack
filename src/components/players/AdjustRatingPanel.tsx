@@ -18,18 +18,20 @@ interface Props {
   isSuperUser: boolean
   // An adjustment already waiting for review on this player.
   pending: { levels: number; reason: string; requestedBy: string | null } | null
+  // Show the form straight away (Admin → Ratings, where the row was just opened).
+  startOpen?: boolean
 }
 
 const inputClass = 'bg-zinc-900/5 border border-zinc-900/10 rounded-lg px-3 py-2 text-base sm:text-sm focus:outline-none focus:border-orange-500'
 const fieldClass = `w-full ${inputClass}`
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n).toFixed(2)}`
 
-// For levellers and the super user on someone else's profile: move their
+// For levellers and the super user, in Admin → Ratings: move a player's
 // rating by up to one level, with a reason. A leveller's change goes to the
 // super user for review; the super user's applies at once.
-export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUser, pending }: Props) {
+export default function AdjustRatingPanel({ playerId, firstName, ptr, isSuperUser, pending, startOpen = false }: Props) {
   const router = useRouter()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(startOpen)
   const [levels, setLevels] = useState(0)
   // What's typed in the exact box, so "-" or "0." can be typed on the way.
   const [typed, setTyped] = useState('0')

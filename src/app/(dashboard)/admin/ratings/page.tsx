@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { getRole, canAdjustRatings } from '@/lib/roles'
-import { getAdjustmentLog, getCoolingOffPlayers, getLevellers, getPendingAdjustments, COOLING_OFF_DAYS } from '@/lib/rating-adjustments'
+import { getAdjustablePlayers, getAdjustmentLog, getCoolingOffPlayers, getLevellers, getPendingAdjustments, COOLING_OFF_DAYS } from '@/lib/rating-adjustments'
+import AdjustRatings from '@/components/admin/AdjustRatings'
 import AdjustmentReview from '@/components/admin/AdjustmentReview'
 import LevellerManager from '@/components/admin/LevellerManager'
 import { formatRating, formatRatingDelta } from '@/lib/utils'
@@ -19,14 +20,15 @@ const STATUS_STYLE: Record<string, string> = {
 
 // Rating adjustments. The super user reviews levellers' requests, appoints
 // levellers and sees every reviewed adjustment; a leveller sees their own
-// requests. Members get a 404. Adjustments are made from a player's profile.
+// requests, and both adjust ratings here. Members get a 404.
 export default async function RatingsAdminPage() {
   const session = await requireSession()
   const role = await getRole(session.userId)
   if (!canAdjustRatings(role)) notFound()
   const isSuper = role === 'superuser'
 
-  const [pending, log, levellers, coolingOff] = await Promise.all([
+  const [players, pending, log, levellers, coolingOff] = await Promise.all([
+    getAdjustablePlayers(session.userId, isSuper),
     isSuper ? getPendingAdjustments() : [],
     getAdjustmentLog(isSuper ? {} : { requestedById: session.userId }),
     isSuper ? getLevellers() : [],
@@ -37,10 +39,15 @@ export default async function RatingsAdminPage() {
     <div className="space-y-8">
       <div>
         <p className="text-sm text-zinc-500">
-          Adjust a rating from the player’s profile — up to one level either way, with a reason.
+          Find a player below to adjust their rating — up to one level either way, with a reason.
           {isSuper ? ' Yours apply straight away; levellers’ wait for your review here.' : ' Each one goes to the super user for approval before it applies.'}
         </p>
       </div>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold">Adjust a rating</h2>
+        <AdjustRatings players={players} isSuperUser={isSuper} />
+      </section>
 
       {isSuper && (
         <section className="space-y-3">

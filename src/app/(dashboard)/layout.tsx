@@ -3,6 +3,7 @@ import AutoSync from '@/components/shared/AutoSync'
 import NativePushPrompt from '@/components/shared/NativePushPrompt'
 import TermsSheet from '@/components/shared/TermsSheet'
 import AdminUnlockDialog from '@/components/admin/AdminUnlockDialog'
+import TabSwipe from '@/components/shared/TabSwipe'
 import { requireSession } from '@/lib/session'
 import { getPendingForUser, getSyncFingerprint, getAccount } from '@/lib/store'
 import { getRole } from '@/lib/roles'
@@ -32,6 +33,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Agreeing to the current terms comes first; then (in the app) notifications. */}
       {account && !account.termsCurrent ? <TermsSheet /> : <NativePushPrompt />}
       {role === 'superuser' && <AdminUnlockDialog />}
+      <TabSwipe />
     </div>
   )
 }

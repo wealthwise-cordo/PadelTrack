@@ -14,8 +14,6 @@ import type { MatchWithPlayers, PlayerWithStats, ProfileMatch } from '@/types'
 import { currentReliability } from '@/lib/ptr-algorithm'
 import { getRole, canAdjustRatings } from '@/lib/roles'
 import { getPlayerAdjustments } from '@/lib/rating-adjustments'
-import AdjustRatingPanel from '@/components/players/AdjustRatingPanel'
-import { levelDelta } from '@/lib/lta'
 import { isBlocking } from '@/lib/safety'
 import PlayerSafety from '@/components/players/PlayerSafety'
 
@@ -158,12 +156,6 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
       </div>
     )
   }
-  // Levellers can't adjust a super user (nobody could review it).
-  // While cooling off there's nothing to do here; the wait is shown under
-  // Admin → Ratings, not on the profile.
-  const canAdjust = canAdjustRatings(role) && !isMe && !player.isGuest &&
-    (adjustments.pending || !adjustments.coolingOffUntil) &&
-    (role === 'superuser' || !raw.userId || (await getRole(raw.userId)) !== 'superuser')
   // The player sees that their rating was adjusted; only levellers and the
   // super user see why.
   const showAdjustments = adjustments.applied.length > 0 && (isMe || canAdjustRatings(role))
@@ -227,21 +219,6 @@ export default async function PlayerProfilePage({ params }: { params: { id: stri
             )}
           </div>
         </div>
-        {canAdjust && (
-          <div className="mt-3">
-            <AdjustRatingPanel
-              playerId={player.id}
-              firstName={player.name.split(' ')[0]}
-              ptr={player.ptr}
-              isSuperUser={role === 'superuser'}
-              pending={adjustments.pending && {
-                levels: levelDelta(adjustments.pending.delta),
-                reason: adjustments.pending.reason,
-                requestedBy: adjustments.pending.requestedBy?.name ?? null,
-              }}
-            />
-          </div>
-        )}
         {canEdit && (
           <div className="mt-3">
             <PlayerEditPanel playerId={player.id} name={player.name} nickname={player.nickname} avatarColor={player.avatarColor} account={isMe ? account : null} />
