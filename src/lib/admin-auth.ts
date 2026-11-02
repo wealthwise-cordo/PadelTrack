@@ -43,7 +43,7 @@ export async function setAdminPassword(userId: string, accountPassword: unknown,
 }
 
 // Checks the admin password and unlocks super-user actions on this device.
-export async function unlockAdmin(userId: string, password: unknown): Promise<{ ok: true } | { error: string }> {
+export async function unlockAdmin(userId: string, password: unknown): Promise<{ ok: true; expires: number } | { error: string }> {
   if ((await getRole(userId)) !== 'superuser') return { error: 'Not allowed' }
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { adminPasswordHash: true } })
   if (!u?.adminPasswordHash) return { error: 'Set an admin password first' }
@@ -53,22 +53,25 @@ export async function unlockAdmin(userId: string, password: unknown): Promise<{ 
   cookies().set(COOKIE, `${value}.${sign(value)}`, {
     httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: UNLOCK_MINUTES * 60,
   })
-  return { ok: true }
+  return { ok: true, expires }
 }
 
 export function lockAdmin() {
   cookies().delete(COOKIE)
 }
 
-function isUnlocked(userId: string): boolean {
+// When this device's unlock runs out (ms since epoch), or null if locked.
+export function adminUnlockedUntil(userId: string): number | null {
   const raw = cookies().get(COOKIE)?.value
-  if (!raw) return false
+  if (!raw) return null
   const [id, expires, mac] = raw.split('.')
-  if (id !== userId || !mac || Number(expires) < Date.now()) return false
+  if (id !== userId || !mac || Number(expires) < Date.now()) return null
   const want = Buffer.from(sign(`${id}.${expires}`))
   const got = Buffer.from(mac)
-  return want.length === got.length && timingSafeEqual(want, got)
+  return want.length === got.length && timingSafeEqual(want, got) ? Number(expires) : null
 }
+
+const isUnlocked = (userId: string) => adminUnlockedUntil(userId) !== null
 
 // For API routes: null when the super user may go ahead; otherwise the
 // response the client's adminFetch turns into a password prompt (423).

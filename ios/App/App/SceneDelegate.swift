@@ -23,20 +23,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 }
 
-// The app's web view: Capacitor's, plus the iPhone back swipe (swipe in from
-// the left edge to go back a page, like Safari). Next.js navigation adds each
-// page to the web view's history, so this works on every page — except the
-// three main tabs, the app's base layer, where a sideways swipe switches tab
-// instead (src/components/shared/TabSwipe.tsx).
+// The app's web view: Capacitor's, with the iPhone's own back swipe off. That
+// one slid the whole screen, header and all, over a blank page; the site does
+// its own instead, moving only the page under the header and uncovering the
+// page you came from (src/components/shared/TabSwipe.tsx).
 class PadelTrackViewController: CAPBridgeViewController {
-    private static let tabRoots: Set<String> = ["", "/", "/matches", "/events"]
-    private var urlObservation: NSKeyValueObservation?
-
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
-        urlObservation = webView?.observe(\.url, options: [.initial, .new]) { webView, _ in
-            let path = webView.url?.path ?? ""
-            webView.allowsBackForwardNavigationGestures = !Self.tabRoots.contains(path)
-        }
+        webView?.allowsBackForwardNavigationGestures = false
     }
 }

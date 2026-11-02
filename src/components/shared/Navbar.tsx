@@ -9,6 +9,7 @@ import { LEGAL } from '@/lib/legal'
 import { Trophy, History, LayoutGrid, Plus, LogOut, User, Shield } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
 import PushToggle from '@/components/shared/PushToggle'
+import { HEADING_TO_EVENT } from '@/components/shared/TabSwipe'
 import Logo from '@/components/shared/Logo'
 import type { Role } from '@/lib/roles'
 
@@ -40,11 +41,27 @@ export default function Navbar({
   // menu link to their profile until they complete it.
   profileIncomplete?: boolean
 }) {
-  const pathname = usePathname()
+  const current = usePathname()
+  // The page being gone to, until it has loaded: the tab underline moves to
+  // it as soon as you tap a tab or let go of a swipe.
+  const [headingTo, setHeadingTo] = useState<string | null>(null)
+  // Cleared once there, not on the way (quick swipes can pass through a page).
+  useEffect(() => setHeadingTo(h => (h && h !== current ? h : null)), [current])
+  const currentRef = useRef(current)
+  currentRef.current = current
+  useEffect(() => {
+    const on = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail.split('?')[0]
+      setHeadingTo(path === currentRef.current ? null : path)
+    }
+    window.addEventListener(HEADING_TO_EVENT, on)
+    return () => window.removeEventListener(HEADING_TO_EVENT, on)
+  }, [])
+  const pathname = headingTo ?? current
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setMenuOpen(false), [pathname])
+  useEffect(() => setMenuOpen(false), [current])
   useEffect(() => {
     if (!menuOpen) return
     const close = (e: MouseEvent) => {
@@ -66,6 +83,7 @@ export default function Navbar({
             <Link
               key={href}
               href={href}
+              onClick={() => href !== current && setHeadingTo(href)}
               className={cn(
                 'relative flex items-center gap-2 px-4 py-2 rounded-lg text-base font-bold transition-colors',
                 isActive(pathname, href) ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white hover:bg-white/5'
@@ -141,6 +159,7 @@ export default function Navbar({
           <Link
             key={href}
             href={href}
+            onClick={() => href !== current && setHeadingTo(href)}
             className={cn(
               'relative flex-1 basis-0 flex flex-col items-center justify-center gap-1 px-1 py-2.5 text-[13px] font-bold whitespace-nowrap border-b-2 transition-colors',
               isActive(pathname, href) ? 'border-orange-500 text-white' : 'border-transparent text-zinc-400'

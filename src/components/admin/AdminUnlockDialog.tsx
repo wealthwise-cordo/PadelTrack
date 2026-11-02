@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { ADMIN_UNLOCK_EVENT, type UnlockRequest } from '@/lib/admin-fetch'
+import { ADMIN_UNLOCK_EVENT, announceLockState, type UnlockRequest } from '@/lib/admin-fetch'
 
 // Asks the super user for their admin password when a protected action needs
 // it (or, the first time, to set one). Mounted once for super users.
@@ -38,7 +38,9 @@ export default function AdminUnlockDialog() {
         if (!set.ok) return setError((await set.json().catch(() => ({}))).error || 'Could not save')
       }
       const res = await post('/api/admin/unlock', { password })
-      if (!res.ok) return setError((await res.json().catch(() => ({}))).error || 'Incorrect admin password')
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return setError(body.error || 'Incorrect admin password')
+      announceLockState(typeof body.expires === 'number' ? body.expires : Date.now() + 15 * 60_000)
       close(true)
     } finally {
       setBusy(false)

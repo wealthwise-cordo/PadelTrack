@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
@@ -9,6 +9,8 @@ import { getInitials, getFullScore, setWinner, formatRatingDelta } from '@/lib/u
 import InviteButton from '@/components/players/InviteButton'
 import { shareLink } from '@/lib/native'
 import type { MatchWithPlayers, PlayerWithStats } from '@/types'
+
+const noop = () => () => {}
 
 interface Props {
   match: MatchWithPlayers
@@ -38,8 +40,8 @@ export default function MatchCard({ match, canConfirm, canDelete, featured, view
   const [error, setError] = useState('')
   // Times depend on the viewer's clock and timezone, so they're only rendered
   // in the browser (the server runs in UTC and would disagree).
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  // On a page opened within the app (not the first load) they show at once.
+  const mounted = useSyncExternalStore(noop, () => true, () => false)
   const teamA = [match.teamAPlayer1, match.teamAPlayer2]
   const teamB = [match.teamBPlayer1, match.teamBPlayer2]
   // Incomplete matches have no winner: neither side is dimmed or marked.

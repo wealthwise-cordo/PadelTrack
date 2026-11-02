@@ -27,13 +27,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         reviewCount={reviewCount}
         profileIncomplete={!!account?.profileIncomplete}
       />
-      <main className="px-4 pb-10 max-w-3xl mx-auto">
-        {children}
-      </main>
+      <TabSwipe>{children}</TabSwipe>
       {/* Agreeing to the current terms comes first; then (in the app) notifications. */}
       {account && !account.termsCurrent ? <TermsSheet /> : <NativePushPrompt />}
       {role === 'superuser' && <AdminUnlockDialog />}
-      <TabSwipe />
     </div>
   )
 }

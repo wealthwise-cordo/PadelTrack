@@ -17,6 +17,10 @@ type State = 'loading' | 'unsupported' | 'ios-install' | 'denied' | 'off' | 'on'
 const VAPID = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ''
 const DISMISS_KEY = 'pt-push-card-dismissed'
 
+// What this device last showed, so coming back to a page shows it straight
+// away rather than popping in a moment later (the check below re-runs anyway).
+let known: { state: State; dismissed: boolean } | null = null
+
 function keyBytes(base64: string) {
   const pad = '='.repeat((4 - (base64.length % 4)) % 4)
   const raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'))
@@ -32,9 +36,10 @@ function isIosBrowserTab() {
 // `onUnavailable`: called if this device can't do notifications at all, so an
 // onboarding step can skip itself.
 export default function PushToggle({ variant, onUnavailable }: { variant: 'card' | 'menu' | 'inline'; onUnavailable?: () => void }) {
-  const [state, setState] = useState<State>('loading')
+  const [state, setState] = useState<State>(() => known?.state ?? 'loading')
   const [busy, setBusy] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(() => known?.dismissed ?? false)
+  useEffect(() => { if (state !== 'loading') known = { state, dismissed } }, [state, dismissed])
 
   useEffect(() => {
     try { setDismissed(localStorage.getItem(DISMISS_KEY) === '1') } catch {}
