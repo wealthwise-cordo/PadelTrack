@@ -366,3 +366,27 @@ export async function getAllUsers() {
     userId: p.user!.id,
   }))
 }
+
+// The super user deleting a guest (Admin → Users → Ranked guests), like an
+// account deletion: they can't be picked or opened and their invite link
+// stops working; their name stays on confirmed matches so nobody's results or
+// ratings change. Unconfirmed matches with them are removed, and they're taken
+// out of matches set up ahead (that spot reopens).
+export async function deleteGuest(superUserId: string, playerId: string, reason: unknown): Promise<Outcome> {
+  if ((await getRole(superUserId)) !== 'superuser') return { error: 'Not allowed' }
+  const why = typeof reason === 'string' ? reason.trim().slice(0, 300) : ''
+  if (why.length < 5) return { error: 'Give a reason' }
+  const guest = await prisma.player.findUnique({ where: { id: playerId } })
+  if (!guest || guest.userId || guest.deletedAt) return { error: 'Guest not found' }
+  const seats = ['teamAPlayer1Id', 'teamAPlayer2Id', 'teamBPlayer1Id', 'teamBPlayer2Id'] as const
+  const inMatch = { OR: seats.map(k => ({ [k]: playerId })) }
+  await prisma.$transaction(async tx => {
+    await tx.match.deleteMany({ where: { status: 'pending', ...inMatch } })
+    for (const k of seats) await tx.match.updateMany({ where: { status: 'scheduled', [k]: playerId }, data: { [k]: null } })
+    await tx.player.update({ where: { id: playerId }, data: { deletedAt: new Date(), claimToken: null, suggestedLevel: null, nickname: null } })
+    await tx.adminUserAction.create({
+      data: { action: 'delete', byId: superUserId, summary: `Deleted the ${guest.rankedGuestAt ? 'ranked ' : ''}guest ${guest.name} — ${why}`, detail: { playerId } },
+    })
+  })
+  return { ok: true }
+}

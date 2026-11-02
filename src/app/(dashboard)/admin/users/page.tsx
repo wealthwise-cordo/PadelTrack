@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/session'
 import { getRole } from '@/lib/roles'
 import { getAllUsers, getDuplicateCandidates, getGuestsAwaitingJoin, getRankedGuests, getUserActionLog } from '@/lib/admin-users'
 import AllUsers from '@/components/admin/AllUsers'
+import DeleteGuest from '@/components/admin/DeleteGuest'
 import VerifyGuest from '@/components/admin/VerifyGuest'
 import DuplicatePair from '@/components/admin/DuplicatePair'
 import { formatRating } from '@/lib/utils'
@@ -66,12 +67,13 @@ export default async function AdminUsersPage() {
         ) : (
           <ul className="glass rounded-xl divide-y divide-zinc-100">
             {ranked.map(g => (
-              <li key={g.id} className="p-3 flex items-center gap-3 text-sm">
+              <li key={g.id} className="p-3 flex flex-wrap items-center gap-3 text-sm">
                 <div className="flex-1 min-w-0">
                   <Link href={`/players/${g.id}`} className="font-medium hover:underline truncate block">{g.name}</Link>
                   <div className="text-[11px] text-zinc-400">Verified {date(g.rankedGuestAt!)} · added by {g.createdBy?.name ?? 'unknown'} · {g.matchesPlayed} ranked {g.matchesPlayed === 1 ? 'match' : 'matches'}</div>
                 </div>
                 <span className="font-mono font-semibold shrink-0">{formatRating(g.ptr)}</span>
+                <DeleteGuest playerId={g.id} name={g.name} />
               </li>
             ))}
           </ul>
